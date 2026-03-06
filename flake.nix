@@ -3,6 +3,10 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    devenv = {
+      url = "github:cachix/devenv";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     disko = {
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -17,8 +21,43 @@
     }:
     let
       lib = nixpkgs.lib;
+      forAllSystems = lib.genAttrs [
+        "x86_64-linux"
+        "aarch64-linux"
+      ];
     in
     {
+      devShells = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        {
+          default = inputs.devenv.lib.mkShell {
+            inherit inputs pkgs;
+            modules = [
+              {
+                packages = [ pkgs.nixfmt ];
+
+                git-hooks.hooks = {
+                  nixfmt = {
+                    enable = true;
+                    package = pkgs.nixfmt;
+                  };
+                  flake-checker = {
+                    enable = true;
+                    name = "nix flake check";
+                    entry = "nix flake check --no-pure-eval";
+                    pass_filenames = false;
+                    stages = [ "pre-commit" ];
+                  };
+                };
+              }
+            ];
+          };
+        }
+      );
+
       nixosModules.router =
         {
           config,
@@ -45,9 +84,7 @@
 
           # Collect all internal subnets for Suricata HOME_NET
           lanNets = [ lanCIDR ];
-          wgNets = concatMap (wg:
-            [ wg.address ] ++ concatMap (p: p.allowedIPs) wg.peers
-          ) wgInterfaces;
+          wgNets = concatMap (wg: [ wg.address ] ++ concatMap (p: p.allowedIPs) wg.peers) wgInterfaces;
           allHomeNets = lanNets ++ wgNets;
           homeNets = "[${concatStringsSep ", " allHomeNets}]";
 
@@ -56,34 +93,43 @@
           trustedIFs = [ brLAN ] ++ wgIFNames;
 
           # ── Suricata config (native Nix → YAML) ────────────────
-          yamlFormat = pkgs.formats.yaml {};
+          yamlFormat = pkgs.formats.yaml { };
 
-          suricataConfig = lib.foldl lib.recursiveUpdate {} [
+          suricataConfig = lib.foldl lib.recursiveUpdate { } [
             {
               vars = {
                 address-groups = {
-                  HOME_NET     = homeNets;
+                  HOME_NET = homeNets;
                   EXTERNAL_NET = "!$HOME_NET";
-                  DNS_SERVERS  = "$HOME_NET";
+                  DNS_SERVERS = "$HOME_NET";
                 };
                 port-groups = {
-                  HTTP_PORTS      = "80";
+                  HTTP_PORTS = "80";
                   SHELLCODE_PORTS = "!80";
-                  SSH_PORTS       = "22";
-                  DNS_PORTS       = "53";
+                  SSH_PORTS = "22";
+                  DNS_PORTS = "53";
                 };
               };
               default-log-dir = "/var/log/suricata/";
-              stats = { enabled = true; interval = 30; };
+              stats = {
+                enabled = true;
+                interval = 30;
+              };
               logging = {
                 default-log-level = "notice";
                 outputs = [
                   { console.enabled = false; }
-                  { file = { enabled = true; filename = "suricata.log"; level = "info"; }; }
+                  {
+                    file = {
+                      enabled = true;
+                      filename = "suricata.log";
+                      level = "info";
+                    };
+                  }
                 ];
               };
               threading = {
-                set-cpu-affinity    = false;
+                set-cpu-affinity = false;
                 detect-thread-ratio = 1.0;
               };
             }
@@ -91,65 +137,110 @@
               outputs = [
                 {
                   eve-log = {
-                    enabled      = true;
-                    filetype     = "regular";
-                    filename     = "eve.json";
+                    enabled = true;
+                    filetype = "regular";
+                    filename = "eve.json";
                     community-id = true;
                     types = [
-                      { alert = { tagged-packets = true; }; }
-                      { drop  = { alerts = true; flows = "start"; }; }
-                      "dns" "tls"
-                      { http = { extended = true; }; }
-                      { flow = { logged = true; }; }
-                      { stats = { deltas = true; }; }
+                      {
+                        alert = {
+                          tagged-packets = true;
+                        };
+                      }
+                      {
+                        drop = {
+                          alerts = true;
+                          flows = "start";
+                        };
+                      }
+                      "dns"
+                      "tls"
+                      {
+                        http = {
+                          extended = true;
+                        };
+                      }
+                      {
+                        flow = {
+                          logged = true;
+                        };
+                      }
+                      {
+                        stats = {
+                          deltas = true;
+                        };
+                      }
                     ];
                   };
                 }
-                { fast = { enabled = true; filename = "fast.log"; append = true; }; }
+                {
+                  fast = {
+                    enabled = true;
+                    filename = "fast.log";
+                    append = true;
+                  };
+                }
               ];
             }
-            { nfq = [{ mode = "accept"; id = 0; fail-open = true; }]; }
+            {
+              nfq = [
+                {
+                  mode = "accept";
+                  id = 0;
+                  fail-open = true;
+                }
+              ];
+            }
             {
               app-layer.protocols = {
                 http = {
                   enabled = true;
                   libhtp.default-config = {
-                    personality         = "IDS";
-                    request-body-limit  = 131072;
+                    personality = "IDS";
+                    request-body-limit = 131072;
                     response-body-limit = 131072;
                   };
                 };
                 tls = {
-                  enabled          = true;
-                  detection-ports  = { dp = 443; };
+                  enabled = true;
+                  detection-ports = {
+                    dp = 443;
+                  };
                   ja3-fingerprints = true;
                 };
-                dns = { enabled = true; tcp.enabled = true; udp.enabled = true; };
-                ssh.enabled    = true;
-                smtp.enabled   = true;
-                ftp.enabled    = true;
-                smb.enabled    = true;
+                dns = {
+                  enabled = true;
+                  tcp.enabled = true;
+                  udp.enabled = true;
+                };
+                ssh.enabled = true;
+                smtp.enabled = true;
+                ftp.enabled = true;
+                smb.enabled = true;
                 dcerpc.enabled = true;
               };
             }
             {
               default-rule-path = "/var/lib/suricata/rules";
-              rule-files        = [ "suricata.rules" "local.rules" ];
+              rule-files = [
+                "suricata.rules"
+                "local.rules"
+              ];
             }
             {
               detect = {
-                profile                    = "medium";
-                sgh-mpm-context            = "auto";
+                profile = "medium";
+                sgh-mpm-context = "auto";
                 inspection-recursion-limit = 3000;
               };
               stream = {
-                memcap               = "64mb";
-                checksum-validation   = true;
-                midstream             = false;
-                async-oneside         = false;
+                memcap = "64mb";
+                checksum-validation = true;
+                midstream = false;
+                async-oneside = false;
                 reassembly = {
-                  memcap              = "256mb";
-                  depth               = "1mb";
+                  memcap = "256mb";
+                  depth = "1mb";
                   toserver-chunk-size = 2560;
                   toclient-chunk-size = 2560;
                 };
@@ -182,22 +273,29 @@
             alert tls $HOME_NET any -> $EXTERNAL_NET 443 (msg:"POLICY DoH bypass - AdGuard"; tls.sni; content:"dns.adguard.com"; sid:1000007; rev:1;)
             alert http $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"POLICY SafeSearch bypass - safe=off"; http.uri; content:"safe=off"; sid:1000010; rev:1;)
             alert http $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"POLICY SafeSearch bypass - safeSearch=off"; http.uri; content:"safeSearch=off"; sid:1000011; rev:1;)
-          '' + cfg.suricata.extraRules;
+          ''
+          + cfg.suricata.extraRules;
 
           # ── nftables ruleset generation ─────────────────────────
-          wgInputRules = concatMapStringsSep "\n          " (name:
-            let wg = cfg.wireguard.${name}; in
+          wgInputRules = concatMapStringsSep "\n          " (
+            name:
+            let
+              wg = cfg.wireguard.${name};
+            in
             ''iifname "${cfg.wan.interface}" udp dport ${toString wg.listenPort} accept comment "Allow WireGuard ${name}"''
           ) wgNames;
 
-          wgForwardRules = concatMapStringsSep "\n          " (name: ''
-            # LAN ↔ ${name} (bidirectional)
-            iifname "${brLAN}" oifname "${name}" accept
-            iifname "${name}"  oifname "${brLAN}" accept
+          wgForwardRules =
+            concatMapStringsSep "\n          "
+              (name: ''
+                # LAN ↔ ${name} (bidirectional)
+                iifname "${brLAN}" oifname "${name}" accept
+                iifname "${name}"  oifname "${brLAN}" accept
 
-            # ${name} → WAN
-            iifname "${name}" oifname "${cfg.wan.interface}" accept
-            iifname "${cfg.wan.interface}" oifname "${name}" ct state { established, related } accept'') wgNames;
+                # ${name} → WAN
+                iifname "${name}" oifname "${cfg.wan.interface}" accept
+                iifname "${cfg.wan.interface}" oifname "${name}" ct state { established, related } accept'')
+              wgNames;
 
           nftRuleset = ''
             table inet filter {
@@ -301,12 +399,12 @@
               };
               peers = mkOption {
                 type = types.listOf wgPeerType;
-                default = [];
+                default = [ ];
                 description = "List of WireGuard peers";
               };
               routes = mkOption {
                 type = types.listOf types.str;
-                default = [];
+                default = [ ];
                 description = "Additional route destinations to add for this tunnel";
               };
             };
@@ -410,7 +508,7 @@
             # ── WireGuard ──────────────────────────────────────────
             wireguard = mkOption {
               type = types.attrsOf wgInterfaceType;
-              default = {};
+              default = { };
               description = "WireGuard tunnel interfaces (keys are interface names, e.g. wg0)";
             };
 
@@ -427,7 +525,10 @@
 
               bootstrapServers = mkOption {
                 type = types.listOf types.str;
-                default = [ "1.1.1.1" "8.8.8.8" ];
+                default = [
+                  "1.1.1.1"
+                  "8.8.8.8"
+                ];
                 description = "Bootstrap DNS servers for resolving DoH hostnames";
               };
 
@@ -451,19 +552,31 @@
                 filters = mkOption {
                   type = types.listOf (types.attrsOf types.unspecified);
                   default = [
-                    { enabled = true; name = "AdGuard Base";
-                      url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt"; id = 1; }
-                    { enabled = true; name = "AdAway";
-                      url = "https://adaway.org/hosts.txt"; id = 2; }
-                    { enabled = true; name = "Malware filter";
-                      url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_11.txt"; id = 3; }
+                    {
+                      enabled = true;
+                      name = "AdGuard Base";
+                      url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt";
+                      id = 1;
+                    }
+                    {
+                      enabled = true;
+                      name = "AdAway";
+                      url = "https://adaway.org/hosts.txt";
+                      id = 2;
+                    }
+                    {
+                      enabled = true;
+                      name = "Malware filter";
+                      url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_11.txt";
+                      id = 3;
+                    }
                   ];
                   description = "AdGuard filter lists";
                 };
 
                 extraUserRules = mkOption {
                   type = types.listOf types.str;
-                  default = [];
+                  default = [ ];
                   description = "Additional AdGuard user rules (e.g. whitelists)";
                 };
               };
@@ -490,14 +603,14 @@
 
               sshKeys = mkOption {
                 type = types.listOf types.str;
-                default = [];
+                default = [ ];
                 description = "SSH public keys for the admin user";
               };
             };
 
             extraPackages = mkOption {
               type = types.listOf types.package;
-              default = [];
+              default = [ ];
               description = "Additional packages to install";
             };
           };
@@ -566,27 +679,33 @@
 
             # ── 2. Kernel — forwarding, martian filtering, perf ──
             boot.kernel.sysctl = {
-              "net.ipv4.conf.all.forwarding"   = true;
-              "net.ipv6.conf.all.forwarding"   = false;
+              "net.ipv4.conf.all.forwarding" = true;
+              "net.ipv6.conf.all.forwarding" = false;
               "net.ipv4.conf.default.rp_filter" = 1;
               "net.ipv4.conf.${cfg.wan.interface}.rp_filter" = 1;
               "net.ipv4.conf.${brLAN}.rp_filter" = 0;
-              "net.core.rmem_max"              = 26214400;
-              "net.core.wmem_max"              = 26214400;
-              "net.core.netdev_max_backlog"    = 5000;
+              "net.core.rmem_max" = 26214400;
+              "net.core.wmem_max" = 26214400;
+              "net.core.netdev_max_backlog" = 5000;
               "net.netfilter.nf_conntrack_max" = 131072;
-            } // listToAttrs (map (name: {
-              name = "net.ipv4.conf.${name}.rp_filter";
-              value = 0;
-            }) wgNames);
+            }
+            // listToAttrs (
+              map (name: {
+                name = "net.ipv4.conf.${name}.rp_filter";
+                value = 0;
+              }) wgNames
+            );
 
-            boot.kernelModules = [ "nf_conntrack" "nfnetlink_queue" ];
+            boot.kernelModules = [
+              "nf_conntrack"
+              "nfnetlink_queue"
+            ];
 
             # ── 3. systemd-networkd — interfaces + bridge ────────
             networking = {
               useNetworkd = true;
-              useDHCP     = false;
-              nat.enable      = false;
+              useDHCP = false;
+              nat.enable = false;
               firewall.enable = false;
             };
 
@@ -605,10 +724,10 @@
                 "10-wan" = {
                   matchConfig.Name = cfg.wan.interface;
                   networkConfig = {
-                    DHCP       = "ipv4";
+                    DHCP = "ipv4";
                     DNSOverTLS = true;
-                    DNSSEC     = true;
-                    IPForward  = true;
+                    DNSSEC = true;
+                    IPForward = true;
                     IPv6PrivacyExtensions = false;
                   };
                   linkConfig.RequiredForOnline = "routable";
@@ -631,29 +750,39 @@
                   };
                   linkConfig.RequiredForOnline = "no";
                 };
-              } // listToAttrs (imap0 (i: name:
-                let wg = cfg.wireguard.${name}; in
-                nameValuePair "50-${name}" {
-                  matchConfig.Name = name;
-                  address = [ wg.address ];
-                  routes = map (dest: { Destination = dest; }) wg.routes;
-                  linkConfig.RequiredForOnline = "no";
-                }
-              ) wgNames);
+              }
+              // listToAttrs (
+                imap0 (
+                  i: name:
+                  let
+                    wg = cfg.wireguard.${name};
+                  in
+                  nameValuePair "50-${name}" {
+                    matchConfig.Name = name;
+                    address = [ wg.address ];
+                    routes = map (dest: { Destination = dest; }) wg.routes;
+                    linkConfig.RequiredForOnline = "no";
+                  }
+                ) wgNames
+              );
             };
 
             # ── WireGuard interfaces ─────────────────────────────
             networking.wireguard.interfaces = mapAttrs (name: wg: {
-              ips        = [ wg.address ];
+              ips = [ wg.address ];
               listenPort = wg.listenPort;
               privateKeyFile = wg.privateKeyFile;
-              peers = map (p: {
-                publicKey           = p.publicKey;
-                allowedIPs          = p.allowedIPs;
-                persistentKeepalive = p.persistentKeepalive;
-              } // optionalAttrs (p.endpoint != null) {
-                endpoint = p.endpoint;
-              }) wg.peers;
+              peers = map (
+                p:
+                {
+                  publicKey = p.publicKey;
+                  allowedIPs = p.allowedIPs;
+                  persistentKeepalive = p.persistentKeepalive;
+                }
+                // optionalAttrs (p.endpoint != null) {
+                  endpoint = p.endpoint;
+                }
+              ) wg.peers;
             }) cfg.wireguard;
 
             # ── 4. nftables ──────────────────────────────────────
@@ -666,27 +795,27 @@
             services.dnsmasq = {
               enable = true;
               settings = {
-                interface       = brLAN;
+                interface = brLAN;
                 bind-interfaces = true;
-                dhcp-range      = [ lanDHCPRange ];
-                dhcp-host       = lanGW;
-                dhcp-option     = [
+                dhcp-range = [ lanDHCPRange ];
+                dhcp-host = lanGW;
+                dhcp-option = [
                   "option:router,${lanGW}"
                   "option:dns-server,${lanGW}"
                 ];
                 dhcp-leasefile = "/var/lib/dnsmasq/dnsmasq.leases";
                 server = [ "127.0.0.1#${toString cfg.dns.adguard.listenPort}" ];
-                no-resolv  = true;
+                no-resolv = true;
                 cache-size = 0;
-                domain-needed       = true;
-                bogus-priv          = true;
-                stop-dns-rebind     = true;
+                domain-needed = true;
+                bogus-priv = true;
+                stop-dns-rebind = true;
                 rebind-localhost-ok = true;
-                local        = "/${cfg.lan.domain}/";
-                domain       = cfg.lan.domain;
+                local = "/${cfg.lan.domain}/";
+                domain = cfg.lan.domain;
                 expand-hosts = true;
-                no-hosts     = true;
-                address      = "/${cfg.hostName}.${cfg.lan.domain}/${lanGW}";
+                no-hosts = true;
+                address = "/${cfg.hostName}.${cfg.lan.domain}/${lanGW}";
               };
             };
 
@@ -700,25 +829,25 @@
 
                 dns = {
                   bind_hosts = [ "127.0.0.1" ];
-                  port       = cfg.dns.adguard.listenPort;
-                  upstream_dns  = cfg.dns.upstreamServers;
+                  port = cfg.dns.adguard.listenPort;
+                  upstream_dns = cfg.dns.upstreamServers;
                   bootstrap_dns = cfg.dns.bootstrapServers;
                   protection_enabled = true;
-                  filtering_enabled  = true;
-                  rate_limit         = 0;
-                  cache_size         = 4194304;
-                  cache_ttl_min      = 300;
-                  cache_ttl_max      = 86400;
+                  filtering_enabled = true;
+                  rate_limit = 0;
+                  cache_size = 4194304;
+                  cache_ttl_min = 300;
+                  cache_ttl_max = 86400;
                 };
 
                 safe_search = mkIf cfg.dns.adguard.safeSearch {
-                  enabled    = true;
-                  bing       = true;
+                  enabled = true;
+                  bing = true;
                   duckduckgo = true;
-                  google     = true;
-                  pixabay    = true;
-                  yandex     = true;
-                  youtube    = true;
+                  google = true;
+                  pixabay = true;
+                  yandex = true;
+                  youtube = true;
                 };
 
                 filters = cfg.dns.adguard.filters;
@@ -729,36 +858,46 @@
 
             # ── 7. IPS — Suricata ────────────────────────────────
             environment.etc = mkIf cfg.suricata.enable {
-              "suricata/suricata.yaml".source =
-                yamlFormat.generate "suricata.yaml" suricataConfig;
+              "suricata/suricata.yaml".source = yamlFormat.generate "suricata.yaml" suricataConfig;
               "suricata/rules/local.rules".text = localSuricataRules;
             };
 
             systemd.services = mkIf cfg.suricata.enable {
               suricata = {
                 description = "Suricata IPS";
-                after       = [ "network-online.target" ];
-                wants       = [ "network-online.target" ];
-                wantedBy    = [ "multi-user.target" ];
+                after = [ "network-online.target" ];
+                wants = [ "network-online.target" ];
+                wantedBy = [ "multi-user.target" ];
                 serviceConfig = {
                   ExecStartPre = [
                     "${pkgs.coreutils}/bin/mkdir -p /var/lib/suricata/rules /var/log/suricata"
                     "${pkgs.coreutils}/bin/cp /etc/suricata/rules/local.rules /var/lib/suricata/rules/local.rules"
                     "${pkgs.suricata}/bin/suricata-update --no-test --no-reload"
                   ];
-                  ExecStart  = "${pkgs.suricata}/bin/suricata -c /etc/suricata/suricata.yaml -q 0 --pidfile /run/suricata.pid";
+                  ExecStart = "${pkgs.suricata}/bin/suricata -c /etc/suricata/suricata.yaml -q 0 --pidfile /run/suricata.pid";
                   ExecReload = "${pkgs.coreutils}/bin/kill -USR2 $MAINPID";
-                  Type       = "simple";
-                  Restart    = "on-failure";
+                  Type = "simple";
+                  Restart = "on-failure";
                   RestartSec = "10s";
                   LimitNOFILE = 65536;
-                  ProtectHome          = true;
-                  ProtectSystem        = "strict";
-                  ReadWritePaths       = [ "/var/log/suricata" "/var/lib/suricata" "/run" ];
-                  CapabilityBoundingSet = [ "CAP_NET_ADMIN" "CAP_NET_RAW" "CAP_SYS_NICE" ];
-                  AmbientCapabilities  = [ "CAP_NET_ADMIN" "CAP_NET_RAW" ];
-                  NoNewPrivileges      = true;
-                  PrivateTmp           = true;
+                  ProtectHome = true;
+                  ProtectSystem = "strict";
+                  ReadWritePaths = [
+                    "/var/log/suricata"
+                    "/var/lib/suricata"
+                    "/run"
+                  ];
+                  CapabilityBoundingSet = [
+                    "CAP_NET_ADMIN"
+                    "CAP_NET_RAW"
+                    "CAP_SYS_NICE"
+                  ];
+                  AmbientCapabilities = [
+                    "CAP_NET_ADMIN"
+                    "CAP_NET_RAW"
+                  ];
+                  NoNewPrivileges = true;
+                  PrivateTmp = true;
                 };
               };
 
@@ -766,7 +905,7 @@
                 description = "Update Suricata ET Open rules";
                 serviceConfig = {
                   Type = "oneshot";
-                  ExecStart     = "${pkgs.suricata}/bin/suricata-update --no-test";
+                  ExecStart = "${pkgs.suricata}/bin/suricata-update --no-test";
                   ExecStartPost = "${pkgs.systemd}/bin/systemctl reload suricata.service";
                 };
               };
@@ -776,8 +915,8 @@
               suricata-update = {
                 wantedBy = [ "timers.target" ];
                 timerConfig = {
-                  OnCalendar         = "daily";
-                  Persistent         = true;
+                  OnCalendar = "daily";
+                  Persistent = true;
                   RandomizedDelaySec = "1h";
                 };
               };
@@ -785,24 +924,31 @@
 
             services.logrotate.settings = mkIf cfg.suricata.enable {
               suricata = {
-                files         = "/var/log/suricata/*.log /var/log/suricata/*.json";
-                frequency     = "daily";
-                rotate        = 14;
-                compress      = true;
+                files = "/var/log/suricata/*.log /var/log/suricata/*.json";
+                frequency = "daily";
+                rotate = 14;
+                compress = true;
                 delaycompress = true;
-                missingok     = true;
-                notifempty    = true;
-                postrotate    = "systemctl reload suricata.service 2>/dev/null || true";
+                missingok = true;
+                notifempty = true;
+                postrotate = "systemctl reload suricata.service 2>/dev/null || true";
               };
             };
 
             # ── 8. Packages ──────────────────────────────────────
-            environment.systemPackages = with pkgs;
+            environment.systemPackages =
+              with pkgs;
               [
-                tcpdump htop ethtool iftop conntrack-tools jq iperf3
+                tcpdump
+                htop
+                ethtool
+                iftop
+                conntrack-tools
+                jq
+                iperf3
               ]
               ++ optional cfg.suricata.enable suricata
-              ++ optional (cfg.wireguard != {}) wireguard-tools
+              ++ optional (cfg.wireguard != { }) wireguard-tools
               ++ cfg.extraPackages;
 
             # ── 9. Logging ───────────────────────────────────────
@@ -815,8 +961,8 @@
             services.openssh = {
               enable = true;
               settings = {
-                PermitRootLogin              = "prohibit-password";
-                PasswordAuthentication       = false;
+                PermitRootLogin = "prohibit-password";
+                PasswordAuthentication = false;
                 KbdInteractiveAuthentication = false;
               };
               openFirewall = false;
@@ -826,7 +972,7 @@
 
             users.users.${cfg.adminUser.name} = {
               isNormalUser = true;
-              extraGroups  = [ "wheel" ];
+              extraGroups = [ "wheel" ];
               openssh.authorizedKeys.keys = cfg.adminUser.sshKeys;
             };
 
@@ -834,21 +980,25 @@
             nix = {
               gc = {
                 automatic = true;
-                dates     = "weekly";
-                options   = "--delete-older-than 30d";
+                dates = "weekly";
+                options = "--delete-older-than 30d";
               };
-              settings.experimental-features = [ "nix-command" "flakes" ];
+              settings.experimental-features = [
+                "nix-command"
+                "flakes"
+              ];
             };
 
             system = {
               autoUpgrade = {
-                enable      = mkDefault true;
+                enable = mkDefault true;
                 allowReboot = mkDefault false;
-                dates       = mkDefault "04:00";
+                dates = mkDefault "04:00";
               };
               stateVersion = cfg.stateVersion;
             };
           };
         };
     };
+
 }
