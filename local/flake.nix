@@ -30,6 +30,7 @@
                 hostName = hostName;
                 timeZone = "America/New_York";
                 stateVersion = "26.11";
+                diskDevice = "/dev/sda";
 
                 # ── WAN ──────────────────────────────────────────
                 wan.interface = "enp1s0";

@@ -3,6 +3,10 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    disko = {
+      url = "github:nix-community/disko";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -310,6 +314,10 @@
 
         in
         {
+          imports = [
+            inputs.disko.nixosModules.disko
+          ];
+
           # ══════════════════════════════════════════════════════════
           #  MODULE OPTIONS
           # ══════════════════════════════════════════════════════════
@@ -329,6 +337,12 @@
               type = types.str;
               default = "25.11";
               description = "NixOS state version";
+            };
+
+            diskDevice = mkOption {
+              type = types.str;
+              default = "/dev/sda";
+              description = "Disk device for disko partitioning";
             };
 
             # ── WAN ────────────────────────────────────────────────
@@ -499,6 +513,56 @@
 
             networking.hostName = cfg.hostName;
             time.timeZone = cfg.timeZone;
+
+            disko.devices = {
+              disk = {
+                main = {
+                  device = cfg.diskDevice;
+                  type = "disk";
+                  content = {
+                    type = "gpt";
+                    partitions = {
+                      ESP = {
+                        size = "1G";
+                        type = "EF00";
+                        content = {
+                          type = "filesystem";
+                          format = "vfat";
+                          mountpoint = "/boot";
+                          mountOptions = [
+                            "noatime"
+                            "umask=0077"
+                          ];
+                          extraArgs = [
+                            "-n"
+                            "ESP"
+                          ];
+                        };
+                      };
+                      root = {
+                        size = "100%";
+                        content = {
+                          type = "filesystem";
+                          format = "btrfs";
+                          mountpoint = "/";
+                          mountOptions = [
+                            "compress=zstd:3"
+                            "discard=async"
+                            "noatime"
+                            "space_cache=v2"
+                            "ssd"
+                          ];
+                          extraArgs = [
+                            "-L"
+                            "root"
+                          ];
+                        };
+                      };
+                    };
+                  };
+                };
+              };
+            };
 
             # ── 2. Kernel — forwarding, martian filtering, perf ──
             boot.kernel.sysctl = {
