@@ -92,6 +92,14 @@
           nftSet = items: concatStringsSep ", " (map (i: ''"${i}"'') items);
           trustedIFs = [ brLAN ] ++ wgIFNames;
 
+          # ── UT Capitole blacklist filters ───────────────────────
+          utCapitoleFilters = imap1 (i: cat: {
+            enabled = true;
+            name = "UT Capitole - ${cat}";
+            url = "https://dsi.ut-capitole.fr/blacklists/download/${cat}/domains";
+            id = 9999 + i;
+          }) cfg.dns.adguard.utCapitoleCategories;
+
           # ── Suricata config (native Nix → YAML) ────────────────
           yamlFormat = pkgs.formats.yaml { };
 
@@ -574,6 +582,19 @@
                   description = "AdGuard filter lists";
                 };
 
+                utCapitoleCategories = mkOption {
+                  type = types.listOf types.str;
+                  default = [ ];
+                  description = ''
+                    UT Capitole blacklist categories to enable as AdGuard filters.
+                    Each category name maps to a domain list fetched from
+                    https://dsi.ut-capitole.fr/blacklists/download/<category>/domains.
+                    See https://dsi.ut-capitole.fr/blacklists/index_en.php for the
+                    full list of available categories (e.g. "adult", "malware",
+                    "phishing", "gambling", "cryptojacking", "vpn", "dating", etc.).
+                  '';
+                };
+
                 extraUserRules = mkOption {
                   type = types.listOf types.str;
                   default = [ ];
@@ -850,7 +871,7 @@
                   youtube = true;
                 };
 
-                filters = cfg.dns.adguard.filters;
+                filters = cfg.dns.adguard.filters ++ utCapitoleFilters;
 
                 user_rules = dohBlockRules ++ cfg.dns.adguard.extraUserRules;
               };

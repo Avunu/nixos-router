@@ -106,6 +106,21 @@
                     listenPort = 5353;
                     webPort = 3000;
                     safeSearch = true;
+                    # UT Capitole blacklist categories to block in addition to ads.
+                    # Full category list: https://dsi.ut-capitole.fr/blacklists/index_en.php
+                    utCapitoleCategories = [
+                      "malware"
+                      "phishing"
+                      "cryptojacking"
+                      "ddos"
+                      # "adult"
+                      # "gambling"
+                      # "vpn"
+                      # "dating"
+                      # "social_networks"
+                      # "warez"
+                      # "hacking"
+                    ];
                     filters = [
                       {
                         enabled = true;
