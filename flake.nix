@@ -85,12 +85,20 @@
           # Collect all internal subnets for Suricata HOME_NET
           lanNets = [ lanCIDR ];
           wgNets = concatMap (wg: [ wg.address ] ++ concatMap (p: p.allowedIPs) wg.peers) wgInterfaces;
-          allHomeNets = lanNets ++ wgNets;
+          guestNets = optional cfg.guest.enable guestCIDR;
+          allHomeNets = lanNets ++ wgNets ++ guestNets;
           homeNets = "[${concatStringsSep ", " allHomeNets}]";
 
           # nftables helper: quoted list for sets
           nftSet = items: concatStringsSep ", " (map (i: ''"${i}"'') items);
           trustedIFs = [ brLAN ] ++ wgIFNames;
+
+          # ── Guest network derived values ────────────────────────
+          brGuest = cfg.guest.bridge;
+          guestGW = cfg.guest.address;
+          guestPrefix = toString cfg.guest.prefixLength;
+          guestCIDR = "${cfg.guest.networkAddress}/${guestPrefix}";
+          guestDHCPRange = "${brGuest},${cfg.guest.dhcp.rangeStart},${cfg.guest.dhcp.rangeEnd},${cfg.guest.dhcp.leaseTime}";
 
           # ── UT Capitole blacklist filters ───────────────────────
           utCapitoleFilters = imap1 (i: cat: {
@@ -316,6 +324,12 @@
                 # Trusted internal networks
                 iifname { ${nftSet trustedIFs} } accept comment "Allow LAN and WG to router"
 
+                ${optionalString cfg.guest.enable ''
+                  # Guest: DHCP and DNS to router only (all other guest→router dropped)
+                  iifname "${brGuest}" udp dport { 53, 67 } accept
+                  iifname "${brGuest}" tcp dport 53 accept
+                ''}
+
                 # WAN: only established/related + select ICMP
                 iifname "${cfg.wan.interface}" ct state { established, related } accept
                 iifname "${cfg.wan.interface}" icmp type { echo-request, destination-unreachable, time-exceeded } counter accept
@@ -338,6 +352,12 @@
 
                 # WAN → LAN (established only)
                 iifname "${cfg.wan.interface}" oifname "${brLAN}" ct state { established, related } accept
+
+                ${optionalString cfg.guest.enable ''
+                  # Guest → WAN only (fully isolated from LAN and WireGuard)
+                  iifname "${brGuest}" oifname "${cfg.wan.interface}" accept
+                  iifname "${cfg.wan.interface}" oifname "${brGuest}" ct state { established, related } accept
+                ''}
               }
             }
 
@@ -348,6 +368,12 @@
                 # Force all LAN DNS through local resolver (prevents bypass)
                 iifname "${brLAN}" udp dport 53 ip daddr != ${lanGW} dnat to ${lanGW}:53
                 iifname "${brLAN}" tcp dport 53 ip daddr != ${lanGW} dnat to ${lanGW}:53
+
+                ${optionalString cfg.guest.enable ''
+                  # Force guest DNS through local resolver
+                  iifname "${brGuest}" udp dport 53 ip daddr != ${guestGW} dnat to ${guestGW}:53
+                  iifname "${brGuest}" tcp dport 53 ip daddr != ${guestGW} dnat to ${guestGW}:53
+                ''}
               }
 
               chain postrouting {
@@ -361,6 +387,7 @@
               chain forward {
                 type filter hook forward priority filter - 1; policy accept;
                 iifname "${brLAN}" tcp dport 853 counter drop comment "Block DoT bypass"
+                ${optionalString cfg.guest.enable ''iifname "${brGuest}" tcp dport 853 counter drop comment "Block guest DoT bypass"''}
               }
             }
           '';
@@ -509,6 +536,61 @@
                   type = types.str;
                   default = "24h";
                   description = "DHCP lease duration";
+                };
+              };
+            };
+
+            # ── Guest Network ──────────────────────────────────────
+            guest = {
+              enable = mkEnableOption "guest network with client isolation";
+
+              interfaces = mkOption {
+                type = types.listOf types.str;
+                default = [ ];
+                description = "Physical interface names to assign to the guest bridge";
+              };
+
+              bridge = mkOption {
+                type = types.str;
+                default = "br-guest";
+                description = "Bridge device name for the guest network";
+              };
+
+              address = mkOption {
+                type = types.str;
+                default = "192.168.20.1";
+                description = "Guest gateway IP address";
+              };
+
+              networkAddress = mkOption {
+                type = types.str;
+                default = "192.168.20.0";
+                description = "Guest network address (e.g. 192.168.20.0)";
+              };
+
+              prefixLength = mkOption {
+                type = types.int;
+                default = 24;
+                description = "Guest subnet prefix length";
+              };
+
+              dhcp = {
+                rangeStart = mkOption {
+                  type = types.str;
+                  default = "192.168.20.100";
+                  description = "First IP in guest DHCP range";
+                };
+
+                rangeEnd = mkOption {
+                  type = types.str;
+                  default = "192.168.20.250";
+                  description = "Last IP in guest DHCP range";
+                };
+
+                leaseTime = mkOption {
+                  type = types.str;
+                  default = "1h";
+                  description = "Guest DHCP lease duration (shorter default encourages rotation)";
                 };
               };
             };
@@ -715,7 +797,10 @@
                 name = "net.ipv4.conf.${name}.rp_filter";
                 value = 0;
               }) wgNames
-            );
+            )
+            // optionalAttrs cfg.guest.enable {
+              "net.ipv4.conf.${brGuest}.rp_filter" = 0;
+            };
 
             boot.kernelModules = [
               "nf_conntrack"
@@ -734,10 +819,20 @@
               enable = true;
               wait-online.anyInterface = true;
 
-              netdevs."20-br-lan" = {
-                netdevConfig = {
-                  Kind = "bridge";
-                  Name = brLAN;
+              netdevs = {
+                "20-br-lan" = {
+                  netdevConfig = {
+                    Kind = "bridge";
+                    Name = brLAN;
+                  };
+                };
+              }
+              // optionalAttrs cfg.guest.enable {
+                "21-br-guest" = {
+                  netdevConfig = {
+                    Kind = "bridge";
+                    Name = brGuest;
+                  };
                 };
               };
 
@@ -785,7 +880,23 @@
                     linkConfig.RequiredForOnline = "no";
                   }
                 ) wgNames
-              );
+              )
+              // optionalAttrs cfg.guest.enable {
+                "31-guest-ports" = {
+                  matchConfig.Name = concatStringsSep " " cfg.guest.interfaces;
+                  networkConfig = {
+                    Bridge = brGuest;
+                    ConfigureWithoutCarrier = true;
+                  };
+                  linkConfig.RequiredForOnline = "enslaved";
+                };
+                "41-br-guest" = {
+                  matchConfig.Name = brGuest;
+                  address = [ "${guestGW}/${guestPrefix}" ];
+                  networkConfig.ConfigureWithoutCarrier = true;
+                  linkConfig.RequiredForOnline = "no";
+                };
+              };
             };
 
             # ── WireGuard interfaces ─────────────────────────────
@@ -816,14 +927,30 @@
             services.dnsmasq = {
               enable = true;
               settings = {
-                interface = brLAN;
+                interface =
+                  if cfg.guest.enable then
+                    [
+                      brLAN
+                      brGuest
+                    ]
+                  else
+                    brLAN;
                 bind-interfaces = true;
-                dhcp-range = [ lanDHCPRange ];
+                dhcp-range = [ lanDHCPRange ] ++ optional cfg.guest.enable guestDHCPRange;
                 dhcp-host = lanGW;
-                dhcp-option = [
-                  "option:router,${lanGW}"
-                  "option:dns-server,${lanGW}"
-                ];
+                dhcp-option =
+                  if cfg.guest.enable then
+                    [
+                      "tag:${brLAN},option:router,${lanGW}"
+                      "tag:${brLAN},option:dns-server,${lanGW}"
+                      "tag:${brGuest},option:router,${guestGW}"
+                      "tag:${brGuest},option:dns-server,${guestGW}"
+                    ]
+                  else
+                    [
+                      "option:router,${lanGW}"
+                      "option:dns-server,${lanGW}"
+                    ];
                 dhcp-leasefile = "/var/lib/dnsmasq/dnsmasq.leases";
                 server = [ "127.0.0.1#${toString cfg.dns.adguard.listenPort}" ];
                 no-resolv = true;

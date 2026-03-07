@@ -53,6 +53,21 @@
                   };
                 };
 
+                # ── Guest network ─────────────────────────────────
+                guest = {
+                  enable = true;
+                  interfaces = [ "enp4s0" ]; # physical ports for guest
+                  bridge = "br-guest";
+                  address = "192.168.20.1";
+                  networkAddress = "192.168.20.0";
+                  prefixLength = 24;
+                  dhcp = {
+                    rangeStart = "192.168.20.100";
+                    rangeEnd = "192.168.20.250";
+                    leaseTime = "1h";
+                  };
+                };
+
                 # ── WireGuard tunnels (multiple supported) ───────
                 wireguard = {
                   wg0 = {
