@@ -108,7 +108,7 @@
               id = 1;
             };
             adguard_malware = {
-              name = "AdGuard Malware";
+              name = "AdGuard Malware URL Blocklist";
               url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_11.txt";
               id = 2;
             };
@@ -121,6 +121,31 @@
               name = "Peter Lowe's Ad and tracker server list";
               url = "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=1&mimetype=plaintext";
               id = 4;
+            };
+            adguard_hacked_sites = {
+              name = "Hacked Malware Web Sites";
+              url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_9.txt";
+              id = 5;
+            };
+            steven_black = {
+              name = "Steven Black's Hosts";
+              url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_33.txt";
+              id = 6;
+            };
+            adguard_phishing = {
+              name = "AdGuard Phishing URL Blocklist";
+              url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_18.txt";
+              id = 7;
+            };
+            adguard_anti_malware = {
+              name = "Dandelion Sprout's Anti-Malware List";
+              url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_12.txt";
+              id = 8;
+            };
+            phishtank_openphish = {
+              name = "Phishing Army (PhishTank + OpenPhish)";
+              url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_30.txt";
+              id = 9;
             };
           };
 
@@ -669,20 +694,45 @@
                 safeSearch = mkEnableOption "SafeSearch enforcement";
 
                 standardFilters = {
+                  adaway = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "AdAway hosts list";
+                  };
                   adguard_ads = mkOption {
                     type = types.bool;
                     default = true;
                     description = "AdGuard Base list (ads & trackers)";
+                  };
+                  adguard_anti_malware = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "Dandelion Sprout's Anti-Malware List (filter_12)";
                   };
                   adguard_malware = mkOption {
                     type = types.bool;
                     default = true;
                     description = "AdGuard Malware filter";
                   };
-                  adaway = mkOption {
+                  adguard_hacked_sites = mkOption {
                     type = types.bool;
                     default = true;
-                    description = "AdAway hosts list";
+                    description = "The Big List of Hacked Malware Web Sites (filter_9)";
+                  };
+                  adguard_phishing = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "AdGuard Phishing URL Blocklist (filter_18)";
+                  };
+                  phishtank_openphish = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "Phishing Army list based on PhishTank + OpenPhish (filter_30)";
+                  };
+                  steven_black = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "Steven Black's unified hosts file (ads + malware)";
                   };
                   yoyo_adservers = mkOption {
                     type = types.bool;

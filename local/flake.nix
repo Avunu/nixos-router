@@ -137,9 +137,14 @@
                       # "hacking"
                     ];
                     standardFilters = {
-                      adguard_ads = true;
-                      adguard_malware = true;
                       adaway = true;
+                      adguard_ads = true;
+                      adguard_anti_malware = true;
+                      adguard_hacked_sites = true;
+                      adguard_malware = true;
+                      adguard_phishing = true;
+                      phishtank_openphish = true;
+                      steven_black = true;
                       yoyo_adservers = true;
                     };
                     extraUserRules = [
