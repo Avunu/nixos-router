@@ -136,32 +136,12 @@
                       # "warez"
                       # "hacking"
                     ];
-                    filters = [
-                      {
-                        enabled = true;
-                        name = "AdGuard Base";
-                        url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt";
-                        id = 1;
-                      }
-                      {
-                        enabled = true;
-                        name = "AdAway";
-                        url = "https://adaway.org/hosts.txt";
-                        id = 2;
-                      }
-                      {
-                        enabled = true;
-                        name = "Malware filter";
-                        url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_11.txt";
-                        id = 3;
-                      }
-                      {
-                        enabled = true;
-                        name = "Peter Lowe's tracker list";
-                        url = "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=1&mimetype=plaintext";
-                        id = 4;
-                      }
-                    ];
+                    standardFilters = {
+                      adguard_ads = true;
+                      adguard_malware = true;
+                      adaway = true;
+                      yoyo_adservers = true;
+                    };
                     extraUserRules = [
                       # "@@||example.com^"   # office whitelists
                     ];

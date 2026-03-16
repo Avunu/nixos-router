@@ -100,6 +100,35 @@
           guestCIDR = "${cfg.guest.networkAddress}/${guestPrefix}";
           guestDHCPRange = "${brGuest},${cfg.guest.dhcp.rangeStart},${cfg.guest.dhcp.rangeEnd},${cfg.guest.dhcp.leaseTime}";
 
+          # ── Standard filter list catalogue ──────────────────────
+          standardFilterCatalogue = {
+            adguard_ads = {
+              name = "AdGuard Base";
+              url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt";
+              id = 1;
+            };
+            adguard_malware = {
+              name = "AdGuard Malware";
+              url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_11.txt";
+              id = 2;
+            };
+            adaway = {
+              name = "AdAway";
+              url = "https://adaway.org/hosts.txt";
+              id = 3;
+            };
+            yoyo_adservers = {
+              name = "Peter Lowe's Ad and tracker server list";
+              url = "https://pgl.yoyo.org/adservers/serverlist.php?hostformat=adblockplus&showintro=1&mimetype=plaintext";
+              id = 4;
+            };
+          };
+
+          standardFilters = map
+            (key: standardFilterCatalogue.${key} // { enabled = true; })
+            (filter (key: cfg.dns.adguard.standardFilters.${key})
+              (attrNames cfg.dns.adguard.standardFilters));
+
           # ── UT Capitole blacklist filters ───────────────────────
           utCapitoleFilters = imap1 (i: cat: {
             enabled = true;
@@ -639,29 +668,33 @@
 
                 safeSearch = mkEnableOption "SafeSearch enforcement";
 
-                filters = mkOption {
+                standardFilters = {
+                  adguard_ads = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "AdGuard Base list (ads & trackers)";
+                  };
+                  adguard_malware = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "AdGuard Malware filter";
+                  };
+                  adaway = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "AdAway hosts list";
+                  };
+                  yoyo_adservers = mkOption {
+                    type = types.bool;
+                    default = true;
+                    description = "Peter Lowe's ad/tracker server list (yoyo.org)";
+                  };
+                };
+
+                extraFilters = mkOption {
                   type = types.listOf (types.attrsOf types.unspecified);
-                  default = [
-                    {
-                      enabled = true;
-                      name = "AdGuard Base";
-                      url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt";
-                      id = 1;
-                    }
-                    {
-                      enabled = true;
-                      name = "AdAway";
-                      url = "https://adaway.org/hosts.txt";
-                      id = 2;
-                    }
-                    {
-                      enabled = true;
-                      name = "Malware filter";
-                      url = "https://adguardteam.github.io/HostlistsRegistry/assets/filter_11.txt";
-                      id = 3;
-                    }
-                  ];
-                  description = "AdGuard filter lists";
+                  default = [ ];
+                  description = "Additional custom AdGuard filter list objects (with enabled, name, url, id)";
                 };
 
                 utCapitoleCategories = mkOption {
@@ -1040,7 +1073,7 @@
                   youtube = true;
                 };
 
-                filters = cfg.dns.adguard.filters ++ utCapitoleFilters;
+                filters = standardFilters ++ utCapitoleFilters ++ cfg.dns.adguard.extraFilters;
 
                 user_rules = dohBlockRules ++ cfg.dns.adguard.extraUserRules;
               };
