@@ -174,6 +174,14 @@
                   extraRules = "";
                 };
 
+                # ── Cockpit web UI ───────────────────────────────
+                cockpit = {
+                  enable = true;
+                  port = 9090;
+                  # plugins = [ pkgs.cockpit-machines ];
+                  # allowedOrigins = [ "https://office-router.lan:9090" ];
+                };
+
                 # ── Admin user ───────────────────────────────────
                 adminUser = {
                   name = "admin";

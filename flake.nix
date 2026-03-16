@@ -696,6 +696,48 @@
               };
             };
 
+            # ── Cockpit web UI ────────────────────────────────────
+            cockpit = {
+              enable = mkEnableOption "Cockpit web-based system administration UI";
+
+              port = mkOption {
+                type = types.port;
+                default = 9090;
+                description = "Port for the Cockpit web interface";
+              };
+
+              package = mkOption {
+                type = types.package;
+                default = pkgs.cockpit;
+                defaultText = literalExpression "pkgs.cockpit";
+                description = "Cockpit package to use";
+              };
+
+              plugins = mkOption {
+                type = types.listOf types.package;
+                default = [ ];
+                description = "Additional Cockpit plugin packages";
+              };
+
+              allowedOrigins = mkOption {
+                type = types.listOf types.str;
+                default = [ ];
+                description = "Allowed origins for the Cockpit web interface (e.g. [ \"https://router.lan:9090\" ])";
+              };
+
+              showBanner = mkOption {
+                type = types.bool;
+                default = true;
+                description = "Show system banner on the Cockpit login page";
+              };
+
+              settings = mkOption {
+                type = with types; attrsOf (attrsOf (oneOf [ bool int str ]));
+                default = { };
+                description = "Additional cockpit.conf settings as nested attribute set (section → key → value)";
+              };
+            };
+
             # ── Admin user ─────────────────────────────────────────
             adminUser = {
               name = mkOption {
@@ -1083,7 +1125,19 @@
               };
             };
 
-            # ── 8. Packages ──────────────────────────────────────
+            # ── 8. Web UI — Cockpit ─────────────────────────────
+            services.cockpit = mkIf cfg.cockpit.enable {
+              enable = true;
+              port = cfg.cockpit.port;
+              package = cfg.cockpit.package;
+              plugins = cfg.cockpit.plugins;
+              openFirewall = false; # managed by nftables (LAN/WG already accepted)
+              showBanner = cfg.cockpit.showBanner;
+              "allowed-origins" = cfg.cockpit.allowedOrigins;
+              settings = cfg.cockpit.settings;
+            };
+
+            # ── 9. Packages ──────────────────────────────────────
             environment.systemPackages =
               with pkgs;
               [
@@ -1099,13 +1153,13 @@
               ++ optional (cfg.wireguard != { }) wireguard-tools
               ++ cfg.extraPackages;
 
-            # ── 9. Logging ───────────────────────────────────────
+            # ── 10. Logging ──────────────────────────────────────
             services.journald.extraConfig = ''
               SystemMaxUse=500M
               MaxRetentionSec=30day
             '';
 
-            # ── 10. Hardening ────────────────────────────────────
+            # ── 11. Hardening ────────────────────────────────────
             services.openssh = {
               enable = true;
               settings = {
@@ -1124,7 +1178,7 @@
               openssh.authorizedKeys.keys = cfg.adminUser.sshKeys;
             };
 
-            # ── 11. Maintenance ──────────────────────────────────
+            # ── 12. Maintenance ──────────────────────────────────
             nix = {
               gc = {
                 automatic = true;
