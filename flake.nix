@@ -149,10 +149,9 @@
             };
           };
 
-          standardFilters = map
-            (key: standardFilterCatalogue.${key} // { enabled = true; })
-            (filter (key: cfg.dns.adguard.standardFilters.${key})
-              (attrNames cfg.dns.adguard.standardFilters));
+          standardFilters = map (key: standardFilterCatalogue.${key} // { enabled = true; }) (
+            filter (key: cfg.dns.adguard.standardFilters.${key}) (attrNames cfg.dns.adguard.standardFilters)
+          );
 
           # ── UT Capitole blacklist filters ───────────────────────
           utCapitoleFilters = imap1 (i: cat: {
@@ -824,7 +823,15 @@
               };
 
               settings = mkOption {
-                type = with types; attrsOf (attrsOf (oneOf [ bool int str ]));
+                type =
+                  with types;
+                  attrsOf (
+                    attrsOf (oneOf [
+                      bool
+                      int
+                      str
+                    ])
+                  );
                 default = { };
                 description = "Additional cockpit.conf settings as nested attribute set (section → key → value)";
               };
@@ -904,17 +911,22 @@
                           size = "100%";
                           content = {
                             type = "filesystem";
-                            format = "btrfs";
+                            format = "f2fs";
                             mountpoint = "/";
                             mountOptions = [
-                              "compress=zstd:3"
-                              "discard=async"
+                              "atgc"
+                              "compress_algorithm=zstd:1" # Level 1: minimal CPU overhead, reduces I/O bandwidth
+                              "compress_cache" # Cache decompressed pages for hot data (SQLite, desktop apps)
+                              "compress_chksum"
+                              "compress_extension=*" # Compress all files by default
+                              "gc_merge"
                               "noatime"
-                              "space_cache=v2"
-                              "ssd"
+                              "nodiscard" # Use scheduled fstrim instead of synchronous discard
                             ];
                             extraArgs = [
-                              "-L"
+                              "-O"
+                              "extra_attr,compression" # Enable compression feature at format time
+                              "-l"
                               "root"
                             ];
                           };
@@ -932,17 +944,22 @@
                           size = "100%";
                           content = {
                             type = "filesystem";
-                            format = "btrfs";
+                            format = "f2fs";
                             mountpoint = "/";
                             mountOptions = [
-                              "compress=zstd:3"
-                              "discard=async"
+                              "atgc"
+                              "compress_algorithm=zstd:1" # Level 1: minimal CPU overhead, reduces I/O bandwidth
+                              "compress_cache" # Cache decompressed pages for hot data (SQLite, desktop apps)
+                              "compress_chksum"
+                              "compress_extension=*" # Compress all files by default
+                              "gc_merge"
                               "noatime"
-                              "space_cache=v2"
-                              "ssd"
+                              "nodiscard" # Use scheduled fstrim instead of synchronous discard
                             ];
                             extraArgs = [
-                              "-L"
+                              "-O"
+                              "extra_attr,compression" # Enable compression feature at format time
+                              "-l"
                               "root"
                             ];
                           };
