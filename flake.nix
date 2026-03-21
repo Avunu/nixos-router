@@ -1145,9 +1145,9 @@
             services.adguardhome = mkIf cfg.dns.adguard.enable {
               enable = true;
               mutableSettings = true;
+              host = lanGW;
+              port = cfg.dns.adguard.webPort;
               settings = {
-                bind_host = lanGW;
-                bind_port = cfg.dns.adguard.webPort;
 
                 dns = {
                   bind_hosts = [ "127.0.0.1" ];
