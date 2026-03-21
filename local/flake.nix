@@ -14,7 +14,7 @@
       nixos-router,
     }:
     let
-      hostName = "office-router";
+      hostName = "258-router";
       system = "x86_64-linux";
     in
     {
@@ -22,7 +22,6 @@
         "${hostName}" = nixpkgs.lib.nixosSystem {
           system = system;
           modules = [
-            ./hardware-configuration.nix
             { nix.nixPath = [ "nixpkgs=${self.inputs.nixpkgs}" ]; }
             nixos-router.nixosModules.router
             {
