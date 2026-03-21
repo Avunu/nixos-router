@@ -879,7 +879,7 @@
                   grub = {
                     enable = mkDefault true;
                     efiSupport = false;
-                    devices = [ cfg.diskDevice ];
+                    devices = mkForce [ cfg.diskDevice ];
                   };
                 };
 
