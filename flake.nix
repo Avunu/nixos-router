@@ -1038,10 +1038,7 @@
                   matchConfig.Name = cfg.wan.interface;
                   networkConfig = {
                     DHCP = "ipv4";
-                    DNSOverTLS = true;
-                    DNSSEC = true;
                     IPForward = true;
-                    IPv6PrivacyExtensions = false;
                   };
                   linkConfig.RequiredForOnline = "routable";
                 };
