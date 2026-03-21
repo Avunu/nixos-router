@@ -33,30 +33,36 @@
                 diskDevice = "/dev/sda";
 
                 # ── WAN ──────────────────────────────────────────
-                wan.interface = "enp1s0";
+                wan.interface = "enp0s20f0";
 
                 # ── LAN ──────────────────────────────────────────
                 lan = {
                   interfaces = [
-                    "enp2s0"
-                    "enp3s0"
+                    "enp0s20f1"
                   ];
                   bridge = "br-lan";
-                  address = "192.168.10.1";
-                  networkAddress = "192.168.10.0";
+                  address = "10.58.1.20";
+                  networkAddress = "10.58.1.0";
                   prefixLength = 24;
                   domain = "lan";
                   dhcp = {
-                    rangeStart = "192.168.10.100";
-                    rangeEnd = "192.168.10.250";
-                    leaseTime = "24h";
+                    rangeStart = "10.58.1.100";
+                    rangeEnd = "10.58.1.250";
+                    leaseTime = "30d";
                   };
                 };
 
                 # ── Guest network ─────────────────────────────────
                 guest = {
                   enable = true;
-                  interfaces = [ "enp4s0" ]; # physical ports for guest
+                  interfaces = [
+                    "enp0s20f2"
+                    "enp0s20f3"
+                    "ens2"
+                    "enp4s0"
+                    "enp7s0"
+                    "enp8s0"
+                  ]; # physical ports for guest
                   bridge = "br-guest";
                   address = "192.168.20.1";
                   networkAddress = "192.168.20.0";
@@ -69,41 +75,41 @@
                 };
 
                 # ── WireGuard tunnels (multiple supported) ───────
-                wireguard = {
-                  wg0 = {
-                    address = "10.100.0.1/24";
-                    listenPort = 51820;
-                    privateKeyFile = "/etc/wireguard/wg0.key";
-                    routes = [ "10.20.0.0/24" ];
-                    peers = [
-                      {
-                        publicKey = "PEER_PUBLIC_KEY_HERE";
-                        endpoint = "remote-office.example.com:51820";
-                        allowedIPs = [
-                          "10.100.0.0/24"
-                          "10.20.0.0/24"
-                        ];
-                        persistentKeepalive = 25;
-                      }
-                    ];
-                  };
+                # wireguard = {
+                #   wg0 = {
+                #     address = "10.100.0.1/24";
+                #     listenPort = 51820;
+                #     privateKeyFile = "/etc/wireguard/wg0.key";
+                #     routes = [ "10.20.0.0/24" ];
+                #     peers = [
+                #       {
+                #         publicKey = "PEER_PUBLIC_KEY_HERE";
+                #         endpoint = "remote-office.example.com:51820";
+                #         allowedIPs = [
+                #           "10.100.0.0/24"
+                #           "10.20.0.0/24"
+                #         ];
+                #         persistentKeepalive = 25;
+                #       }
+                #     ];
+                #   };
 
-                  # Example: second WireGuard tunnel
-                  # wg1 = {
-                  #   address       = "10.200.0.1/24";
-                  #   listenPort    = 51821;
-                  #   privateKeyFile = "/etc/wireguard/wg1.key";
-                  #   routes = [ "10.30.0.0/24" ];
-                  #   peers = [
-                  #     {
-                  #       publicKey   = "OTHER_PEER_PUBLIC_KEY";
-                  #       endpoint    = "branch-office.example.com:51821";
-                  #       allowedIPs  = [ "10.200.0.0/24" "10.30.0.0/24" ];
-                  #       persistentKeepalive = 25;
-                  #     }
-                  #   ];
-                  # };
-                };
+                #   Example: second WireGuard tunnel
+                #   wg1 = {
+                #     address       = "10.200.0.1/24";
+                #     listenPort    = 51821;
+                #     privateKeyFile = "/etc/wireguard/wg1.key";
+                #     routes = [ "10.30.0.0/24" ];
+                #     peers = [
+                #       {
+                #         publicKey   = "OTHER_PEER_PUBLIC_KEY";
+                #         endpoint    = "branch-office.example.com:51821";
+                #         allowedIPs  = [ "10.200.0.0/24" "10.30.0.0/24" ];
+                #         persistentKeepalive = 25;
+                #       }
+                #     ];
+                #   };
+                # };
 
                 # ── DNS & filtering ──────────────────────────────
                 dns = {
