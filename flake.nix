@@ -1038,7 +1038,7 @@
                   matchConfig.Name = cfg.wan.interface;
                   networkConfig = {
                     DHCP = "ipv4";
-                    IPForward = true;
+                    # IPForward = true;
                   };
                   linkConfig.RequiredForOnline = "routable";
                 };
