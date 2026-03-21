@@ -532,6 +532,15 @@
               description = "Disk device for disko partitioning";
             };
 
+            bootMode = mkOption {
+              type = types.enum [
+                "uefi"
+                "legacy"
+              ];
+              default = "uefi";
+              description = "Boot mode: uefi (systemd-boot) or legacy (GRUB)";
+            };
+
             # ── WAN ────────────────────────────────────────────────
             wan = {
               interface = mkOption {
@@ -849,8 +858,18 @@
           config = {
 
             # ── 1. Boot & basics ─────────────────────────────────
-            boot.loader.systemd-boot.enable = mkDefault true;
-            boot.loader.efi.canTouchEfiVariables = mkDefault true;
+            boot.loader = mkMerge [
+              (mkIf (cfg.bootMode == "uefi") {
+                systemd-boot.enable = mkDefault true;
+                efi.canTouchEfiVariables = mkDefault true;
+              })
+              (mkIf (cfg.bootMode == "legacy") {
+                grub = {
+                  enable = mkDefault true;
+                  device = cfg.diskDevice;
+                };
+              })
+            ];
 
             networking.hostName = cfg.hostName;
             time.timeZone = cfg.timeZone;
@@ -860,47 +879,77 @@
                 main = {
                   device = cfg.diskDevice;
                   type = "disk";
-                  content = {
-                    type = "gpt";
-                    partitions = {
-                      ESP = {
-                        size = "1G";
-                        type = "EF00";
-                        content = {
-                          type = "filesystem";
-                          format = "vfat";
-                          mountpoint = "/boot";
-                          mountOptions = [
-                            "noatime"
-                            "umask=0077"
-                          ];
-                          extraArgs = [
-                            "-n"
-                            "ESP"
-                          ];
+                  content = mkMerge [
+                    (mkIf (cfg.bootMode == "uefi") {
+                      type = "gpt";
+                      partitions = {
+                        ESP = {
+                          size = "1G";
+                          type = "EF00";
+                          content = {
+                            type = "filesystem";
+                            format = "vfat";
+                            mountpoint = "/boot";
+                            mountOptions = [
+                              "noatime"
+                              "umask=0077"
+                            ];
+                            extraArgs = [
+                              "-n"
+                              "ESP"
+                            ];
+                          };
+                        };
+                        root = {
+                          size = "100%";
+                          content = {
+                            type = "filesystem";
+                            format = "btrfs";
+                            mountpoint = "/";
+                            mountOptions = [
+                              "compress=zstd:3"
+                              "discard=async"
+                              "noatime"
+                              "space_cache=v2"
+                              "ssd"
+                            ];
+                            extraArgs = [
+                              "-L"
+                              "root"
+                            ];
+                          };
                         };
                       };
-                      root = {
-                        size = "100%";
-                        content = {
-                          type = "filesystem";
-                          format = "btrfs";
-                          mountpoint = "/";
-                          mountOptions = [
-                            "compress=zstd:3"
-                            "discard=async"
-                            "noatime"
-                            "space_cache=v2"
-                            "ssd"
-                          ];
-                          extraArgs = [
-                            "-L"
-                            "root"
-                          ];
+                    })
+                    (mkIf (cfg.bootMode == "legacy") {
+                      type = "gpt";
+                      partitions = {
+                        boot = {
+                          size = "1M";
+                          type = "EF02";
+                        };
+                        root = {
+                          size = "100%";
+                          content = {
+                            type = "filesystem";
+                            format = "btrfs";
+                            mountpoint = "/";
+                            mountOptions = [
+                              "compress=zstd:3"
+                              "discard=async"
+                              "noatime"
+                              "space_cache=v2"
+                              "ssd"
+                            ];
+                            extraArgs = [
+                              "-L"
+                              "root"
+                            ];
+                          };
                         };
                       };
-                    };
-                  };
+                    })
+                  ];
                 };
               };
             };
