@@ -865,21 +865,10 @@
           config = {
 
             # ── 1. Boot & basics ─────────────────────────────────
-            boot.loader = mkMerge [
-              (mkIf (cfg.bootMode == "uefi") {
-                efi.canTouchEfiVariables = mkDefault true;
-                systemd-boot = {
-                  configurationLimit = mkDefault 10;
-                  enable = mkDefault true;
-                };
-              })
-              (mkIf (cfg.bootMode == "legacy") {
-                grub = {
-                  enable = mkDefault true;
-                  device = cfg.diskDevice;
-                };
-              })
-            ];
+            boot.loader.systemd-boot.enable = mkIf (cfg.bootMode == "uefi") (mkDefault true);
+            boot.loader.efi.canTouchEfiVariables = mkIf (cfg.bootMode == "uefi") (mkDefault true);
+            boot.loader.grub.enable = mkIf (cfg.bootMode == "legacy") (mkDefault true);
+            boot.loader.grub.device = mkIf (cfg.bootMode == "legacy") cfg.diskDevice;
 
             networking.hostName = cfg.hostName;
             time.timeZone = cfg.timeZone;
