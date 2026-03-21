@@ -867,8 +867,11 @@
             # ── 1. Boot & basics ─────────────────────────────────
             boot.loader = mkMerge [
               (mkIf (cfg.bootMode == "uefi") {
-                systemd-boot.enable = mkDefault true;
                 efi.canTouchEfiVariables = mkDefault true;
+                systemd-boot = {
+                  configurationLimit = mkDefault 10;
+                  enable = mkDefault true;
+                };
               })
               (mkIf (cfg.bootMode == "legacy") {
                 grub = {
@@ -886,87 +889,88 @@
                 main = {
                   device = cfg.diskDevice;
                   type = "disk";
-                  content = mkMerge [
-                    (mkIf (cfg.bootMode == "uefi") {
-                      type = "gpt";
-                      partitions = {
-                        ESP = {
-                          size = "1G";
-                          type = "EF00";
-                          content = {
-                            type = "filesystem";
-                            format = "vfat";
-                            mountpoint = "/boot";
-                            mountOptions = [
-                              "noatime"
-                              "umask=0077"
-                            ];
-                            extraArgs = [
-                              "-n"
-                              "ESP"
-                            ];
+                  content =
+                    if cfg.bootMode == "uefi" then
+                      {
+                        type = "gpt";
+                        partitions = {
+                          ESP = {
+                            size = "1G";
+                            type = "EF00";
+                            content = {
+                              type = "filesystem";
+                              format = "vfat";
+                              mountpoint = "/boot";
+                              mountOptions = [
+                                "noatime"
+                                "umask=0077"
+                              ];
+                              extraArgs = [
+                                "-n"
+                                "ESP"
+                              ];
+                            };
+                          };
+                          root = {
+                            size = "100%";
+                            content = {
+                              type = "filesystem";
+                              format = "f2fs";
+                              mountpoint = "/";
+                              mountOptions = [
+                                "atgc"
+                                "compress_algorithm=zstd:1"
+                                "compress_cache"
+                                "compress_chksum"
+                                "compress_extension=*"
+                                "gc_merge"
+                                "noatime"
+                                "nodiscard"
+                              ];
+                              extraArgs = [
+                                "-O"
+                                "extra_attr,compression"
+                                "-l"
+                                "root"
+                              ];
+                            };
                           };
                         };
-                        root = {
-                          size = "100%";
-                          content = {
-                            type = "filesystem";
-                            format = "f2fs";
-                            mountpoint = "/";
-                            mountOptions = [
-                              "atgc"
-                              "compress_algorithm=zstd:1" # Level 1: minimal CPU overhead, reduces I/O bandwidth
-                              "compress_cache" # Cache decompressed pages for hot data (SQLite, desktop apps)
-                              "compress_chksum"
-                              "compress_extension=*" # Compress all files by default
-                              "gc_merge"
-                              "noatime"
-                              "nodiscard" # Use scheduled fstrim instead of synchronous discard
-                            ];
-                            extraArgs = [
-                              "-O"
-                              "extra_attr,compression" # Enable compression feature at format time
-                              "-l"
-                              "root"
-                            ];
+                      }
+                    else
+                      {
+                        type = "gpt";
+                        partitions = {
+                          boot = {
+                            size = "1M";
+                            type = "EF02";
+                          };
+                          root = {
+                            size = "100%";
+                            content = {
+                              type = "filesystem";
+                              format = "f2fs";
+                              mountpoint = "/";
+                              mountOptions = [
+                                "atgc"
+                                "compress_algorithm=zstd:1"
+                                "compress_cache"
+                                "compress_chksum"
+                                "compress_extension=*"
+                                "gc_merge"
+                                "noatime"
+                                "nodiscard"
+                              ];
+                              extraArgs = [
+                                "-O"
+                                "extra_attr,compression"
+                                "-l"
+                                "root"
+                              ];
+                            };
                           };
                         };
                       };
-                    })
-                    (mkIf (cfg.bootMode == "legacy") {
-                      type = "gpt";
-                      partitions = {
-                        boot = {
-                          size = "1M";
-                          type = "EF02";
-                        };
-                        root = {
-                          size = "100%";
-                          content = {
-                            type = "filesystem";
-                            format = "f2fs";
-                            mountpoint = "/";
-                            mountOptions = [
-                              "atgc"
-                              "compress_algorithm=zstd:1" # Level 1: minimal CPU overhead, reduces I/O bandwidth
-                              "compress_cache" # Cache decompressed pages for hot data (SQLite, desktop apps)
-                              "compress_chksum"
-                              "compress_extension=*" # Compress all files by default
-                              "gc_merge"
-                              "noatime"
-                              "nodiscard" # Use scheduled fstrim instead of synchronous discard
-                            ];
-                            extraArgs = [
-                              "-O"
-                              "extra_attr,compression" # Enable compression feature at format time
-                              "-l"
-                              "root"
-                            ];
-                          };
-                        };
-                      };
-                    })
-                  ];
                 };
               };
             };
