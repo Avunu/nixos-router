@@ -1560,7 +1560,6 @@
                     brLAN;
                 bind-dynamic = true;
                 dhcp-range = [ lanDHCPRange ] ++ optional cfg.guest.enable guestDHCPRange;
-                dhcp-host = lanGW;
                 dhcp-option =
                   if cfg.guest.enable then
                     [
