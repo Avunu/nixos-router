@@ -1108,6 +1108,12 @@
                 default = [ ];
                 description = "SSH public keys for the admin user";
               };
+
+              initialPassword = mkOption {
+                type = types.nullOr types.str;
+                default = null;
+                description = "Initial password for the admin user (required for sudo access on first login; should be changed immediately)";
+              };
             };
 
             extraPackages = mkOption {
@@ -1235,7 +1241,10 @@
                               format = "ext4";
                               mountpoint = "/boot";
                               mountOptions = [ "noatime" ];
-                              extraArgs = [ "-L" "boot" ];
+                              extraArgs = [
+                                "-L"
+                                "boot"
+                              ];
                             };
                           };
                           root = {
@@ -1801,6 +1810,7 @@
             users.users.${cfg.adminUser.name} = {
               isNormalUser = true;
               extraGroups = [ "wheel" ];
+              initialPassword = cfg.adminUser.initialPassword;
               openssh.authorizedKeys.keys = cfg.adminUser.sshKeys;
             };
 
