@@ -1158,9 +1158,10 @@
               else
                 {
                   grub = {
-                    enable = mkDefault true;
-                    efiSupport = false;
                     devices = mkForce [ cfg.diskDevice ];
+                    efiSupport = false;
+                    enable = mkDefault true;
+                    forcei686 = true;
                   };
                 };
 
