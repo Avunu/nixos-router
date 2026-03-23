@@ -1754,11 +1754,14 @@
               openFirewall = false; # managed by nftables (LAN/WG already accepted)
               showBanner = cfg.cockpit.showBanner;
               "allowed-origins" = cfg.cockpit.allowedOrigins;
-              settings = mkMerge cfg.cockpit.settings {
-                WebService = {
-                  AllowUnencrypted = true;
-                };
-              };
+              settings = mkMerge [
+                cfg.cockpit.settings
+                {
+                  WebService = {
+                    AllowUnencrypted = true;
+                  };
+                }
+              ];
             };
 
             # ── 9. Packages ──────────────────────────────────────
