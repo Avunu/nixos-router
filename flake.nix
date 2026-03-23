@@ -1297,6 +1297,7 @@
             #                         sessions (each needs 2 conntrack entries).
             boot.kernel.sysctl = {
               "net.ipv4.conf.default.rp_filter" = 1;
+              "net.ipv6.conf.all.forwarding" = 1;
               "net.core.rmem_max" = 26214400;
               "net.core.wmem_max" = 26214400;
               "net.core.netdev_max_backlog" = 5000;
