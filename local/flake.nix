@@ -41,7 +41,7 @@
                     "enp0s20f1"
                   ];
                   bridge = "br-lan";
-                  address = "10.58.1.20";
+                  address = "10.58.1.1";
                   networkAddress = "10.58.1.0";
                   prefixLength = 24;
                   domain = "lan";

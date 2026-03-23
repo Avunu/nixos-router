@@ -533,14 +533,17 @@
                 iifname { ${nftSet trustedIFs} } accept comment "Allow LAN and WG to router"
 
                 ${optionalString cfg.guest.enable ''
-                  # Guest: DHCP and DNS to router only (all other guest→router dropped)
+                  # Guest: DHCP/DNS and NDP to router only (all other guest→router dropped)
                   iifname "${brGuest}" udp dport { 53, 67 } accept
                   iifname "${brGuest}" tcp dport 53 accept
+                  iifname "${brGuest}" icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit } accept
                 ''}
 
                 # WAN: only established/related + select ICMP
                 iifname "${cfg.wan.interface}" ct state { established, related } accept
                 iifname "${cfg.wan.interface}" icmp type { echo-request, destination-unreachable, time-exceeded } counter accept
+                iifname "${cfg.wan.interface}" icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, echo-request, echo-reply, nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } counter accept
+                iifname "${cfg.wan.interface}" udp dport 546 accept comment "DHCPv6 client"
                 ${wgInputRules}
 
                 # Drop everything else from WAN
@@ -569,24 +572,30 @@
               }
             }
 
-            table ip nat {
+            table inet nat {
               chain prerouting {
                 type nat hook prerouting priority dstnat; policy accept;
 
                 # Force all LAN DNS through local resolver (prevents bypass)
+                # IPv4: DNAT to gateway IP; IPv6: redirect (PD address is dynamic)
                 iifname "${brLAN}" udp dport 53 ip daddr != ${lanGW} dnat to ${lanGW}:53
                 iifname "${brLAN}" tcp dport 53 ip daddr != ${lanGW} dnat to ${lanGW}:53
+                iifname "${brLAN}" meta nfproto ipv6 udp dport 53 redirect to :53
+                iifname "${brLAN}" meta nfproto ipv6 tcp dport 53 redirect to :53
 
                 ${optionalString cfg.guest.enable ''
                   # Force guest DNS through local resolver
                   iifname "${brGuest}" udp dport 53 ip daddr != ${guestGW} dnat to ${guestGW}:53
                   iifname "${brGuest}" tcp dport 53 ip daddr != ${guestGW} dnat to ${guestGW}:53
+                  iifname "${brGuest}" meta nfproto ipv6 udp dport 53 redirect to :53
+                  iifname "${brGuest}" meta nfproto ipv6 tcp dport 53 redirect to :53
                 ''}
               }
 
               chain postrouting {
                 type nat hook postrouting priority srcnat; policy accept;
-                oifname "${cfg.wan.interface}" masquerade
+                # IPv4 masquerade only — IPv6 uses global PD addresses
+                meta nfproto ipv4 oifname "${cfg.wan.interface}" masquerade
               }
             }
 
@@ -1354,7 +1363,8 @@
                 # • IPv4Forwarding: enables kernel forwarding sysctl for this IF.
                 # • IPv4ReversePathFilter=strict: drops packets with spoofed
                 #   source addresses (BCP38/RFC3704 compliance).
-                # • IPv6AcceptRA=false: no IPv6 on WAN (IPv4-only deployment).
+                # • IPv6AcceptRA=true: accept Router Advertisements from ISP.
+                # • IPv6Forwarding=true: enables kernel IPv6 forwarding sysctl.
                 # • IgnoreCarrierLoss=3s: tolerates brief cable/modem blips
                 #   without tearing down DHCP lease and routes.
                 # • KeepConfiguration=dynamic-on-stop: preserves DHCP addresses
@@ -1363,13 +1373,18 @@
                 #   (UseDNS/UseHostname/UseDomains=false), while still sending
                 #   our hostname to the ISP for lease identification.
                 #   RouteMetric=100 gives WAN routes explicit priority.
+                # • dhcpV6Config: requests prefix delegation (/60) from ISP
+                #   for distributing IPv6 subnets to LAN/guest bridges.
+                # • ipv6AcceptRAConfig: always start DHCPv6 client (some ISPs
+                #   require it even when RA M-flag is set).
                 "10-wan" = {
                   matchConfig.Name = cfg.wan.interface;
                   networkConfig = {
-                    DHCP = "ipv4";
+                    DHCP = "yes";
                     IPv4Forwarding = true;
+                    IPv6Forwarding = true;
                     IPv4ReversePathFilter = "strict";
-                    IPv6AcceptRA = false;
+                    IPv6AcceptRA = true;
                     IgnoreCarrierLoss = "3s";
                     KeepConfiguration = "dynamic-on-stop";
                   };
@@ -1379,6 +1394,16 @@
                     UseDomains = false;
                     SendHostname = true;
                     RouteMetric = 100;
+                  };
+                  dhcpV6Config = {
+                    UseDNS = false;
+                    UseHostname = false;
+                    WithoutRA = "solicit";
+                    PrefixDelegationHint = "::/60";
+                  };
+                  ipv6AcceptRAConfig = {
+                    UseDNS = false;
+                    DHCPv6Client = "always";
                   };
                   linkConfig.RequiredForOnline = "routable";
                 };
@@ -1407,8 +1432,8 @@
                 #   gateway and DNS server for all LAN clients.
                 # • DHCPServer=true: networkd serves DHCP directly on the bridge,
                 #   eliminating startup-ordering issues with external DHCP daemons.
-                # • dhcpServerConfig: pool range computed from rangeStart/rangeEnd,
-                #   DNS points clients to the gateway (dnsmasq on :53), EmitRouter
+                # • dhcpServerConfig: pool range via PoolOffset/PoolSize,
+                #   DNS points clients to the gateway (AGH on :53), EmitRouter
                 #   auto-advertises the bridge IP as the default gateway.
                 # • ConfigureWithoutCarrier: keeps config stable even if all
                 #   physical ports are unplugged momentarily.
@@ -1416,6 +1441,10 @@
                 # • IPv4ReversePathFilter=no: relaxed because traffic arrives
                 #   from bridged ports with various source subnets.
                 # • IPv6AcceptRA=false: blocks rogue IPv6 RAs on the bridge.
+                # • IPv6SendRA=true: advertise delegated IPv6 prefix to LAN
+                #   clients via Router Advertisements (SLAAC).
+                # • DHCPPrefixDelegation=true: assign a /64 from the WAN-delegated
+                #   prefix to this bridge for LAN client use.
                 # • LLDP=routers-only: receives LLDP from connected switches
                 #   (query via `networkctl lldp` for topology discovery).
                 # • EmitLLDP=nearest-bridge: announces this router to directly
@@ -1427,9 +1456,12 @@
                   networkConfig = {
                     ConfigureWithoutCarrier = true;
                     DHCPServer = true;
+                    DHCPPrefixDelegation = true;
                     IPv4Forwarding = true;
+                    IPv6Forwarding = true;
                     IPv4ReversePathFilter = "no";
                     IPv6AcceptRA = false;
+                    IPv6SendRA = true;
                     LLDP = "routers-only";
                     EmitLLDP = "nearest-bridge";
                   };
@@ -1440,6 +1472,14 @@
                     DNS = [ lanGW ];
                     EmitDNS = true;
                     EmitRouter = true;
+                  };
+                  dhcpPrefixDelegationConfig = {
+                    UplinkInterface = cfg.wan.interface;
+                    SubnetId = 0;
+                    Announce = true;
+                  };
+                  ipv6SendRAConfig = {
+                    EmitDNS = false;
                   };
                   linkConfig.RequiredForOnline = "no";
                 };
@@ -1482,7 +1522,8 @@
                   linkConfig.RequiredForOnline = "enslaved";
                 };
                 # Guest bridge — same config pattern as br-lan, but on
-                # a separate subnet. nftables isolates guest from LAN/WG.
+                # a separate subnet with a different PD SubnetId.
+                # nftables isolates guest from LAN/WG.
                 # DHCPServer config mirrors LAN but with guest-specific pool
                 # and shorter lease time for address rotation.
                 "41-br-guest" = {
@@ -1491,9 +1532,12 @@
                   networkConfig = {
                     ConfigureWithoutCarrier = true;
                     DHCPServer = true;
+                    DHCPPrefixDelegation = true;
                     IPv4Forwarding = true;
+                    IPv6Forwarding = true;
                     IPv4ReversePathFilter = "no";
                     IPv6AcceptRA = false;
+                    IPv6SendRA = true;
                     LLDP = "routers-only";
                     EmitLLDP = "nearest-bridge";
                   };
@@ -1504,6 +1548,14 @@
                     DNS = [ guestGW ];
                     EmitDNS = true;
                     EmitRouter = true;
+                  };
+                  dhcpPrefixDelegationConfig = {
+                    UplinkInterface = cfg.wan.interface;
+                    SubnetId = 1;
+                    Announce = true;
+                  };
+                  ipv6SendRAConfig = {
+                    EmitDNS = false;
                   };
                   linkConfig.RequiredForOnline = "no";
                 };
@@ -1564,7 +1616,10 @@
             #     (persisted to /var/lib/AdGuardHome/AdGuardHome.yaml).
             #
             # The router's own DNS is set to 127.0.0.1 so it also uses AGH.
-            networking.nameservers = [ "127.0.0.1" ];
+            networking.nameservers = [
+              "127.0.0.1"
+              "::1"
+            ];
 
             services.adguardhome = mkIf cfg.dns.adguard.enable {
               enable = true;
@@ -1576,7 +1631,9 @@
                 dns = {
                   bind_hosts = [
                     "127.0.0.1"
+                    "::1"
                     lanGW
+                    "::"
                   ]
                   ++ optional cfg.guest.enable guestGW;
                   port = cfg.dns.adguard.listenPort;
