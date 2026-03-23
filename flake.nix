@@ -138,7 +138,7 @@
           lanGW = cfg.lan.address;
           lanPrefix = toString cfg.lan.prefixLength;
           lanCIDR = "${cfg.lan.networkAddress}/${lanPrefix}";
-          lanDHCPRange = "interface:${brLAN},${cfg.lan.dhcp.rangeStart},${cfg.lan.dhcp.rangeEnd},${cfg.lan.dhcp.leaseTime}";
+          lanDHCPRange = "set:${brLAN},${cfg.lan.dhcp.rangeStart},${cfg.lan.dhcp.rangeEnd},${cfg.lan.dhcp.leaseTime}";
 
           # wgNames / wgInterfaces:
           #   List of WireGuard interface names (e.g. ["wg0"]) and their
@@ -174,7 +174,7 @@
           guestGW = cfg.guest.address;
           guestPrefix = toString cfg.guest.prefixLength;
           guestCIDR = "${cfg.guest.networkAddress}/${guestPrefix}";
-          guestDHCPRange = "interface:${brGuest},${cfg.guest.dhcp.rangeStart},${cfg.guest.dhcp.rangeEnd},${cfg.guest.dhcp.leaseTime}";
+          guestDHCPRange = "set:${brGuest},${cfg.guest.dhcp.rangeStart},${cfg.guest.dhcp.rangeEnd},${cfg.guest.dhcp.leaseTime}";
 
           # ── Standard filter list catalogue ──────────────────────
           # Registry of well-known ad/malware/phishing blocklists for AdGuard
