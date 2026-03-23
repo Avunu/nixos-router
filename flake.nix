@@ -1,6 +1,35 @@
+# ╔══════════════════════════════════════════════════════════════════════════════╗
+# ║  NixOS Router — Declarative Home/Office Router Configuration               ║
+# ║                                                                            ║
+# ║  A single-flake NixOS module that turns a multi-NIC machine into a fully   ║
+# ║  featured router with:                                                     ║
+# ║    • systemd-networkd managed WAN (DHCP) + LAN bridge + optional guest     ║
+# ║    • nftables stateful firewall with NAT, DNS hijacking, DoT blocking      ║
+# ║    • dnsmasq for DHCP/DNS forwarding → AdGuard Home for filtering          ║
+# ║    • WireGuard VPN tunnels with full LAN ↔ WAN ↔ WG routing                ║
+# ║    • Optional Suricata IPS inline via NFQUEUE                              ║
+# ║    • Optional Cockpit web UI for administration                            ║
+# ║    • Disko-based declarative disk partitioning (UEFI or legacy)            ║
+# ║                                                                            ║
+# ║  Usage:                                                                    ║
+# ║    Import `nixosModules.router` and set the `router.*` options in your     ║
+# ║    host configuration. See the MODULE OPTIONS section for all settings.    ║
+# ║                                                                            ║
+# ║  Architecture:                                                             ║
+# ║    DNS flow: clients → dnsmasq (:53) → AdGuard Home (:5353) → DoH upstream║
+# ║    Traffic:  LAN/Guest/WG → nftables (→ Suricata NFQUEUE) → NAT → WAN     ║
+# ╚══════════════════════════════════════════════════════════════════════════════╝
 {
   description = "NixOS Router";
 
+  # ── Flake Inputs ────────────────────────────────────────────────────────────
+  # nixpkgs:  NixOS unstable channel — provides all packages and the NixOS
+  #           module system. Unstable is used for the latest kernel, networkd,
+  #           and security patches.
+  # devenv:   Developer shell with git hooks (nixfmt formatting, flake check).
+  # disko:    Declarative disk partitioning — generates partition layouts from
+  #           Nix expressions, supporting both UEFI (GPT+ESP) and legacy
+  #           (GPT+BIOS boot) modes.
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     devenv = {
@@ -27,6 +56,12 @@
       ];
     in
     {
+      # ── Developer Shell ──────────────────────────────────────────────────────
+      # Provides a devenv-managed shell with:
+      #   • nixfmt for consistent Nix code formatting
+      #   • Pre-commit hooks:
+      #     - nixfmt:        auto-formats .nix files on commit
+      #     - flake-checker: runs `nix flake check` to catch evaluation errors
       devShells = forAllSystems (
         system:
         let
@@ -58,6 +93,20 @@
         }
       );
 
+      # ════════════════════════════════════════════════════════════════════════
+      #  ROUTER MODULE
+      #
+      #  This NixOS module is the core of the flake. It declares all
+      #  `router.*` options and maps them to NixOS config (systemd-networkd,
+      #  nftables, dnsmasq, AdGuard Home, WireGuard, Suricata, Cockpit, etc.).
+      #
+      #  The module is structured as:
+      #    1. `let` block:  Derived values, helpers, sub-module types, and
+      #                     generated config fragments (nftables ruleset,
+      #                     Suricata YAML, filter lists).
+      #    2. `options`:    All user-facing `router.*` option declarations.
+      #    3. `config`:     The implementation that wires options into NixOS.
+      # ════════════════════════════════════════════════════════════════════════
       nixosModules.router =
         {
           config,
@@ -70,30 +119,53 @@
           cfg = config.router;
 
           # ── Derived values ──────────────────────────────────────
+          # These are computed from the user-facing `router.*` options and
+          # referenced throughout the config implementation. Centralizing
+          # them here avoids repetition and ensures consistency.
+          #
+          # brLAN / lanGW / lanPrefix / lanCIDR:
+          #   Bridge name, gateway IP, prefix length, and CIDR notation for
+          #   the primary LAN network. Used in networkd, dnsmasq, nftables,
+          #   and Suricata HOME_NET.
+          #
+          # lanDHCPRange:
+          #   Formatted as "bridge,start,end,lease" for dnsmasq's dhcp-range.
           brLAN = cfg.lan.bridge;
           lanGW = cfg.lan.address;
           lanPrefix = toString cfg.lan.prefixLength;
           lanCIDR = "${cfg.lan.networkAddress}/${lanPrefix}";
           lanDHCPRange = "${brLAN},${cfg.lan.dhcp.rangeStart},${cfg.lan.dhcp.rangeEnd},${cfg.lan.dhcp.leaseTime}";
 
+          # wgNames / wgInterfaces:
+          #   List of WireGuard interface names (e.g. ["wg0"]) and their
+          #   config attrsets. Used to generate networkd units, nftables
+          #   rules, and Suricata HOME_NET entries.
           wgNames = attrNames cfg.wireguard;
           wgInterfaces = attrValues cfg.wireguard;
-
-          # All WG interface names for nftables
           wgIFNames = wgNames;
 
-          # Collect all internal subnets for Suricata HOME_NET
+          # homeNets:
+          #   Aggregated list of all "internal" subnets (LAN + WireGuard +
+          #   Guest) formatted as a Suricata YAML list for $HOME_NET.
+          #   $EXTERNAL_NET is automatically set to "!$HOME_NET".
           lanNets = [ lanCIDR ];
           wgNets = concatMap (wg: [ wg.address ] ++ concatMap (p: p.allowedIPs) wg.peers) wgInterfaces;
           guestNets = optional cfg.guest.enable guestCIDR;
           allHomeNets = lanNets ++ wgNets ++ guestNets;
           homeNets = "[${concatStringsSep ", " allHomeNets}]";
 
-          # nftables helper: quoted list for sets
+          # nftSet:
+          #   Helper to format a list of interface names as a quoted,
+          #   comma-separated nftables set literal, e.g. { "br-lan", "wg0" }.
+          # trustedIFs:
+          #   Interfaces allowed full access to the router (LAN bridge + all
+          #   WireGuard tunnels). Used in the nftables input chain.
           nftSet = items: concatStringsSep ", " (map (i: ''"${i}"'') items);
           trustedIFs = [ brLAN ] ++ wgIFNames;
 
           # ── Guest network derived values ────────────────────────
+          # Mirror of the LAN derived values, for the isolated guest network.
+          # Guest traffic is only allowed to reach the WAN — never LAN or WG.
           brGuest = cfg.guest.bridge;
           guestGW = cfg.guest.address;
           guestPrefix = toString cfg.guest.prefixLength;
@@ -101,6 +173,15 @@
           guestDHCPRange = "${brGuest},${cfg.guest.dhcp.rangeStart},${cfg.guest.dhcp.rangeEnd},${cfg.guest.dhcp.leaseTime}";
 
           # ── Standard filter list catalogue ──────────────────────
+          # Registry of well-known ad/malware/phishing blocklists for AdGuard
+          # Home. Each entry has a stable numeric `id` (used by AdGuard
+          # internally to track filter state), a human-readable `name`, and
+          # the upstream URL. Users toggle individual lists on/off via
+          # `router.dns.adguard.standardFilters.<key> = true|false`.
+          #
+          # The `standardFilters` derivation below takes the user's boolean
+          # toggles, looks up matching entries here, marks them `enabled`,
+          # and passes the result to AdGuard Home's `filters` config.
           standardFilterCatalogue = {
             adguard_ads = {
               name = "AdGuard Base";
@@ -149,11 +230,20 @@
             };
           };
 
+          # Build the list of enabled standard filters by filtering the
+          # catalogue keys against the user's boolean toggles, then merging
+          # in `enabled = true` so AdGuard Home activates them.
           standardFilters = map (key: standardFilterCatalogue.${key} // { enabled = true; }) (
             filter (key: cfg.dns.adguard.standardFilters.${key}) (attrNames cfg.dns.adguard.standardFilters)
           );
 
           # ── UT Capitole blacklist filters ───────────────────────
+          # The Université Toulouse Capitole maintains a curated collection
+          # of domain blacklists organized by category (adult, malware,
+          # phishing, gambling, etc.). Each category string from
+          # `router.dns.adguard.utCapitoleCategories` is turned into an
+          # AdGuard filter entry. IDs start at 10000 to avoid collisions
+          # with the standard filter catalogue (IDs 1-9).
           utCapitoleFilters = imap1 (i: cat: {
             enabled = true;
             name = "UT Capitole - ${cat}";
@@ -162,6 +252,21 @@
           }) cfg.dns.adguard.utCapitoleCategories;
 
           # ── Suricata config (native Nix → YAML) ────────────────
+          # The entire suricata.yaml is built as a Nix attrset and serialized
+          # to YAML via pkgs.formats.yaml. This is done by folding multiple
+          # config fragments with `recursiveUpdate` to keep each concern
+          # (vars, outputs, nfq, app-layer, rules, detect/stream) separate
+          # and readable.
+          #
+          # Key design decisions:
+          #   • NFQ mode with fail-open: if Suricata crashes, traffic passes
+          #     rather than blocking the entire network.
+          #   • EVE JSON logging with community-id: enables correlation with
+          #     other network tools (Zeek, Elastic, etc.).
+          #   • HOME_NET is dynamically computed from all internal subnets
+          #     (LAN + WG + Guest) so Suricata rules automatically cover
+          #     the correct address space.
+          #   • JA3 fingerprinting enabled for TLS traffic analysis.
           yamlFormat = pkgs.formats.yaml { };
 
           suricataConfig = lib.foldl lib.recursiveUpdate { } [
@@ -318,6 +423,14 @@
           ];
 
           # ── DoH block rules for AdGuard ─────────────────────────
+          # AdGuard user rules that block DNS-over-HTTPS provider domains
+          # at the DNS level. This prevents devices from bypassing the
+          # local DNS filtering by using their own DoH resolvers.
+          # The "||domain^" syntax is AdGuard's domain-matching filter:
+          #   || = match domain and all subdomains
+          #   ^  = separator character (end of domain)
+          # These rules complement the nftables DoT port-853 block and
+          # Suricata TLS SNI alerts for defense-in-depth DNS enforcement.
           dohBlockRules = [
             "||dns.google^"
             "||cloudflare-dns.com^"
@@ -332,6 +445,18 @@
           ];
 
           # ── Suricata local rules ────────────────────────────────
+          # Custom IDS/IPS signatures for policy enforcement. These run
+          # alongside the Emerging Threats (ET Open) ruleset.
+          #
+          # Rule categories:
+          #   SID 1000001:      Alert on DNS-over-TLS (port 853) bypass attempts.
+          #   SID 1000002-1007: Alert on DoH bypass via TLS SNI matching for
+          #                     known DoH provider hostnames (Cloudflare, Google,
+          #                     Quad9, NextDNS, Mullvad, AdGuard).
+          #   SID 1000010-1011: Alert on SafeSearch bypass attempts detected
+          #                     via HTTP URI parameters (safe=off, safeSearch=off).
+          #
+          # Additional rules can be appended via `router.suricata.extraRules`.
           localSuricataRules = ''
             alert tls $HOME_NET any -> $EXTERNAL_NET 853 (msg:"POLICY DoT bypass attempt"; flow:to_server,established; sid:1000001; rev:1;)
             alert tls $HOME_NET any -> $EXTERNAL_NET 443 (msg:"POLICY DoH bypass - Cloudflare"; tls.sni; content:"cloudflare-dns.com"; sid:1000002; rev:1;)
@@ -346,6 +471,14 @@
           + cfg.suricata.extraRules;
 
           # ── nftables ruleset generation ─────────────────────────
+          # The firewall ruleset is generated as a Nix multi-line string
+          # and passed to `networking.nftables.ruleset`. It's built from
+          # the user's interface/network config so rules adapt automatically.
+          #
+          # wgInputRules:
+          #   Dynamically generates `accept` rules for each WireGuard
+          #   tunnel's UDP listen port on the WAN interface, allowing
+          #   inbound VPN connections.
           wgInputRules = concatMapStringsSep "\n          " (
             name:
             let
@@ -354,6 +487,11 @@
             ''iifname "${cfg.wan.interface}" udp dport ${toString wg.listenPort} accept comment "Allow WireGuard ${name}"''
           ) wgNames;
 
+          # wgForwardRules:
+          #   For each WireGuard tunnel, generates bidirectional forwarding
+          #   rules (LAN ↔ WG) and outbound WAN access with stateful return
+          #   traffic. This allows VPN clients to reach LAN resources and
+          #   route to the internet through the router.
           wgForwardRules =
             concatMapStringsSep "\n          "
               (name: ''
@@ -366,6 +504,28 @@
                 iifname "${cfg.wan.interface}" oifname "${name}" ct state { established, related } accept'')
               wgNames;
 
+          # nftRuleset:
+          #   The complete nftables configuration, organized into three tables:
+          #
+          #   1. `inet filter` — Stateful firewall (input + forward chains)
+          #      • Input: loopback accepted; trusted IFs (LAN+WG) fully open;
+          #        guest limited to DHCP/DNS only; WAN allows established +
+          #        ICMP + WireGuard ports; everything else dropped.
+          #      • Forward: optional Suricata NFQUEUE inspection; WG
+          #        bidirectional; LAN→WAN; WAN→LAN established; guest→WAN
+          #        only (fully isolated from LAN and WG).
+          #
+          #   2. `ip nat` — NAT and DNS hijacking
+          #      • Prerouting: intercepts all DNS (port 53) from LAN/guest
+          #        and redirects to the local resolver, preventing clients
+          #        from bypassing AdGuard filtering by hardcoding external
+          #        DNS servers.
+          #      • Postrouting: masquerades outbound WAN traffic.
+          #
+          #   3. `inet dot_block` — DNS-over-TLS blocking
+          #      • Runs at priority filter-1 (before the main filter) to
+          #        drop TCP port 853 from LAN/guest, preventing DoT bypass
+          #        of the local DNS resolver.
           nftRuleset = ''
             table inet filter {
               chain input {
@@ -446,6 +606,14 @@
           '';
 
           # ── WireGuard peer submodule type ───────────────────────
+          # Defines the schema for a single WireGuard peer. Each peer has:
+          #   • publicKey:           The peer's WireGuard public key.
+          #   • endpoint:            Optional remote address:port (null for
+          #                          peers that connect inbound only).
+          #   • allowedIPs:          Subnets routed through the WG tunnel to
+          #                          this peer (also used in Suricata HOME_NET).
+          #   • persistentKeepalive: Seconds between keepalive packets
+          #                          (default 25, useful for NAT traversal).
           wgPeerType = types.submodule {
             options = {
               publicKey = mkOption {
@@ -470,6 +638,16 @@
           };
 
           # ── WireGuard interface submodule type ──────────────────
+          # Defines the schema for a WireGuard tunnel interface. The
+          # attribute name in `router.wireguard` becomes the interface name
+          # (e.g. `wg0`). Each interface gets:
+          #   • address:        Local tunnel IP with CIDR (e.g. 10.100.0.1/24).
+          #   • listenPort:     UDP port (default 51820; auto-opened in nftables).
+          #   • privateKeyFile: Path to the private key file (never in the Nix
+          #                    store — should be in /etc/wireguard/ or similar).
+          #   • peers:          List of wgPeerType entries.
+          #   • routes:         Extra destination CIDRs to add as systemd-networkd
+          #                    routes on this tunnel.
           wgInterfaceType = types.submodule {
             options = {
               address = mkOption {
@@ -506,6 +684,23 @@
 
           # ══════════════════════════════════════════════════════════
           #  MODULE OPTIONS
+          #
+          #  All user-facing configuration lives under `router.*`.
+          #  These options are the public API of this module — consumers
+          #  set them in their host configuration to customize the router.
+          #
+          #  Option groups:
+          #    router.hostName / timeZone / stateVersion / diskDevice / bootMode
+          #      → Basic system identity and boot configuration.
+          #    router.wan.*        → WAN (upstream) interface.
+          #    router.lan.*        → LAN bridge, addressing, and DHCP pool.
+          #    router.guest.*      → Optional isolated guest network.
+          #    router.wireguard.*  → WireGuard VPN tunnel definitions.
+          #    router.dns.*        → Upstream DNS, AdGuard Home filtering.
+          #    router.suricata.*   → Optional Suricata IPS.
+          #    router.cockpit.*    → Optional Cockpit web admin UI.
+          #    router.adminUser.*  → SSH admin account.
+          #    router.extraPackages → Additional system packages.
           # ══════════════════════════════════════════════════════════
           options.router = {
             hostName = mkOption {
@@ -541,6 +736,11 @@
             };
 
             # ── WAN ────────────────────────────────────────────────
+            # The upstream (internet-facing) interface. This interface is
+            # configured as a DHCPv4 client and is the masquerade source
+            # for all outbound NAT. It receives the strictest firewall
+            # treatment: only established/related traffic, select ICMP
+            # types, and WireGuard UDP ports are allowed inbound.
             wan = {
               interface = mkOption {
                 type = types.str;
@@ -549,6 +749,16 @@
             };
 
             # ── LAN ────────────────────────────────────────────────
+            # The trusted internal network. Physical ports listed in
+            # `interfaces` are bridged together under the bridge device.
+            # The bridge gets a static IP (the gateway) and serves as
+            # the DHCP server and DNS forwarder for all LAN clients.
+            #
+            # Addressing example:
+            #   address        = "192.168.10.1"   (gateway IP)
+            #   networkAddress = "192.168.10.0"   (network base)
+            #   prefixLength   = 24               (/24 = 254 hosts)
+            #   dhcp.rangeStart/End = .100-.250   (DHCP pool)
             lan = {
               interfaces = mkOption {
                 type = types.listOf types.str;
@@ -603,6 +813,14 @@
             };
 
             # ── Guest Network ──────────────────────────────────────
+            # Optional isolated network for untrusted devices. When enabled:
+            #   • A separate bridge (br-guest) is created for guest ports.
+            #   • nftables restricts guest traffic to WAN-only (no LAN/WG access).
+            #   • Guest clients can reach DHCP (port 67) and DNS (port 53)
+            #     on the router, but nothing else on the router itself.
+            #   • DNS is hijacked to the local resolver (same as LAN).
+            #   • DoT (port 853) is blocked to prevent DNS bypass.
+            #   • Shorter default DHCP lease (1h) encourages address rotation.
             guest = {
               enable = mkEnableOption "guest network with client isolation";
 
@@ -658,6 +876,15 @@
             };
 
             # ── WireGuard ──────────────────────────────────────────
+            # Attribute set of WireGuard tunnel interfaces. The attribute
+            # name becomes the Linux interface name (e.g. wg0, wg-site).
+            # For each tunnel, the module automatically:
+            #   • Creates the WG interface via networking.wireguard.interfaces.
+            #   • Adds a systemd-networkd .network unit with IPv4Forwarding
+            #     and relaxed reverse-path filtering.
+            #   • Opens the UDP listen port in the nftables WAN input chain.
+            #   • Generates bidirectional LAN↔WG and WG→WAN forward rules.
+            #   • Includes WG subnets in Suricata's HOME_NET.
             wireguard = mkOption {
               type = types.attrsOf wgInterfaceType;
               default = { };
@@ -665,6 +892,22 @@
             };
 
             # ── DNS ────────────────────────────────────────────────
+            # DNS resolution pipeline:
+            #   1. Clients send queries to the router's LAN IP (:53).
+            #   2. dnsmasq receives on :53, handles local domain/DHCP
+            #      hostname resolution, forwards everything else to
+            #      AdGuard Home on 127.0.0.1:5353.
+            #   3. AdGuard Home applies filter lists, SafeSearch, and
+            #      DoH blocking rules, then forwards unblocked queries
+            #      to upstream DoH servers (Cloudflare, Google by default).
+            #   4. Bootstrap servers (plain DNS) are used only to resolve
+            #      the DoH server hostnames themselves.
+            #
+            # DNS bypass prevention (defense-in-depth):
+            #   • nftables DNAT: hijacks all port-53 traffic to local resolver.
+            #   • nftables DoT block: drops TCP port 853 in forward chain.
+            #   • AdGuard user rules: blocks known DoH provider domains.
+            #   • Suricata alerts: TLS SNI matching for DoH/DoT providers.
             dns = {
               upstreamServers = mkOption {
                 type = types.listOf types.str;
@@ -777,6 +1020,13 @@
             };
 
             # ── Suricata IPS ───────────────────────────────────────
+            # Optional inline IPS using NFQUEUE. When enabled:
+            #   • The nftables forward chain sends packets to NFQUEUE 0
+            #     with fail-open (traffic passes if Suricata is down).
+            #   • Suricata runs in NFQ accept mode, inspecting forwarded
+            #     traffic with ET Open rules + custom local rules.
+            #   • A daily timer updates ET Open rules via suricata-update.
+            #   • Logs are rotated daily, kept for 14 days.
             suricata = {
               enable = mkEnableOption "Suricata IPS inline inspection";
 
@@ -788,6 +1038,11 @@
             };
 
             # ── Cockpit web UI ────────────────────────────────────
+            # Optional browser-based system administration interface.
+            # Accessible from trusted interfaces (LAN + WG) on the
+            # configured port (default 9090). The NixOS firewall is not
+            # used (openFirewall = false) because nftables already allows
+            # all traffic from trusted IFs in the input chain.
             cockpit = {
               enable = mkEnableOption "Cockpit web-based system administration UI";
 
@@ -838,6 +1093,9 @@
             };
 
             # ── Admin user ─────────────────────────────────────────
+            # The primary admin account. Created as a normal user in the
+            # `wheel` group (sudo access). SSH key-only authentication
+            # is enforced (password auth disabled in sshd config).
             adminUser = {
               name = mkOption {
                 type = types.str;
@@ -861,10 +1119,33 @@
 
           # ══════════════════════════════════════════════════════════
           #  CONFIG IMPLEMENTATION
+          #
+          #  This section maps the `router.*` options into concrete NixOS
+          #  configuration. It is organized into numbered subsections that
+          #  correspond to the router's functional layers:
+          #
+          #   1. Boot & basics     — Bootloader, hostname, timezone, disko.
+          #   2. Kernel            — Sysctl tuning, conntrack, kernel modules.
+          #   3. systemd-networkd  — WAN/LAN/Guest/WG interface configuration.
+          #   4. nftables          — Stateful firewall, NAT, DNS hijacking.
+          #   5. dnsmasq           — DHCP server + DNS forwarder.
+          #   6. AdGuard Home      — DNS filtering, SafeSearch, blocklists.
+          #   7. Suricata          — Inline IPS (optional).
+          #   8. Cockpit           — Web admin UI (optional).
+          #   9. Packages          — System packages (diagnostic tools, etc.).
+          #  10. Logging           — journald size/retention limits.
+          #  11. Hardening         — SSH lockdown, sudo policy.
+          #  12. Maintenance       — Nix GC, auto-upgrade.
           # ══════════════════════════════════════════════════════════
           config = {
 
             # ── 1. Boot & basics ─────────────────────────────────
+            # Selects between systemd-boot (UEFI) and GRUB (legacy BIOS)
+            # based on `router.bootMode`. UEFI mode uses a 1G ESP partition
+            # formatted as vfat; legacy mode uses a 1M BIOS boot partition.
+            # Both use f2fs for the root filesystem with zstd compression,
+            # ATGC garbage collection, and noatime for SSD-friendly operation.
+            # mkDefault allows host configs to override without conflicts.
             boot.loader =
               if cfg.bootMode == "uefi" then
                 {
@@ -978,9 +1259,21 @@
             };
 
             # ── 2. Kernel — perf + conntrack ──────────────────
-            # Forwarding and rp_filter are configured per-interface via networkd.
-            # net.ipv4.conf.default.rp_filter=1 sets the default for interfaces
-            # not explicitly configured (e.g. before networkd starts).
+            # Per-interface forwarding and rp_filter are managed by
+            # systemd-networkd (IPv4Forwarding, IPv4ReversePathFilter in
+            # each .network unit). The sysctl defaults here apply to
+            # interfaces not yet configured by networkd (e.g. during early
+            # boot or for dynamically created interfaces).
+            #
+            # Tuning rationale:
+            #   rp_filter=1:          Strict reverse-path filtering by default
+            #                         (networkd overrides per-interface as needed).
+            #   rmem/wmem_max=25MB:   Allows large socket buffers for high-throughput
+            #                         forwarding and Suricata packet capture.
+            #   netdev_max_backlog:   Increases the per-CPU input queue to handle
+            #                         burst traffic without drops.
+            #   nf_conntrack_max:     131K entries supports ~65K concurrent NAT
+            #                         sessions (each needs 2 conntrack entries).
             boot.kernel.sysctl = {
               "net.ipv4.conf.default.rp_filter" = 1;
               "net.core.rmem_max" = 26214400;
@@ -989,12 +1282,28 @@
               "net.netfilter.nf_conntrack_max" = 131072;
             };
 
+            # nf_conntrack:      Required for stateful NAT and ct state matching
+            #                    in nftables rules.
+            # nfnetlink_queue:   Required for Suricata's NFQUEUE inline mode.
+            #                    Loaded unconditionally so the module is available
+            #                    even if Suricata is enabled later without rebuild.
             boot.kernelModules = [
               "nf_conntrack"
               "nfnetlink_queue"
             ];
 
             # ── 3. systemd-networkd — interfaces + bridge ────────
+            # All network configuration is handled by systemd-networkd.
+            # NixOS's built-in DHCP, NAT, and firewall are disabled to
+            # avoid conflicts with our explicit networkd + nftables setup.
+            #
+            # Interface topology:
+            #   WAN (enp1s0, etc.) ─── DHCPv4 client, strict rp_filter
+            #   LAN ports (enp2s0, etc.) ──┐
+            #                              ├── br-lan (bridge) ─── static IP (gateway)
+            #   LAN ports (enp3s0, etc.) ──┘
+            #   Guest ports ──── br-guest (bridge) ─── static IP (gateway)
+            #   WireGuard (wg0, etc.) ─── tunnel IP, forwarding enabled
             networking = {
               useNetworkd = true;
               useDHCP = false;
@@ -1004,8 +1313,12 @@
 
             systemd.network = {
               enable = true;
+              # Don't block boot waiting for all interfaces — any one is enough.
               wait-online.anyInterface = true;
 
+              # ── Virtual devices (bridges) ──────────────────────
+              # The LAN bridge aggregates physical LAN ports into a single
+              # L2 domain. Guest bridge is created only when guest.enable = true.
               netdevs = {
                 "20-br-lan" = {
                   netdevConfig = {
@@ -1023,7 +1336,21 @@
                 };
               };
 
+              # ── Network units ────────────────────────────────────
               networks = {
+                # WAN interface: DHCP client for upstream connectivity.
+                # • IPv4Forwarding: enables kernel forwarding sysctl for this IF.
+                # • IPv4ReversePathFilter=strict: drops packets with spoofed
+                #   source addresses (BCP38/RFC3704 compliance).
+                # • IPv6AcceptRA=false: no IPv6 on WAN (IPv4-only deployment).
+                # • IgnoreCarrierLoss=3s: tolerates brief cable/modem blips
+                #   without tearing down DHCP lease and routes.
+                # • KeepConfiguration=dynamic-on-stop: preserves DHCP addresses
+                #   and routes during networkd restarts (avoids brief outages).
+                # • dhcpV4Config: prevents ISP DHCP from overriding local DNS
+                #   (UseDNS/UseHostname/UseDomains=false), while still sending
+                #   our hostname to the ISP for lease identification.
+                #   RouteMetric=100 gives WAN routes explicit priority.
                 "10-wan" = {
                   matchConfig.Name = cfg.wan.interface;
                   networkConfig = {
@@ -1044,6 +1371,14 @@
                   linkConfig.RequiredForOnline = "routable";
                 };
 
+                # LAN bridge member ports: enslaved to br-lan.
+                # • ConfigureWithoutCarrier: allow networkd to configure the
+                #   port even when no cable is plugged in.
+                # • LinkLocalAddressing=no: bridge members don't need their own
+                #   IP addresses — the bridge device itself handles addressing.
+                # • IPv6AcceptRA=false: prevents rogue RA attacks on LAN ports.
+                # • RequiredForOnline=enslaved: port is "online" when joined
+                #   to the bridge, even without an IP address.
                 "30-lan-ports" = {
                   matchConfig.Name = concatStringsSep " " cfg.lan.interfaces;
                   networkConfig = {
@@ -1055,6 +1390,20 @@
                   linkConfig.RequiredForOnline = "enslaved";
                 };
 
+                # LAN bridge: the router's internal gateway interface.
+                # • Static IP address (lanGW/lanPrefix) — this is the default
+                #   gateway and DNS server for all LAN clients.
+                # • ConfigureWithoutCarrier: keeps config stable even if all
+                #   physical ports are unplugged momentarily.
+                # • IPv4Forwarding: enables IP forwarding on this interface.
+                # • IPv4ReversePathFilter=no: relaxed because traffic arrives
+                #   from bridged ports with various source subnets.
+                # • IPv6AcceptRA=false: blocks rogue IPv6 RAs on the bridge.
+                # • LLDP=routers-only: receives LLDP from connected switches
+                #   (query via `networkctl lldp` for topology discovery).
+                # • EmitLLDP=nearest-bridge: announces this router to directly
+                #   connected switches for identification.
+                # • RequiredForOnline=no: boot doesn't wait for this interface.
                 "40-br-lan" = {
                   matchConfig.Name = brLAN;
                   address = [ "${lanGW}/${lanPrefix}" ];
@@ -1069,6 +1418,10 @@
                   linkConfig.RequiredForOnline = "no";
                 };
               }
+              # WireGuard tunnel network units: generated dynamically from
+              # `router.wireguard` entries. Each tunnel gets forwarding
+              # enabled and relaxed rp_filter (WG traffic arrives from the
+              # tunnel, not the physical interface the route points to).
               // listToAttrs (
                 imap0 (
                   i: name:
@@ -1087,7 +1440,11 @@
                   }
                 ) wgNames
               )
+              # Guest network units (only when guest.enable = true):
+              # Same pattern as LAN — member ports enslaved to bridge,
+              # bridge gets static IP. LLDP enabled for topology visibility.
               // optionalAttrs cfg.guest.enable {
+                # Guest bridge member ports — same rationale as LAN ports.
                 "31-guest-ports" = {
                   matchConfig.Name = concatStringsSep " " cfg.guest.interfaces;
                   networkConfig = {
@@ -1098,6 +1455,8 @@
                   };
                   linkConfig.RequiredForOnline = "enslaved";
                 };
+                # Guest bridge — same config pattern as br-lan, but on
+                # a separate subnet. nftables isolates guest from LAN/WG.
                 "41-br-guest" = {
                   matchConfig.Name = brGuest;
                   address = [ "${guestGW}/${guestPrefix}" ];
@@ -1115,6 +1474,12 @@
             };
 
             # ── WireGuard interfaces ─────────────────────────────
+            # Creates WireGuard tunnel interfaces using NixOS's built-in
+            # wireguard module. Each `router.wireguard.<name>` entry becomes
+            # a kernel WG interface. The `optionalAttrs` block only includes
+            # the `endpoint` field when it's non-null, supporting both
+            # client-initiated (endpoint set) and server-only (endpoint null)
+            # peer configurations.
             networking.wireguard.interfaces = mapAttrs (name: wg: {
               ips = [ wg.address ];
               listenPort = wg.listenPort;
@@ -1133,12 +1498,31 @@
             }) cfg.wireguard;
 
             # ── 4. nftables ──────────────────────────────────────
+            # The complete firewall ruleset generated from `nftRuleset` above.
+            # See the nftRuleset generation section in the `let` block for
+            # detailed documentation of each table and chain.
             networking.nftables = {
               enable = true;
               ruleset = nftRuleset;
             };
 
             # ── 5. DHCP + DNS forwarding — dnsmasq ───────────────
+            # dnsmasq serves two roles:
+            #   1. DHCP server: assigns IPs to LAN (and optionally guest)
+            #      clients with per-interface tagged options (gateway, DNS).
+            #   2. DNS forwarder: listens on :53, resolves local domain
+            #      names (hostname.lan), and forwards all other queries
+            #      to AdGuard Home on 127.0.0.1:5353.
+            #
+            # Key settings:
+            #   bind-interfaces:  Only listen on configured interfaces (not all).
+            #   no-resolv:        Don't read /etc/resolv.conf for upstream servers.
+            #   cache-size=0:     Disable dnsmasq's cache — AdGuard Home handles
+            #                     caching with TTL-aware logic.
+            #   stop-dns-rebind:  Reject private IPs in upstream DNS responses
+            #                     (DNS rebinding attack protection).
+            #   domain-needed:    Don't forward plain hostnames to upstream.
+            #   bogus-priv:       Don't forward reverse lookups for private ranges.
             services.dnsmasq = {
               enable = true;
               settings = {
@@ -1183,6 +1567,22 @@
             };
 
             # ── 6. Ad-blocking + SafeSearch — AdGuard Home ────────
+            # AdGuard Home provides DNS-level content filtering. It listens
+            # on 127.0.0.1:5353 (not exposed to clients directly — dnsmasq
+            # forwards to it) and resolves queries via upstream DoH servers.
+            #
+            # Configuration includes:
+            #   • dns.protection/filtering_enabled: master switches for blocking.
+            #   • dns.rate_limit=0: no per-client rate limiting (dnsmasq is the
+            #     only client from AGH's perspective).
+            #   • dns.cache: 4MB cache with 5min-24h TTL bounds for performance.
+            #   • safe_search: forces SafeSearch on major search engines/YouTube
+            #     by rewriting DNS responses to safe variants.
+            #   • filters: combination of standard lists, UT Capitole categories,
+            #     and user-supplied extra filters.
+            #   • user_rules: DoH provider blocking rules + user extras.
+            #   • mutableSettings=true: allows runtime changes via the AGH web UI
+            #     (persisted to /var/lib/AdGuardHome/AdGuardHome.yaml).
             services.adguardhome = mkIf cfg.dns.adguard.enable {
               enable = true;
               mutableSettings = true;
@@ -1220,6 +1620,24 @@
             };
 
             # ── 7. IPS — Suricata ────────────────────────────────
+            # When enabled, Suricata runs as an inline IPS via NFQUEUE.
+            # The config is placed in /etc/suricata/ via environment.etc,
+            # and a systemd service handles startup, rule updates, and
+            # log rotation.
+            #
+            # Startup sequence (ExecStartPre):
+            #   1. Create rule/log directories.
+            #   2. Copy local.rules from /etc (Nix-managed) to /var/lib
+            #      (writable location Suricata expects).
+            #   3. Run suricata-update to fetch/merge ET Open rules.
+            #
+            # The service is hardened with:
+            #   • ProtectSystem=strict + explicit ReadWritePaths for logs/state.
+            #   • CAP_NET_ADMIN + CAP_NET_RAW for packet capture.
+            #   • NoNewPrivileges + PrivateTmp for isolation.
+            #
+            # A daily timer (suricata-update.timer) refreshes ET Open rules
+            # with a randomized delay to avoid thundering herd on update servers.
             environment.etc = mkIf cfg.suricata.enable {
               "suricata/suricata.yaml".source = yamlFormat.generate "suricata.yaml" suricataConfig;
               "suricata/rules/local.rules".text = localSuricataRules;
@@ -1299,6 +1717,11 @@
             };
 
             # ── 8. Web UI — Cockpit ─────────────────────────────
+            # Cockpit provides a browser-based admin interface for system
+            # monitoring, service management, and terminal access. It's
+            # only accessible from trusted networks (LAN + WG) via the
+            # nftables input chain — openFirewall is disabled since we
+            # manage access through nftables, not the NixOS firewall.
             services.cockpit = mkIf cfg.cockpit.enable {
               enable = true;
               port = cfg.cockpit.port;
@@ -1311,6 +1734,15 @@
             };
 
             # ── 9. Packages ──────────────────────────────────────
+            # Baseline diagnostic tools for router troubleshooting:
+            #   tcpdump:        Packet capture and analysis.
+            #   htop:           Interactive process/resource monitor.
+            #   ethtool:        NIC diagnostics (link speed, offloading, etc.).
+            #   iftop:          Real-time per-connection bandwidth monitor.
+            #   conntrack-tools: Inspect/manage the nf_conntrack table.
+            #   jq:             JSON processing (useful for Suricata eve.json).
+            #   iperf3:         Network throughput testing.
+            # Suricata and wireguard-tools are added conditionally.
             environment.systemPackages =
               with pkgs;
               [
@@ -1327,12 +1759,23 @@
               ++ cfg.extraPackages;
 
             # ── 10. Logging ──────────────────────────────────────
+            # Cap journald storage to 500MB and 30 days to prevent the
+            # system journal from consuming all disk space on routers
+            # with limited storage (common with eMMC/SSD appliances).
             services.journald.extraConfig = ''
               SystemMaxUse=500M
               MaxRetentionSec=30day
             '';
 
             # ── 11. Hardening ────────────────────────────────────
+            # SSH is the primary remote management interface. Security:
+            #   • PermitRootLogin=prohibit-password: root can only auth via
+            #     key (prevents brute-force; useful for emergency recovery).
+            #   • PasswordAuthentication=false: keys only for all users.
+            #   • KbdInteractiveAuthentication=false: disables challenge-response.
+            #   • openFirewall=false: access controlled by nftables (trusted IFs).
+            #   • wheelNeedsPassword=true: sudo requires the user's password
+            #     even for wheel group members (defense against stolen SSH keys).
             services.openssh = {
               enable = true;
               settings = {
@@ -1352,6 +1795,13 @@
             };
 
             # ── 12. Maintenance ──────────────────────────────────
+            # Automated housekeeping:
+            #   • Nix GC: weekly cleanup of store paths older than 30 days.
+            #     Keeps disk usage bounded on long-running routers.
+            #   • Auto-upgrade: daily check for NixOS updates at 04:00.
+            #     allowReboot=false by default — upgrades apply on next
+            #     manual reboot (safe for headless routers).
+            #   • Flakes + nix-command enabled for modern Nix CLI.
             nix = {
               gc = {
                 automatic = true;
