@@ -1161,7 +1161,6 @@
                     devices = mkForce [ cfg.diskDevice ];
                     efiSupport = false;
                     enable = mkDefault true;
-                    forcei686 = true;
                   };
                 };
 
@@ -1225,9 +1224,19 @@
                       {
                         type = "gpt";
                         partitions = {
-                          boot = {
+                          biosboot = {
                             size = "1M";
                             type = "EF02";
+                          };
+                          boot = {
+                            size = "512M";
+                            content = {
+                              type = "filesystem";
+                              format = "ext4";
+                              mountpoint = "/boot";
+                              mountOptions = [ "noatime" ];
+                              extraArgs = [ "-L" "boot" ];
+                            };
                           };
                           root = {
                             size = "100%";
