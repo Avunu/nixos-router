@@ -127,31 +127,10 @@
           #   Bridge name, gateway IP, prefix length, and CIDR notation for
           #   the primary LAN network. Used in networkd, nftables, and
           #   Suricata HOME_NET.
-          #
-          # ipToInt:
-          #   Converts an IPv4 dotted-quad string to a 32-bit integer.
-          #   Used to compute DHCPServer pool offset and size from the
-          #   user-facing rangeStart/rangeEnd IP address options.
-          #
-          # lanPoolOffset / lanPoolSize:
-          #   Computed from rangeStart/rangeEnd for networkd's DHCPServer.
-          #   PoolOffset is the number of addresses from the network base
-          #   to the first leasable address; PoolSize is the range width.
-          ipToInt = ip:
-            let
-              parts = map toInt (splitString "." ip);
-            in
-            (elemAt parts 0) * 16777216
-            + (elemAt parts 1) * 65536
-            + (elemAt parts 2) * 256
-            + (elemAt parts 3);
-
           brLAN = cfg.lan.bridge;
           lanGW = cfg.lan.address;
           lanPrefix = toString cfg.lan.prefixLength;
           lanCIDR = "${cfg.lan.networkAddress}/${lanPrefix}";
-          lanPoolOffset = (ipToInt cfg.lan.dhcp.rangeStart) - (ipToInt cfg.lan.networkAddress);
-          lanPoolSize = (ipToInt cfg.lan.dhcp.rangeEnd) - (ipToInt cfg.lan.dhcp.rangeStart) + 1;
 
           # wgNames / wgInterfaces:
           #   List of WireGuard interface names (e.g. ["wg0"]) and their
@@ -187,8 +166,6 @@
           guestGW = cfg.guest.address;
           guestPrefix = toString cfg.guest.prefixLength;
           guestCIDR = "${cfg.guest.networkAddress}/${guestPrefix}";
-          guestPoolOffset = (ipToInt cfg.guest.dhcp.rangeStart) - (ipToInt cfg.guest.networkAddress);
-          guestPoolSize = (ipToInt cfg.guest.dhcp.rangeEnd) - (ipToInt cfg.guest.dhcp.rangeStart) + 1;
 
           # ── Standard filter list catalogue ──────────────────────
           # Registry of well-known ad/malware/phishing blocklists for AdGuard
@@ -776,7 +753,7 @@
             #   address        = "192.168.10.1"   (gateway IP)
             #   networkAddress = "192.168.10.0"   (network base)
             #   prefixLength   = 24               (/24 = 254 hosts)
-            #   dhcp.rangeStart/End = .100-.250   (DHCP pool)
+            #   dhcp.poolOffset/poolSize  = 100/151    (DHCP pool)
             lan = {
               interfaces = mkOption {
                 type = types.listOf types.str;
@@ -812,14 +789,14 @@
               };
 
               dhcp = {
-                rangeStart = mkOption {
-                  type = types.str;
-                  description = "First IP in DHCP range (e.g. 192.168.10.100)";
+                poolOffset = mkOption {
+                  type = types.int;
+                  description = "Offset from network base to first DHCP address (e.g. 100 for .100)";
                 };
 
-                rangeEnd = mkOption {
-                  type = types.str;
-                  description = "Last IP in DHCP range (e.g. 192.168.10.250)";
+                poolSize = mkOption {
+                  type = types.int;
+                  description = "Number of addresses in the DHCP pool (e.g. 151 for .100-.250)";
                 };
 
                 leaseTime = mkOption {
@@ -873,16 +850,16 @@
               };
 
               dhcp = {
-                rangeStart = mkOption {
-                  type = types.str;
-                  default = "192.168.20.100";
-                  description = "First IP in guest DHCP range";
+                poolOffset = mkOption {
+                  type = types.int;
+                  default = 100;
+                  description = "Offset from network base to first guest DHCP address";
                 };
 
-                rangeEnd = mkOption {
-                  type = types.str;
-                  default = "192.168.20.250";
-                  description = "Last IP in guest DHCP range";
+                poolSize = mkOption {
+                  type = types.int;
+                  default = 151;
+                  description = "Number of addresses in the guest DHCP pool";
                 };
 
                 leaseTime = mkOption {
@@ -1457,8 +1434,8 @@
                     EmitLLDP = "nearest-bridge";
                   };
                   dhcpServerConfig = {
-                    PoolOffset = lanPoolOffset;
-                    PoolSize = lanPoolSize;
+                    PoolOffset = cfg.lan.dhcp.poolOffset;
+                    PoolSize = cfg.lan.dhcp.poolSize;
                     DefaultLeaseTimeSec = cfg.lan.dhcp.leaseTime;
                     DNS = [ lanGW ];
                     EmitDNS = true;
@@ -1521,8 +1498,8 @@
                     EmitLLDP = "nearest-bridge";
                   };
                   dhcpServerConfig = {
-                    PoolOffset = guestPoolOffset;
-                    PoolSize = guestPoolSize;
+                    PoolOffset = cfg.guest.dhcp.poolOffset;
+                    PoolSize = cfg.guest.dhcp.poolSize;
                     DefaultLeaseTimeSec = cfg.guest.dhcp.leaseTime;
                     DNS = [ guestGW ];
                     EmitDNS = true;

@@ -46,8 +46,8 @@
                   prefixLength = 24;
                   domain = "lan";
                   dhcp = {
-                    rangeStart = "10.58.1.100";
-                    rangeEnd = "10.58.1.250";
+                    poolOffset = 100;
+                    poolSize = 151;
                     leaseTime = "30d";
                   };
                 };
@@ -68,8 +68,8 @@
                   networkAddress = "192.168.20.0";
                   prefixLength = 24;
                   dhcp = {
-                    rangeStart = "192.168.20.100";
-                    rangeEnd = "192.168.20.250";
+                    poolOffset = 100;
+                    poolSize = 151;
                     leaseTime = "1h";
                   };
                 };
