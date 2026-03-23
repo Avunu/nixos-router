@@ -977,26 +977,16 @@
               };
             };
 
-            # ── 2. Kernel — forwarding, martian filtering, perf ──
+            # ── 2. Kernel — perf + conntrack ──────────────────
+            # Forwarding and rp_filter are configured per-interface via networkd.
+            # net.ipv4.conf.default.rp_filter=1 sets the default for interfaces
+            # not explicitly configured (e.g. before networkd starts).
             boot.kernel.sysctl = {
-              "net.ipv4.conf.all.forwarding" = true;
-              "net.ipv6.conf.all.forwarding" = false;
               "net.ipv4.conf.default.rp_filter" = 1;
-              "net.ipv4.conf.${cfg.wan.interface}.rp_filter" = 1;
-              "net.ipv4.conf.${brLAN}.rp_filter" = 0;
               "net.core.rmem_max" = 26214400;
               "net.core.wmem_max" = 26214400;
               "net.core.netdev_max_backlog" = 5000;
               "net.netfilter.nf_conntrack_max" = 131072;
-            }
-            // listToAttrs (
-              map (name: {
-                name = "net.ipv4.conf.${name}.rp_filter";
-                value = 0;
-              }) wgNames
-            )
-            // optionalAttrs cfg.guest.enable {
-              "net.ipv4.conf.${brGuest}.rp_filter" = 0;
             };
 
             boot.kernelModules = [
@@ -1038,7 +1028,18 @@
                   matchConfig.Name = cfg.wan.interface;
                   networkConfig = {
                     DHCP = "ipv4";
-                    # IPForward = true;
+                    IPv4Forwarding = true;
+                    IPv4ReversePathFilter = "strict";
+                    IPv6AcceptRA = false;
+                    IgnoreCarrierLoss = "3s";
+                    KeepConfiguration = "dynamic-on-stop";
+                  };
+                  dhcpV4Config = {
+                    UseDNS = false;
+                    UseHostname = false;
+                    UseDomains = false;
+                    SendHostname = true;
+                    RouteMetric = 100;
                   };
                   linkConfig.RequiredForOnline = "routable";
                 };
@@ -1048,6 +1049,8 @@
                   networkConfig = {
                     Bridge = brLAN;
                     ConfigureWithoutCarrier = true;
+                    LinkLocalAddressing = "no";
+                    IPv6AcceptRA = false;
                   };
                   linkConfig.RequiredForOnline = "enslaved";
                 };
@@ -1057,6 +1060,11 @@
                   address = [ "${lanGW}/${lanPrefix}" ];
                   networkConfig = {
                     ConfigureWithoutCarrier = true;
+                    IPv4Forwarding = true;
+                    IPv4ReversePathFilter = "no";
+                    IPv6AcceptRA = false;
+                    LLDP = "routers-only";
+                    EmitLLDP = "nearest-bridge";
                   };
                   linkConfig.RequiredForOnline = "no";
                 };
@@ -1071,6 +1079,10 @@
                     matchConfig.Name = name;
                     address = [ wg.address ];
                     routes = map (dest: { Destination = dest; }) wg.routes;
+                    networkConfig = {
+                      IPv4Forwarding = true;
+                      IPv4ReversePathFilter = "no";
+                    };
                     linkConfig.RequiredForOnline = "no";
                   }
                 ) wgNames
@@ -1081,13 +1093,22 @@
                   networkConfig = {
                     Bridge = brGuest;
                     ConfigureWithoutCarrier = true;
+                    LinkLocalAddressing = "no";
+                    IPv6AcceptRA = false;
                   };
                   linkConfig.RequiredForOnline = "enslaved";
                 };
                 "41-br-guest" = {
                   matchConfig.Name = brGuest;
                   address = [ "${guestGW}/${guestPrefix}" ];
-                  networkConfig.ConfigureWithoutCarrier = true;
+                  networkConfig = {
+                    ConfigureWithoutCarrier = true;
+                    IPv4Forwarding = true;
+                    IPv4ReversePathFilter = "no";
+                    IPv6AcceptRA = false;
+                    LLDP = "routers-only";
+                    EmitLLDP = "nearest-bridge";
+                  };
                   linkConfig.RequiredForOnline = "no";
                 };
               };
