@@ -1574,7 +1574,11 @@
               settings = {
 
                 dns = {
-                  bind_hosts = [ "127.0.0.1" lanGW ] ++ optional cfg.guest.enable guestGW;
+                  bind_hosts = [
+                    "127.0.0.1"
+                    lanGW
+                  ]
+                  ++ optional cfg.guest.enable guestGW;
                   port = cfg.dns.adguard.listenPort;
                   upstream_dns = cfg.dns.upstreamServers;
                   bootstrap_dns = cfg.dns.bootstrapServers;
@@ -1585,7 +1589,10 @@
                   cache_ttl_min = 300;
                   cache_ttl_max = 86400;
                   rewrites = [
-                    { domain = "${cfg.hostName}.${cfg.lan.domain}"; answer = lanGW; }
+                    {
+                      domain = "${cfg.hostName}.${cfg.lan.domain}";
+                      answer = lanGW;
+                    }
                   ];
                 };
 
@@ -1629,54 +1636,68 @@
               "suricata/rules/local.rules".text = localSuricataRules;
             };
 
-            systemd.services = mkIf cfg.suricata.enable {
-              suricata = {
-                description = "Suricata IPS";
-                after = [ "network-online.target" ];
-                wants = [ "network-online.target" ];
-                wantedBy = [ "multi-user.target" ];
-                serviceConfig = {
-                  ExecStartPre = [
-                    "${pkgs.coreutils}/bin/mkdir -p /var/lib/suricata/rules /var/log/suricata"
-                    "${pkgs.coreutils}/bin/cp /etc/suricata/rules/local.rules /var/lib/suricata/rules/local.rules"
-                    "${pkgs.suricata}/bin/suricata-update --no-test --no-reload"
+            # Bypass cockpit-tls: have the socket hand connections directly
+            # to cockpit-ws (plain HTTP) instead of cockpit-tls.
+            # Suricata services are also defined here (conditional on enable).
+            systemd.services = mkMerge [
+              (mkIf cfg.cockpit.enable {
+                cockpit-ws = {
+                  overrideStrategy = "asDropin";
+                  serviceConfig.ExecStart = [
+                    "" # clear the default ExecStart
+                    "${cfg.cockpit.package}/libexec/cockpit-ws --no-tls --port ${toString cfg.cockpit.port}"
                   ];
-                  ExecStart = "${pkgs.suricata}/bin/suricata -c /etc/suricata/suricata.yaml -q 0 --pidfile /run/suricata.pid";
-                  ExecReload = "${pkgs.coreutils}/bin/kill -USR2 $MAINPID";
-                  Type = "simple";
-                  Restart = "on-failure";
-                  RestartSec = "10s";
-                  LimitNOFILE = 65536;
-                  ProtectHome = true;
-                  ProtectSystem = "strict";
-                  ReadWritePaths = [
-                    "/var/log/suricata"
-                    "/var/lib/suricata"
-                    "/run"
-                  ];
-                  CapabilityBoundingSet = [
-                    "CAP_NET_ADMIN"
-                    "CAP_NET_RAW"
-                    "CAP_SYS_NICE"
-                  ];
-                  AmbientCapabilities = [
-                    "CAP_NET_ADMIN"
-                    "CAP_NET_RAW"
-                  ];
-                  NoNewPrivileges = true;
-                  PrivateTmp = true;
                 };
-              };
+              })
+              (mkIf cfg.suricata.enable {
+                suricata = {
+                  description = "Suricata IPS";
+                  after = [ "network-online.target" ];
+                  wants = [ "network-online.target" ];
+                  wantedBy = [ "multi-user.target" ];
+                  serviceConfig = {
+                    ExecStartPre = [
+                      "${pkgs.coreutils}/bin/mkdir -p /var/lib/suricata/rules /var/log/suricata"
+                      "${pkgs.coreutils}/bin/cp /etc/suricata/rules/local.rules /var/lib/suricata/rules/local.rules"
+                      "${pkgs.suricata}/bin/suricata-update --no-test --no-reload"
+                    ];
+                    ExecStart = "${pkgs.suricata}/bin/suricata -c /etc/suricata/suricata.yaml -q 0 --pidfile /run/suricata.pid";
+                    ExecReload = "${pkgs.coreutils}/bin/kill -USR2 $MAINPID";
+                    Type = "simple";
+                    Restart = "on-failure";
+                    RestartSec = "10s";
+                    LimitNOFILE = 65536;
+                    ProtectHome = true;
+                    ProtectSystem = "strict";
+                    ReadWritePaths = [
+                      "/var/log/suricata"
+                      "/var/lib/suricata"
+                      "/run"
+                    ];
+                    CapabilityBoundingSet = [
+                      "CAP_NET_ADMIN"
+                      "CAP_NET_RAW"
+                      "CAP_SYS_NICE"
+                    ];
+                    AmbientCapabilities = [
+                      "CAP_NET_ADMIN"
+                      "CAP_NET_RAW"
+                    ];
+                    NoNewPrivileges = true;
+                    PrivateTmp = true;
+                  };
+                };
 
-              suricata-update = {
-                description = "Update Suricata ET Open rules";
-                serviceConfig = {
-                  Type = "oneshot";
-                  ExecStart = "${pkgs.suricata}/bin/suricata-update --no-test";
-                  ExecStartPost = "${pkgs.systemd}/bin/systemctl reload suricata.service";
+                suricata-update = {
+                  description = "Update Suricata ET Open rules";
+                  serviceConfig = {
+                    Type = "oneshot";
+                    ExecStart = "${pkgs.suricata}/bin/suricata-update --no-test";
+                    ExecStartPost = "${pkgs.systemd}/bin/systemctl reload suricata.service";
+                  };
                 };
-              };
-            };
+              })
+            ];
 
             systemd.timers = mkIf cfg.suricata.enable {
               suricata-update = {

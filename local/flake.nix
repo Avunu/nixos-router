@@ -69,7 +69,7 @@
                   prefixLength = 24;
                   dhcp = {
                     poolOffset = 100;
-                    poolSize = 151;
+                    poolSize = 150;
                     leaseTime = "1h";
                   };
                 };
