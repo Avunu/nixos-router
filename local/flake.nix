@@ -133,7 +133,7 @@
                       "phishing"
                       "cryptojacking"
                       "ddos"
-                      # "adult"
+                      "porn"
                       # "gambling"
                       # "vpn"
                       # "dating"

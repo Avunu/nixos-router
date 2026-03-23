@@ -239,10 +239,19 @@
           # `router.dns.adguard.utCapitoleCategories` is turned into an
           # AdGuard filter entry. IDs start at 10000 to avoid collisions
           # with the standard filter catalogue (IDs 1-9).
+          #
+          # Source: olbat/ut1-blacklists GitHub mirror of the UT Capitole
+          # archives. The upstream site (dsi.ut-capitole.fr) only serves
+          # categories as .tar.gz archives; this mirror extracts them into
+          # individual `domains` files suitable for AdGuard Home.
+          #
+          # NOTE: The "adult" category is too large (~50MB) for a plain
+          # domains file on GitHub — use "mixed_adult" or "porn" instead,
+          # or omit it and rely on a dedicated adult-content filter list.
           utCapitoleFilters = imap1 (i: cat: {
             enabled = true;
             name = "UT Capitole - ${cat}";
-            url = "https://dsi.ut-capitole.fr/blacklists/download/${cat}/domains";
+            url = "https://raw.githubusercontent.com/olbat/ut1-blacklists/master/blacklists/${cat}/domains";
             id = 9999 + i;
           }) cfg.dns.adguard.utCapitoleCategories;
 
