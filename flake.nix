@@ -129,12 +129,16 @@
           #   and Suricata HOME_NET.
           #
           # lanDHCPRange:
-          #   Formatted as "bridge,start,end,lease" for dnsmasq's dhcp-range.
+          #   Formatted as "interface:bridge,set:bridge,start,end,lease" for
+          #   dnsmasq's dhcp-range. The interface: prefix scopes the range
+          #   to the named bridge (prevents cross-assignment between LAN and
+          #   guest). The set: prefix tags leases so dhcp-option can target
+          #   per-network gateway/DNS settings.
           brLAN = cfg.lan.bridge;
           lanGW = cfg.lan.address;
           lanPrefix = toString cfg.lan.prefixLength;
           lanCIDR = "${cfg.lan.networkAddress}/${lanPrefix}";
-          lanDHCPRange = "${brLAN},${cfg.lan.dhcp.rangeStart},${cfg.lan.dhcp.rangeEnd},${cfg.lan.dhcp.leaseTime}";
+          lanDHCPRange = "interface:${brLAN},set:${brLAN},${cfg.lan.dhcp.rangeStart},${cfg.lan.dhcp.rangeEnd},${cfg.lan.dhcp.leaseTime}";
 
           # wgNames / wgInterfaces:
           #   List of WireGuard interface names (e.g. ["wg0"]) and their
@@ -170,7 +174,7 @@
           guestGW = cfg.guest.address;
           guestPrefix = toString cfg.guest.prefixLength;
           guestCIDR = "${cfg.guest.networkAddress}/${guestPrefix}";
-          guestDHCPRange = "${brGuest},${cfg.guest.dhcp.rangeStart},${cfg.guest.dhcp.rangeEnd},${cfg.guest.dhcp.leaseTime}";
+          guestDHCPRange = "interface:${brGuest},set:${brGuest},${cfg.guest.dhcp.rangeStart},${cfg.guest.dhcp.rangeEnd},${cfg.guest.dhcp.leaseTime}";
 
           # ── Standard filter list catalogue ──────────────────────
           # Registry of well-known ad/malware/phishing blocklists for AdGuard
@@ -1534,7 +1538,8 @@
             #      to AdGuard Home on 127.0.0.1:5353.
             #
             # Key settings:
-            #   bind-interfaces:  Only listen on configured interfaces (not all).
+            #   bind-dynamic:     Like bind-interfaces but handles bridges that
+            #                     appear after dnsmasq starts (uses SO_BINDTODEVICE).
             #   no-resolv:        Don't read /etc/resolv.conf for upstream servers.
             #   cache-size=0:     Disable dnsmasq's cache — AdGuard Home handles
             #                     caching with TTL-aware logic.
@@ -1553,7 +1558,7 @@
                     ]
                   else
                     brLAN;
-                bind-interfaces = true;
+                bind-dynamic = true;
                 dhcp-range = [ lanDHCPRange ] ++ optional cfg.guest.enable guestDHCPRange;
                 dhcp-host = lanGW;
                 dhcp-option =
@@ -1749,7 +1754,11 @@
               openFirewall = false; # managed by nftables (LAN/WG already accepted)
               showBanner = cfg.cockpit.showBanner;
               "allowed-origins" = cfg.cockpit.allowedOrigins;
-              settings = cfg.cockpit.settings;
+              settings = mkMerge cfg.cockpit.settings {
+                WebService = {
+                  AllowUnencrypted = true;
+                };
+              };
             };
 
             # ── 9. Packages ──────────────────────────────────────
