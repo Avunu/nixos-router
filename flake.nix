@@ -1716,6 +1716,12 @@
               (mkIf cfg.cockpit.enable {
                 cockpit = {
                   overrideStrategy = "asDropin";
+                  # cockpit-session.socket creates /run/cockpit/session, which
+                  # cockpit-ws needs to authenticate users.  In the normal
+                  # architecture the wsinstance services pull it in, but since
+                  # we run cockpit-ws directly here we must start it ourselves.
+                  wants = [ "cockpit-session.socket" ];
+                  after = [ "cockpit-session.socket" ];
                   serviceConfig = {
                     ExecStartPre = ""; # clear certificate-ensure (no TLS cert needed)
                     ExecStart = [
