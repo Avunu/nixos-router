@@ -1705,17 +1705,36 @@
               "suricata/rules/local.rules".text = localSuricataRules;
             };
 
-            # Bypass cockpit-tls: have the socket hand connections directly
-            # to cockpit-ws (plain HTTP) instead of cockpit-tls.
+            # Bypass cockpit-tls: override cockpit.service (the unit activated by
+            # cockpit.socket) to run cockpit-ws --no-tls directly instead of
+            # cockpit-tls.  cockpit-ws needs root and network access to perform
+            # PAM authentication and spawn cockpit-session, so we must clear the
+            # restrictive DynamicUser/PrivateNetwork/NoNewPrivileges settings that
+            # the upstream unit applies to cockpit-tls.
             # Suricata services are also defined here (conditional on enable).
             systemd.services = mkMerge [
               (mkIf cfg.cockpit.enable {
-                cockpit-ws = {
+                cockpit = {
                   overrideStrategy = "asDropin";
-                  serviceConfig.ExecStart = [
-                    "" # clear the default ExecStart
-                    "${cfg.cockpit.package}/libexec/cockpit-ws --no-tls --port ${toString cfg.cockpit.port}"
-                  ];
+                  serviceConfig = {
+                    ExecStartPre = ""; # clear certificate-ensure (no TLS cert needed)
+                    ExecStart = [
+                      "" # clear the default cockpit-tls ExecStart
+                      "${cfg.cockpit.package}/libexec/cockpit-ws --no-tls --port ${toString cfg.cockpit.port}"
+                    ];
+                    # cockpit-tls ran as an ephemeral non-root DynamicUser; cockpit-ws
+                    # needs root to run PAM and spawn cockpit-session.
+                    DynamicUser = false;
+                    User = "root";
+                    Group = "root";
+                    # Allow privilege-escalating helpers (cockpit-session is setuid).
+                    NoNewPrivileges = false;
+                    # cockpit-ws accepts connections on the inherited socket fd but also
+                    # communicates with cockpit-session/PAM via the network stack.
+                    PrivateNetwork = false;
+                    PrivateIPC = false;
+                    RestrictAddressFamilies = "AF_UNIX AF_INET AF_INET6";
+                  };
                 };
               })
               (mkIf cfg.suricata.enable {
