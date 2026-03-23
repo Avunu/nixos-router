@@ -1616,10 +1616,12 @@
             #     (persisted to /var/lib/AdGuardHome/AdGuardHome.yaml).
             #
             # The router's own DNS is set to 127.0.0.1 so it also uses AGH.
+            # systemd-resolved must be disabled to free port 53 for AGH.
             networking.nameservers = [
               "127.0.0.1"
               "::1"
             ];
+            services.resolved.enable = false;
 
             services.adguardhome = mkIf cfg.dns.adguard.enable {
               enable = true;
