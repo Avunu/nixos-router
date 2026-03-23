@@ -5,7 +5,7 @@
 # ║  featured router with:                                                     ║
 # ║    • systemd-networkd managed WAN (DHCP) + LAN/Guest bridges w/ DHCPServer ║
 # ║    • nftables stateful firewall with NAT, DNS hijacking, DoT blocking      ║
-# ║    • dnsmasq for DNS forwarding → AdGuard Home for filtering               ║
+# ║    • AdGuard Home DNS filtering + SafeSearch on :53 (direct to clients)    ║
 # ║    • WireGuard VPN tunnels with full LAN ↔ WAN ↔ WG routing                ║
 # ║    • Optional Suricata IPS inline via NFQUEUE                              ║
 # ║    • Optional Cockpit web UI for administration                            ║
@@ -16,7 +16,7 @@
 # ║    host configuration. See the MODULE OPTIONS section for all settings.    ║
 # ║                                                                            ║
 # ║  Architecture:                                                             ║
-# ║    DNS flow: clients → dnsmasq (:53) → AdGuard Home (:5353) → DoH upstream║
+# ║    DNS flow: clients → AdGuard Home (:53) → DoH upstream                  ║
 # ║    Traffic:  LAN/Guest/WG → nftables (→ Suricata NFQUEUE) → NAT → WAN     ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 {
@@ -911,13 +911,12 @@
 
             # ── DNS ────────────────────────────────────────────────
             # DNS resolution pipeline:
-            #   1. Clients send queries to the router's LAN IP (:53).
-            #   2. dnsmasq receives on :53, handles local domain/DHCP
-            #      hostname resolution, forwards everything else to
-            #      AdGuard Home on 127.0.0.1:5353.
-            #   3. AdGuard Home applies filter lists, SafeSearch, and
-            #      DoH blocking rules, then forwards unblocked queries
-            #      to upstream DoH servers (Cloudflare, Google by default).
+            #   1. Clients send queries to the router's LAN/guest IP (:53).
+            #   2. AdGuard Home receives on :53 (bound to LAN GW, guest GW,
+            #      and 127.0.0.1), applies filter lists, SafeSearch, and
+            #      DoH blocking rules.
+            #   3. Unblocked queries are forwarded to upstream DoH servers
+            #      (Cloudflare, Google by default).
             #   4. Bootstrap servers (plain DNS) are used only to resolve
             #      the DoH server hostnames themselves.
             #
@@ -950,8 +949,8 @@
 
                 listenPort = mkOption {
                   type = types.port;
-                  default = 5353;
-                  description = "DNS listen port for AdGuard Home";
+                  default = 53;
+                  description = "DNS listen port for AdGuard Home (default 53, served directly to clients)";
                 };
 
                 webPort = mkOption {
@@ -1150,16 +1149,15 @@
           #
           #   1. Boot & basics     — Bootloader, hostname, timezone, disko.
           #   2. Kernel            — Sysctl tuning, conntrack, kernel modules.
-          #   3. systemd-networkd  — WAN/LAN/Guest/WG interface configuration.
+          #   3. systemd-networkd  — WAN/LAN/Guest/WG interface + DHCPServer.
           #   4. nftables          — Stateful firewall, NAT, DNS hijacking.
-          #   5. dnsmasq           — DHCP server + DNS forwarder.
-          #   6. AdGuard Home      — DNS filtering, SafeSearch, blocklists.
-          #   7. Suricata          — Inline IPS (optional).
-          #   8. Cockpit           — Web admin UI (optional).
-          #   9. Packages          — System packages (diagnostic tools, etc.).
-          #  10. Logging           — journald size/retention limits.
-          #  11. Hardening         — SSH lockdown, sudo policy.
-          #  12. Maintenance       — Nix GC, auto-upgrade.
+          #   5. AdGuard Home      — DNS server, filtering, SafeSearch.
+          #   6. Suricata          — Inline IPS (optional).
+          #   7. Cockpit           — Web admin UI (optional).
+          #   8. Packages          — System packages (diagnostic tools, etc.).
+          #   9. Logging           — journald size/retention limits.
+          #  10. Hardening         — SSH lockdown, sudo policy.
+          #  11. Maintenance       — Nix GC, auto-upgrade.
           # ══════════════════════════════════════════════════════════
           config = {
 
@@ -1568,69 +1566,18 @@
               ruleset = nftRuleset;
             };
 
-            # ── 5. DNS forwarding — dnsmasq ──────────────────────
-            # dnsmasq handles DNS forwarding only (DHCP is served by
-            # systemd-networkd's built-in DHCPServer on each bridge).
-            # It listens on :53, resolves local domain names
-            # (hostname.lan), and forwards all other queries to
-            # AdGuard Home on 127.0.0.1:5353.
-            #
-            # Key settings:
-            #   bind-dynamic:     Like bind-interfaces but handles bridges that
-            #                     appear after dnsmasq starts (uses SO_BINDTODEVICE).
-            #   no-resolv:        Don't read /etc/resolv.conf for upstream servers.
-            #   cache-size=0:     Disable dnsmasq's cache — AdGuard Home handles
-            #                     caching with TTL-aware logic.
-            #   stop-dns-rebind:  Reject private IPs in upstream DNS responses
-            #                     (DNS rebinding attack protection).
-            #   domain-needed:    Don't forward plain hostnames to upstream.
-            #   bogus-priv:       Don't forward reverse lookups for private ranges.
-            services.dnsmasq = {
-              enable = true;
-              settings = {
-                interface =
-                  if cfg.guest.enable then
-                    [
-                      brLAN
-                      brGuest
-                    ]
-                  else
-                    brLAN;
-                bind-dynamic = true;
-                port = 53;
-                no-dhcp-interface =
-                  if cfg.guest.enable then
-                    [
-                      brLAN
-                      brGuest
-                    ]
-                  else
-                    brLAN;
-                server = [ "127.0.0.1#${toString cfg.dns.adguard.listenPort}" ];
-                no-resolv = true;
-                cache-size = 0;
-                domain-needed = true;
-                bogus-priv = true;
-                stop-dns-rebind = true;
-                rebind-localhost-ok = true;
-                local = "/${cfg.lan.domain}/";
-                domain = cfg.lan.domain;
-                expand-hosts = true;
-                no-hosts = true;
-                address = "/${cfg.hostName}.${cfg.lan.domain}/${lanGW}";
-              };
-            };
-
-            # ── 6. Ad-blocking + SafeSearch — AdGuard Home ────────
-            # AdGuard Home provides DNS-level content filtering. It listens
-            # on 127.0.0.1:5353 (not exposed to clients directly — dnsmasq
-            # forwards to it) and resolves queries via upstream DoH servers.
+            # ── 5. DNS server — AdGuard Home ─────────────────────
+            # AdGuard Home is the primary DNS server for all networks.
+            # It listens directly on :53 on the LAN gateway, guest gateway
+            # (if enabled), and 127.0.0.1 (for the router itself).
+            # Clients reach it directly — no intermediary forwarder needed.
             #
             # Configuration includes:
+            #   • dns.bind_hosts: LAN GW + guest GW + loopback for full coverage.
             #   • dns.protection/filtering_enabled: master switches for blocking.
-            #   • dns.rate_limit=0: no per-client rate limiting (dnsmasq is the
-            #     only client from AGH's perspective).
+            #   • dns.rate_limit=0: no per-client rate limiting.
             #   • dns.cache: 4MB cache with 5min-24h TTL bounds for performance.
+            #   • dns.rewrites: maps router hostname to LAN gateway IP.
             #   • safe_search: forces SafeSearch on major search engines/YouTube
             #     by rewriting DNS responses to safe variants.
             #   • filters: combination of standard lists, UT Capitole categories,
@@ -1638,6 +1585,10 @@
             #   • user_rules: DoH provider blocking rules + user extras.
             #   • mutableSettings=true: allows runtime changes via the AGH web UI
             #     (persisted to /var/lib/AdGuardHome/AdGuardHome.yaml).
+            #
+            # The router's own DNS is set to 127.0.0.1 so it also uses AGH.
+            networking.nameservers = [ "127.0.0.1" ];
+
             services.adguardhome = mkIf cfg.dns.adguard.enable {
               enable = true;
               mutableSettings = true;
@@ -1646,7 +1597,7 @@
               settings = {
 
                 dns = {
-                  bind_hosts = [ "127.0.0.1" ];
+                  bind_hosts = [ "127.0.0.1" lanGW ] ++ optional cfg.guest.enable guestGW;
                   port = cfg.dns.adguard.listenPort;
                   upstream_dns = cfg.dns.upstreamServers;
                   bootstrap_dns = cfg.dns.bootstrapServers;
@@ -1656,6 +1607,9 @@
                   cache_size = 4194304;
                   cache_ttl_min = 300;
                   cache_ttl_max = 86400;
+                  rewrites = [
+                    { domain = "${cfg.hostName}.${cfg.lan.domain}"; answer = lanGW; }
+                  ];
                 };
 
                 safe_search = mkIf cfg.dns.adguard.safeSearch {
@@ -1674,7 +1628,7 @@
               };
             };
 
-            # ── 7. IPS — Suricata ────────────────────────────────
+            # ── 6. IPS — Suricata ────────────────────────────────
             # When enabled, Suricata runs as an inline IPS via NFQUEUE.
             # The config is placed in /etc/suricata/ via environment.etc,
             # and a systemd service handles startup, rule updates, and
@@ -1771,7 +1725,7 @@
               };
             };
 
-            # ── 8. Web UI — Cockpit ─────────────────────────────
+            # ── 7. Web UI — Cockpit ─────────────────────────────
             # Cockpit provides a browser-based admin interface for system
             # monitoring, service management, and terminal access. It's
             # only accessible from trusted networks (LAN + WG) via the
@@ -1795,7 +1749,7 @@
               ];
             };
 
-            # ── 9. Packages ──────────────────────────────────────
+            # ── 8. Packages ──────────────────────────────────────
             # Baseline diagnostic tools for router troubleshooting:
             #   tcpdump:        Packet capture and analysis.
             #   htop:           Interactive process/resource monitor.
@@ -1820,7 +1774,7 @@
               ++ optional (cfg.wireguard != { }) wireguard-tools
               ++ cfg.extraPackages;
 
-            # ── 10. Logging ──────────────────────────────────────
+            # ── 9. Logging ──────────────────────────────────────
             # Cap journald storage to 500MB and 30 days to prevent the
             # system journal from consuming all disk space on routers
             # with limited storage (common with eMMC/SSD appliances).
@@ -1829,7 +1783,7 @@
               MaxRetentionSec=30day
             '';
 
-            # ── 11. Hardening ────────────────────────────────────
+            # ── 10. Hardening ────────────────────────────────────
             # SSH is the primary remote management interface. Security:
             #   • PermitRootLogin=prohibit-password: root can only auth via
             #     key (prevents brute-force; useful for emergency recovery).
@@ -1857,7 +1811,7 @@
               openssh.authorizedKeys.keys = cfg.adminUser.sshKeys;
             };
 
-            # ── 12. Maintenance ──────────────────────────────────
+            # ── 11. Maintenance ──────────────────────────────────
             # Automated housekeeping:
             #   • Nix GC: weekly cleanup of store paths older than 30 days.
             #     Keeps disk usage bounded on long-running routers.

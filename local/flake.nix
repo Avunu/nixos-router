@@ -124,7 +124,6 @@
 
                   adguard = {
                     enable = true;
-                    listenPort = 5353;
                     webPort = 3000;
                     safeSearch = true;
                     # UT Capitole blacklist categories to block in addition to ads.
