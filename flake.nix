@@ -3,9 +3,9 @@
 # ║                                                                            ║
 # ║  A single-flake NixOS module that turns a multi-NIC machine into a fully   ║
 # ║  featured router with:                                                     ║
-# ║    • systemd-networkd managed WAN (DHCP) + LAN bridge + optional guest     ║
+# ║    • systemd-networkd managed WAN (DHCP) + LAN/Guest bridges w/ DHCPServer ║
 # ║    • nftables stateful firewall with NAT, DNS hijacking, DoT blocking      ║
-# ║    • dnsmasq for DHCP/DNS forwarding → AdGuard Home for filtering          ║
+# ║    • dnsmasq for DNS forwarding → AdGuard Home for filtering               ║
 # ║    • WireGuard VPN tunnels with full LAN ↔ WAN ↔ WG routing                ║
 # ║    • Optional Suricata IPS inline via NFQUEUE                              ║
 # ║    • Optional Cockpit web UI for administration                            ║
@@ -125,20 +125,33 @@
           #
           # brLAN / lanGW / lanPrefix / lanCIDR:
           #   Bridge name, gateway IP, prefix length, and CIDR notation for
-          #   the primary LAN network. Used in networkd, dnsmasq, nftables,
-          #   and Suricata HOME_NET.
+          #   the primary LAN network. Used in networkd, nftables, and
+          #   Suricata HOME_NET.
           #
-          # lanDHCPRange:
-          #   Formatted as "interface:bridge,set:bridge,start,end,lease" for
-          #   dnsmasq's dhcp-range. The interface: prefix scopes the range
-          #   to the named bridge (prevents cross-assignment between LAN and
-          #   guest). The set: prefix tags leases so dhcp-option can target
-          #   per-network gateway/DNS settings.
+          # ipToInt:
+          #   Converts an IPv4 dotted-quad string to a 32-bit integer.
+          #   Used to compute DHCPServer pool offset and size from the
+          #   user-facing rangeStart/rangeEnd IP address options.
+          #
+          # lanPoolOffset / lanPoolSize:
+          #   Computed from rangeStart/rangeEnd for networkd's DHCPServer.
+          #   PoolOffset is the number of addresses from the network base
+          #   to the first leasable address; PoolSize is the range width.
+          ipToInt = ip:
+            let
+              parts = map toInt (splitString "." ip);
+            in
+            (elemAt parts 0) * 16777216
+            + (elemAt parts 1) * 65536
+            + (elemAt parts 2) * 256
+            + (elemAt parts 3);
+
           brLAN = cfg.lan.bridge;
           lanGW = cfg.lan.address;
           lanPrefix = toString cfg.lan.prefixLength;
           lanCIDR = "${cfg.lan.networkAddress}/${lanPrefix}";
-          lanDHCPRange = "set:${brLAN},${cfg.lan.dhcp.rangeStart},${cfg.lan.dhcp.rangeEnd},${cfg.lan.dhcp.leaseTime}";
+          lanPoolOffset = (ipToInt cfg.lan.dhcp.rangeStart) - (ipToInt cfg.lan.networkAddress);
+          lanPoolSize = (ipToInt cfg.lan.dhcp.rangeEnd) - (ipToInt cfg.lan.dhcp.rangeStart) + 1;
 
           # wgNames / wgInterfaces:
           #   List of WireGuard interface names (e.g. ["wg0"]) and their
@@ -174,7 +187,8 @@
           guestGW = cfg.guest.address;
           guestPrefix = toString cfg.guest.prefixLength;
           guestCIDR = "${cfg.guest.networkAddress}/${guestPrefix}";
-          guestDHCPRange = "set:${brGuest},${cfg.guest.dhcp.rangeStart},${cfg.guest.dhcp.rangeEnd},${cfg.guest.dhcp.leaseTime}";
+          guestPoolOffset = (ipToInt cfg.guest.dhcp.rangeStart) - (ipToInt cfg.guest.networkAddress);
+          guestPoolSize = (ipToInt cfg.guest.dhcp.rangeEnd) - (ipToInt cfg.guest.dhcp.rangeStart) + 1;
 
           # ── Standard filter list catalogue ──────────────────────
           # Registry of well-known ad/malware/phishing blocklists for AdGuard
@@ -1416,6 +1430,11 @@
                 # LAN bridge: the router's internal gateway interface.
                 # • Static IP address (lanGW/lanPrefix) — this is the default
                 #   gateway and DNS server for all LAN clients.
+                # • DHCPServer=true: networkd serves DHCP directly on the bridge,
+                #   eliminating startup-ordering issues with external DHCP daemons.
+                # • dhcpServerConfig: pool range computed from rangeStart/rangeEnd,
+                #   DNS points clients to the gateway (dnsmasq on :53), EmitRouter
+                #   auto-advertises the bridge IP as the default gateway.
                 # • ConfigureWithoutCarrier: keeps config stable even if all
                 #   physical ports are unplugged momentarily.
                 # • IPv4Forwarding: enables IP forwarding on this interface.
@@ -1432,11 +1451,20 @@
                   address = [ "${lanGW}/${lanPrefix}" ];
                   networkConfig = {
                     ConfigureWithoutCarrier = true;
+                    DHCPServer = true;
                     IPv4Forwarding = true;
                     IPv4ReversePathFilter = "no";
                     IPv6AcceptRA = false;
                     LLDP = "routers-only";
                     EmitLLDP = "nearest-bridge";
+                  };
+                  dhcpServerConfig = {
+                    PoolOffset = lanPoolOffset;
+                    PoolSize = lanPoolSize;
+                    DefaultLeaseTimeSec = cfg.lan.dhcp.leaseTime;
+                    DNS = [ lanGW ];
+                    EmitDNS = true;
+                    EmitRouter = true;
                   };
                   linkConfig.RequiredForOnline = "no";
                 };
@@ -1480,16 +1508,27 @@
                 };
                 # Guest bridge — same config pattern as br-lan, but on
                 # a separate subnet. nftables isolates guest from LAN/WG.
+                # DHCPServer config mirrors LAN but with guest-specific pool
+                # and shorter lease time for address rotation.
                 "41-br-guest" = {
                   matchConfig.Name = brGuest;
                   address = [ "${guestGW}/${guestPrefix}" ];
                   networkConfig = {
                     ConfigureWithoutCarrier = true;
+                    DHCPServer = true;
                     IPv4Forwarding = true;
                     IPv4ReversePathFilter = "no";
                     IPv6AcceptRA = false;
                     LLDP = "routers-only";
                     EmitLLDP = "nearest-bridge";
+                  };
+                  dhcpServerConfig = {
+                    PoolOffset = guestPoolOffset;
+                    PoolSize = guestPoolSize;
+                    DefaultLeaseTimeSec = cfg.guest.dhcp.leaseTime;
+                    DNS = [ guestGW ];
+                    EmitDNS = true;
+                    EmitRouter = true;
                   };
                   linkConfig.RequiredForOnline = "no";
                 };
@@ -1529,13 +1568,12 @@
               ruleset = nftRuleset;
             };
 
-            # ── 5. DHCP + DNS forwarding — dnsmasq ───────────────
-            # dnsmasq serves two roles:
-            #   1. DHCP server: assigns IPs to LAN (and optionally guest)
-            #      clients with per-interface tagged options (gateway, DNS).
-            #   2. DNS forwarder: listens on :53, resolves local domain
-            #      names (hostname.lan), and forwards all other queries
-            #      to AdGuard Home on 127.0.0.1:5353.
+            # ── 5. DNS forwarding — dnsmasq ──────────────────────
+            # dnsmasq handles DNS forwarding only (DHCP is served by
+            # systemd-networkd's built-in DHCPServer on each bridge).
+            # It listens on :53, resolves local domain names
+            # (hostname.lan), and forwards all other queries to
+            # AdGuard Home on 127.0.0.1:5353.
             #
             # Key settings:
             #   bind-dynamic:     Like bind-interfaces but handles bridges that
@@ -1559,21 +1597,15 @@
                   else
                     brLAN;
                 bind-dynamic = true;
-                dhcp-range = [ lanDHCPRange ] ++ optional cfg.guest.enable guestDHCPRange;
-                dhcp-option =
+                port = 53;
+                no-dhcp-interface =
                   if cfg.guest.enable then
                     [
-                      "tag:${brLAN},option:router,${lanGW}"
-                      "tag:${brLAN},option:dns-server,${lanGW}"
-                      "tag:${brGuest},option:router,${guestGW}"
-                      "tag:${brGuest},option:dns-server,${guestGW}"
+                      brLAN
+                      brGuest
                     ]
                   else
-                    [
-                      "option:router,${lanGW}"
-                      "option:dns-server,${lanGW}"
-                    ];
-                dhcp-leasefile = "/var/lib/dnsmasq/dnsmasq.leases";
+                    brLAN;
                 server = [ "127.0.0.1#${toString cfg.dns.adguard.listenPort}" ];
                 no-resolv = true;
                 cache-size = 0;
