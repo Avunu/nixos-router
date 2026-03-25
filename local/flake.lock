@@ -701,14 +701,18 @@
         ]
       },
       "locked": {
-        "path": "..",
-        "type": "path"
+        "lastModified": 1774446068,
+        "narHash": "sha256-+3ANXXLhOYC+zn26AvocWMRet3vTQKLVlWIdNpR+t3Q=",
+        "owner": "Avunu",
+        "repo": "nixos-router",
+        "rev": "f062182df017c23385bcd0862451cb60bf9aa3ca",
+        "type": "github"
       },
       "original": {
-        "path": "..",
-        "type": "path"
-      },
-      "parent": []
+        "owner": "Avunu",
+        "repo": "nixos-router",
+        "type": "github"
+      }
     },
     "nixpkgs": {
       "locked": {
