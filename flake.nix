@@ -553,6 +553,9 @@
                   iifname "${brGuest}" icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit } accept
                 ''}
 
+                # mDNS (multicast DNS) for hostname resolution
+                udp dport 5353 accept comment "Allow mDNS queries"
+
                 # WAN: only established/related + select ICMP
                 iifname "${cfg.wan.interface}" ct state { established, related } accept
                 iifname "${cfg.wan.interface}" icmp type { echo-request, destination-unreachable, time-exceeded } counter accept
@@ -1688,6 +1691,10 @@
                         domain = "${cfg.hostName}.${cfg.lan.domain}";
                         answer = lanGW;
                       }
+                      {
+                        domain = "${cfg.hostName}.local";
+                        answer = lanGW;
+                      }
                     ];
                   };
 
@@ -1705,6 +1712,18 @@
 
                   user_rules = dohBlockRules ++ allowRules ++ blockRules ++ cfg.dns.adguard.extraUserRules;
                 };
+            };
+
+            # ── Avahi mDNS ───────────────────────────────────────
+            # Publish the router's hostname via mDNS so clients can resolve
+            # it as hostname.local (e.g., 258-router.local).
+            services.avahi = {
+              enable = true;
+              publish = {
+                enable = true;
+                addresses = true;
+                workstation = true;
+              };
             };
 
             # ── 6. IPS — Suricata ────────────────────────────────
