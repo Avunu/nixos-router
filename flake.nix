@@ -582,6 +582,9 @@
                   # Guest → WAN only (fully isolated from LAN and WireGuard)
                   iifname "${brGuest}" oifname "${cfg.wan.interface}" accept
                   iifname "${cfg.wan.interface}" oifname "${brGuest}" ct state { established, related } accept
+
+                  # LAN → Guest (one-way access for administration)
+                  iifname "${brLAN}" oifname "${brGuest}" accept
                 ''}
               }
             }
@@ -833,7 +836,8 @@
             # ── Guest Network ──────────────────────────────────────
             # Optional isolated network for untrusted devices. When enabled:
             #   • A separate bridge (br-guest) is created for guest ports.
-            #   • nftables restricts guest traffic to WAN-only (no LAN/WG access).
+            #   • nftables restricts guest traffic to WAN-only (no LAN/WG access),
+            #     but allows LAN to access Guest (one-way) for administration.
             #   • Guest clients can reach DHCP (port 67) and DNS (port 53)
             #     on the router, but nothing else on the router itself.
             #   • DNS is hijacked to the local resolver (same as LAN).
