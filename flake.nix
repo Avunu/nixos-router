@@ -6,6 +6,7 @@
 # ║    • systemd-networkd managed WAN (DHCP) + LAN/Guest bridges w/ DHCPServer ║
 # ║    • nftables stateful firewall with NAT, DNS hijacking, DoT blocking      ║
 # ║    • AdGuard Home DNS filtering + SafeSearch on :53 (direct to clients)    ║
+# ║    • Avahi mDNS for hostname resolution (router.local)                     ║
 # ║    • WireGuard VPN tunnels with full LAN ↔ WAN ↔ WG routing                ║
 # ║    • Optional Suricata IPS inline via NFQUEUE                              ║
 # ║    • Optional Cockpit web UI for administration                            ║
@@ -17,6 +18,7 @@
 # ║                                                                            ║
 # ║  Architecture:                                                             ║
 # ║    DNS flow: clients → AdGuard Home (:53) → DoH upstream                  ║
+# ║    mDNS: clients → Avahi (multicast) for .local resolution                ║
 # ║    Traffic:  LAN/Guest/WG → nftables (→ Suricata NFQUEUE) → NAT → WAN     ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
 {
