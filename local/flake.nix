@@ -155,6 +155,15 @@
                     extraUserRules = [
                       # "@@||example.com^"   # office whitelists
                     ];
+                    # Convenient allow/block lists (converted to AdGuard rules automatically)
+                    allowList = [
+                      "example.com" # Allows example.com and subdomains
+                      "trusted-site.org/path" # Allows specific path
+                    ];
+                    blockList = [
+                      "bad-site.com" # Blocks bad-site.com and subdomains
+                      "ads.example.net" # Blocks specific subdomain
+                    ];
                   };
                 };
 

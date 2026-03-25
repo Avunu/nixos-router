@@ -42,6 +42,11 @@
     };
   };
 
+  nixConfig = {
+    extra-trusted-public-keys = "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=";
+    extra-substituters = "https://devenv.cachix.org";
+  };
+
   outputs =
     inputs@{
       self,
@@ -1028,6 +1033,18 @@
                   default = [ ];
                   description = "Additional AdGuard user rules (e.g. whitelists)";
                 };
+
+                allowList = mkOption {
+                  type = types.listOf types.str;
+                  default = [ ];
+                  description = "List of domains or URL patterns to allow. Each entry will be converted to an AdGuard allow rule (e.g., 'example.com' becomes '@@||example.com^').";
+                };
+
+                blockList = mkOption {
+                  type = types.listOf types.str;
+                  default = [ ];
+                  description = "List of domains or URL patterns to block. Each entry will be converted to an AdGuard block rule (e.g., 'example.com' becomes '||example.com^').";
+                };
               };
             };
 
@@ -1638,47 +1655,52 @@
               mutableSettings = true;
               host = lanGW;
               port = cfg.dns.adguard.webPort;
-              settings = {
+              settings =
+                let
+                  allowRules = map (pattern: "@@||${pattern}^") cfg.dns.adguard.allowList;
+                  blockRules = map (pattern: "||${pattern}^") cfg.dns.adguard.blockList;
+                in
+                {
 
-                dns = {
-                  bind_hosts = [
-                    "127.0.0.1"
-                    "::1"
-                    lanGW
-                    "::"
-                  ]
-                  ++ optional cfg.guest.enable guestGW;
-                  port = cfg.dns.adguard.listenPort;
-                  upstream_dns = cfg.dns.upstreamServers;
-                  bootstrap_dns = cfg.dns.bootstrapServers;
-                  protection_enabled = true;
-                  filtering_enabled = true;
-                  rate_limit = 0;
-                  cache_size = 4194304;
-                  cache_ttl_min = 300;
-                  cache_ttl_max = 86400;
-                  rewrites = [
-                    {
-                      domain = "${cfg.hostName}.${cfg.lan.domain}";
-                      answer = lanGW;
-                    }
-                  ];
+                  dns = {
+                    bind_hosts = [
+                      "127.0.0.1"
+                      "::1"
+                      lanGW
+                      "::"
+                    ]
+                    ++ optional cfg.guest.enable guestGW;
+                    port = cfg.dns.adguard.listenPort;
+                    upstream_dns = cfg.dns.upstreamServers;
+                    bootstrap_dns = cfg.dns.bootstrapServers;
+                    protection_enabled = true;
+                    filtering_enabled = true;
+                    rate_limit = 0;
+                    cache_size = 4194304;
+                    cache_ttl_min = 300;
+                    cache_ttl_max = 86400;
+                    rewrites = [
+                      {
+                        domain = "${cfg.hostName}.${cfg.lan.domain}";
+                        answer = lanGW;
+                      }
+                    ];
+                  };
+
+                  safe_search = mkIf cfg.dns.adguard.safeSearch {
+                    enabled = true;
+                    bing = true;
+                    duckduckgo = true;
+                    google = true;
+                    pixabay = true;
+                    yandex = true;
+                    youtube = true;
+                  };
+
+                  filters = standardFilters ++ utCapitoleFilters ++ cfg.dns.adguard.extraFilters;
+
+                  user_rules = dohBlockRules ++ allowRules ++ blockRules ++ cfg.dns.adguard.extraUserRules;
                 };
-
-                safe_search = mkIf cfg.dns.adguard.safeSearch {
-                  enabled = true;
-                  bing = true;
-                  duckduckgo = true;
-                  google = true;
-                  pixabay = true;
-                  yandex = true;
-                  youtube = true;
-                };
-
-                filters = standardFilters ++ utCapitoleFilters ++ cfg.dns.adguard.extraFilters;
-
-                user_rules = dohBlockRules ++ cfg.dns.adguard.extraUserRules;
-              };
             };
 
             # ── 6. IPS — Suricata ────────────────────────────────
