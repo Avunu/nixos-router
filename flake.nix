@@ -1661,7 +1661,7 @@
 
             services.adguardhome = mkIf cfg.dns.adguard.enable {
               enable = true;
-              mutableSettings = true;
+              mutableSettings = false; # disable runtime changes via AGH UI (managed by NixOS config)
               host = lanGW;
               port = cfg.dns.adguard.webPort;
               settings =
