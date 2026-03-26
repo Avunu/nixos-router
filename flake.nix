@@ -1762,7 +1762,7 @@
                     StartLimitBurst = 5;
                   };
                   serviceConfig = {
-                    ExecStart = "${pkgs.nix}/bin/nix flake update --flake ${cfg.system.autoUpgrade.flake}";
+                    ExecStart = "${pkgs.nix}/bin/nix flake update --flake /etc/nixos/flake.nix";
                     Restart = "on-failure";
                     RestartSec = "30";
                     Type = "oneshot"; # Ensure that it finishes before starting nixos-upgrade
