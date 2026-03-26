@@ -1754,6 +1754,28 @@
 
             # Suricata services (conditional on enable).
             systemd.services = mkMerge [
+              {
+                flake-update = {
+                  unitConfig = {
+                    Description = "Update flake inputs";
+                    StartLimitIntervalSec = 300;
+                    StartLimitBurst = 5;
+                  };
+                  serviceConfig = {
+                    ExecStart = "${pkgs.nix}/bin/nix flake update --flake ${cfg.autoUpgrade.flake}";
+                    Restart = "on-failure";
+                    RestartSec = "30";
+                    Type = "oneshot"; # Ensure that it finishes before starting nixos-upgrade
+                    User = "root";
+                  };
+                  before = [ "nixos-upgrade.service" ];
+                  path = [
+                    pkgs.nix
+                    pkgs.git
+                    pkgs.host
+                  ];
+                };
+              }
               (mkIf cfg.suricata.enable {
                 suricata = {
                   description = "Suricata IPS";
@@ -1945,6 +1967,7 @@
             system = {
               autoUpgrade = {
                 enable = mkDefault true;
+                flake = "/etc/nixos/flake.nix";
                 allowReboot = mkDefault false;
                 dates = mkDefault "04:00";
               };
