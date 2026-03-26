@@ -1841,15 +1841,15 @@
               plugins = cfg.cockpit.plugins;
               openFirewall = false; # managed by nftables (LAN/WG already accepted)
               showBanner = cfg.cockpit.showBanner;
-              "allowed-origins" = [
-                "http://${lanGW}"
-                "http://${lanGW}:${toString cfg.cockpit.port}"
-                "http://${cfg.hostName}.local"
-                "http://${cfg.hostName}.local:${toString cfg.cockpit.port}"
-                "http://${cfg.hostName}.${cfg.lan.domain}"
-                "http://${cfg.hostName}.${cfg.lan.domain}:${toString cfg.cockpit.port}"
-              ]
-              ++ cfg.cockpit.allowedOrigins;
+              # "allowed-origins" = [
+              #   "http://${lanGW}"
+              #   "http://${lanGW}:${toString cfg.cockpit.port}"
+              #   "http://${cfg.hostName}.local"
+              #   "http://${cfg.hostName}.local:${toString cfg.cockpit.port}"
+              #   "http://${cfg.hostName}.${cfg.lan.domain}"
+              #   "http://${cfg.hostName}.${cfg.lan.domain}:${toString cfg.cockpit.port}"
+              # ]
+              # ++ cfg.cockpit.allowedOrigins;
               settings = mkMerge [
                 cfg.cockpit.settings
                 {
