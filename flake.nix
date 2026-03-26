@@ -1752,44 +1752,8 @@
               "suricata/rules/local.rules".text = localSuricataRules;
             };
 
-            # Bypass cockpit-ws: override cockpit.service (the unit activated by
-            # cockpit.socket) to run cockpit-ws --no-tls directly instead of
-            # cockpit-tls.  cockpit-ws needs root and network access to perform
-            # PAM authentication and spawn cockpit-session, so we must clear the
-            # restrictive DynamicUser/PrivateNetwork/NoNewPrivileges settings that
-            # the upstream unit applies to cockpit-ws.
-            # Suricata services are also defined here (conditional on enable).
+            # Suricata services (conditional on enable).
             systemd.services = mkMerge [
-              # (mkIf cfg.cockpit.enable {
-              #   cockpit = {
-              #     overrideStrategy = "asDropin";
-              #     # cockpit-session.socket creates /run/cockpit/session, which
-              #     # cockpit-ws needs to authenticate users.  In the normal
-              #     # architecture the wsinstance services pull it in, but since
-              #     # we run cockpit-ws directly here we must start it ourselves.
-              #     wants = [ "cockpit-session.socket" ];
-              #     after = [ "cockpit-session.socket" ];
-              #     serviceConfig = {
-              #       ExecStartPre = ""; # clear certificate-ensure (no TLS cert needed)
-              #       ExecStart = [
-              #         "" # clear the default cockpit-tls ExecStart
-              #         "${cfg.cockpit.package}/libexec/cockpit-ws --no-tls --port ${toString cfg.cockpit.port}"
-              #       ];
-              #       # cockpit-tls ran as an ephemeral non-root DynamicUser; cockpit-ws
-              #       # needs root to run PAM and spawn cockpit-session.
-              #       DynamicUser = false;
-              #       User = "root";
-              #       Group = "root";
-              #       # Allow privilege-escalating helpers (cockpit-session is setuid).
-              #       NoNewPrivileges = false;
-              #       # cockpit-ws accepts connections on the inherited socket fd but also
-              #       # communicates with cockpit-session/PAM via the network stack.
-              #       PrivateNetwork = false;
-              #       PrivateIPC = false;
-              #       RestrictAddressFamilies = "AF_UNIX AF_INET AF_INET6";
-              #     };
-              #   };
-              # })
               (mkIf cfg.suricata.enable {
                 suricata = {
                   description = "Suricata IPS";
@@ -1881,9 +1845,11 @@
                 "http://${lanGW}"
                 "http://${lanGW}:${toString cfg.cockpit.port}"
                 "http://${cfg.hostName}.local"
+                "http://${cfg.hostName}.local:${toString cfg.cockpit.port}"
                 "http://${cfg.hostName}.${cfg.lan.domain}"
                 "http://${cfg.hostName}.${cfg.lan.domain}:${toString cfg.cockpit.port}"
-              ];
+              ]
+              ++ cfg.cockpit.allowedOrigins;
               settings = mkMerge [
                 cfg.cockpit.settings
                 {
