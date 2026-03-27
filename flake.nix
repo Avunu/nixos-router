@@ -262,177 +262,6 @@
             id = 9999 + i;
           }) cfg.dns.adguard.utCapitoleCategories;
 
-          # ── Suricata config (native Nix → YAML) ────────────────
-          # The entire suricata.yaml is built as a Nix attrset and serialized
-          # to YAML via pkgs.formats.yaml. This is done by folding multiple
-          # config fragments with `recursiveUpdate` to keep each concern
-          # (vars, outputs, nfq, app-layer, rules, detect/stream) separate
-          # and readable.
-          #
-          # Key design decisions:
-          #   • NFQ mode with fail-open: if Suricata crashes, traffic passes
-          #     rather than blocking the entire network.
-          #   • EVE JSON logging with community-id: enables correlation with
-          #     other network tools (Zeek, Elastic, etc.).
-          #   • HOME_NET is dynamically computed from all internal subnets
-          #     (LAN + WG + Guest) so Suricata rules automatically cover
-          #     the correct address space.
-          #   • JA3 fingerprinting enabled for TLS traffic analysis.
-          yamlFormat = pkgs.formats.yaml { };
-
-          suricataConfig = lib.foldl lib.recursiveUpdate { } [
-            {
-              vars = {
-                address-groups = {
-                  HOME_NET = homeNets;
-                  EXTERNAL_NET = "!$HOME_NET";
-                  DNS_SERVERS = "$HOME_NET";
-                };
-                port-groups = {
-                  HTTP_PORTS = "80";
-                  SHELLCODE_PORTS = "!80";
-                  SSH_PORTS = "22";
-                  DNS_PORTS = "53";
-                };
-              };
-              default-log-dir = "/var/log/suricata/";
-              stats = {
-                enabled = true;
-                interval = 30;
-              };
-              logging = {
-                default-log-level = "notice";
-                outputs = [
-                  { console.enabled = false; }
-                  {
-                    file = {
-                      enabled = true;
-                      filename = "suricata.log";
-                      level = "info";
-                    };
-                  }
-                ];
-              };
-              threading = {
-                set-cpu-affinity = false;
-                detect-thread-ratio = 1.0;
-              };
-            }
-            {
-              outputs = [
-                {
-                  eve-log = {
-                    enabled = true;
-                    filetype = "regular";
-                    filename = "eve.json";
-                    community-id = true;
-                    types = [
-                      {
-                        alert = {
-                          tagged-packets = true;
-                        };
-                      }
-                      {
-                        drop = {
-                          alerts = true;
-                          flows = "start";
-                        };
-                      }
-                      "dns"
-                      "tls"
-                      {
-                        http = {
-                          extended = true;
-                        };
-                      }
-                      {
-                        flow = {
-                          logged = true;
-                        };
-                      }
-                      {
-                        stats = {
-                          deltas = true;
-                        };
-                      }
-                    ];
-                  };
-                }
-                {
-                  fast = {
-                    enabled = true;
-                    filename = "fast.log";
-                    append = true;
-                  };
-                }
-              ];
-            }
-            {
-              nfq = [
-                {
-                  mode = "accept";
-                  id = 0;
-                  fail-open = true;
-                }
-              ];
-            }
-            {
-              app-layer.protocols = {
-                http = {
-                  enabled = true;
-                  libhtp.default-config = {
-                    personality = "IDS";
-                    request-body-limit = 131072;
-                    response-body-limit = 131072;
-                  };
-                };
-                tls = {
-                  enabled = true;
-                  detection-ports = {
-                    dp = 443;
-                  };
-                  ja3-fingerprints = true;
-                };
-                dns = {
-                  enabled = true;
-                  tcp.enabled = true;
-                  udp.enabled = true;
-                };
-                ssh.enabled = true;
-                smtp.enabled = true;
-                ftp.enabled = true;
-                smb.enabled = true;
-                dcerpc.enabled = true;
-              };
-            }
-            {
-              default-rule-path = "/var/lib/suricata/rules";
-              rule-files = [
-                "suricata.rules"
-                "local.rules"
-              ];
-            }
-            {
-              detect = {
-                profile = "medium";
-                sgh-mpm-context = "auto";
-                inspection-recursion-limit = 3000;
-              };
-              stream = {
-                memcap = "64mb";
-                checksum-validation = true;
-                midstream = false;
-                async-oneside = false;
-                reassembly = {
-                  memcap = "256mb";
-                  depth = "1mb";
-                  toserver-chunk-size = 2560;
-                  toclient-chunk-size = 2560;
-                };
-              };
-            }
-          ];
-
           # ── DoH block rules for AdGuard ─────────────────────────
           # AdGuard user rules that block DNS-over-HTTPS provider domains
           # at the DNS level. This prevents devices from bypassing the
@@ -1729,30 +1558,169 @@
             };
 
             # ── 6. IPS — Suricata ────────────────────────────────
-            # When enabled, Suricata runs as an inline IPS via NFQUEUE.
-            # The config is placed in /etc/suricata/ via environment.etc,
-            # and a systemd service handles startup, rule updates, and
-            # log rotation.
+            # When enabled, Suricata runs as an inline IPS via NFQUEUE
+            # using the NixOS services.suricata module. The module manages
+            # config file generation, service hardening, user/group
+            # creation, and rule fetching via suricata-update.
             #
-            # Startup sequence (ExecStartPre):
-            #   1. Create rule/log directories.
-            #   2. Copy local.rules from /etc (Nix-managed) to /var/lib
-            #      (writable location Suricata expects).
-            #   3. Run suricata-update to fetch/merge ET Open rules.
+            # Since the module only supports interface-capture modes
+            # natively (af-packet, pcap, etc.), ExecStart is overridden
+            # to run in NFQ mode (-q 0) with fail-open. A dummy pcap
+            # entry satisfies the module's capture-interface assertion.
             #
-            # The service is hardened with:
-            #   • ProtectSystem=strict + explicit ReadWritePaths for logs/state.
-            #   • CAP_NET_ADMIN + CAP_NET_RAW for packet capture.
-            #   • NoNewPrivileges + PrivateTmp for isolation.
-            #
-            # A daily timer (suricata-update.timer) refreshes ET Open rules
-            # with a randomized delay to avoid thundering herd on update servers.
+            # A daily timer refreshes ET Open rules via suricata-update
+            # with a randomized delay to avoid thundering herd.
             environment.etc = mkIf cfg.suricata.enable {
-              "suricata/suricata.yaml".source = yamlFormat.generate "suricata.yaml" suricataConfig;
               "suricata/rules/local.rules".text = localSuricataRules;
             };
 
-            # Suricata services (conditional on enable).
+            services.suricata = mkIf cfg.suricata.enable {
+              enable = true;
+              settings = {
+                # Dummy pcap to satisfy the module's capture-interface
+                # assertion; overridden by NFQ mode via ExecStart below.
+                pcap = [ { interface = "lo"; } ];
+
+                vars = {
+                  address-groups = {
+                    HOME_NET = homeNets;
+                    EXTERNAL_NET = "!$HOME_NET";
+                    DNS_SERVERS = "$HOME_NET";
+                  };
+                  port-groups = {
+                    HTTP_PORTS = "80";
+                    SHELLCODE_PORTS = "!80";
+                    ORACLE_PORTS = "1521";
+                    SSH_PORTS = "22";
+                    DNP3_PORTS = "20000";
+                    MODBUS_PORTS = "502";
+                    FILE_DATA_PORTS = "[$HTTP_PORTS,110,143]";
+                    FTP_PORTS = "21";
+                    GENEVE_PORTS = "6081";
+                    VXLAN_PORTS = "4789";
+                    TEREDO_PORTS = "3544";
+                    DNS_PORTS = "53";
+                  };
+                };
+
+                host-mode = "router";
+                default-log-dir = "/var/log/suricata";
+
+                stats = {
+                  enable = true;
+                  interval = "30";
+                };
+
+                logging = {
+                  default-log-level = "notice";
+                  outputs = {
+                    console.enable = false;
+                    file = {
+                      enable = true;
+                      filename = "suricata.log";
+                      level = "info";
+                    };
+                  };
+                };
+
+                outputs = [
+                  {
+                    eve-log = {
+                      enabled = true;
+                      filetype = "regular";
+                      filename = "eve.json";
+                      community-id = true;
+                      types = [
+                        { alert.tagged-packets = true; }
+                        {
+                          drop = {
+                            alerts = true;
+                            flows = "start";
+                          };
+                        }
+                        "dns"
+                        "tls"
+                        { http.extended = true; }
+                        { flow.logged = true; }
+                        { stats.deltas = true; }
+                      ];
+                    };
+                  }
+                  {
+                    fast = {
+                      enabled = true;
+                      filename = "fast.log";
+                      append = true;
+                    };
+                  }
+                ];
+
+                nfq = [
+                  {
+                    mode = "accept";
+                    id = 0;
+                    fail-open = true;
+                  }
+                ];
+
+                app-layer.protocols = {
+                  http = {
+                    enabled = "yes";
+                    libhtp.default-config = {
+                      personality = "IDS";
+                      request-body-limit = 131072;
+                      response-body-limit = 131072;
+                    };
+                  };
+                  tls = {
+                    enabled = "yes";
+                    detection-ports.dp = 443;
+                    ja3-fingerprints = true;
+                  };
+                  dns = {
+                    enabled = "yes";
+                    tcp.enabled = "yes";
+                    udp.enabled = "yes";
+                  };
+                  ssh.enabled = "yes";
+                  smtp.enabled = "yes";
+                  ftp.enabled = "yes";
+                  smb.enabled = "yes";
+                  dcerpc.enabled = "yes";
+                };
+
+                rule-files = [
+                  "suricata.rules"
+                  "/etc/suricata/rules/local.rules"
+                ];
+
+                detect = {
+                  profile = "medium";
+                  sgh-mpm-context = "auto";
+                  inspection-recursion-limit = 3000;
+                };
+
+                stream = {
+                  memcap = "64mb";
+                  checksum-validation = true;
+                  midstream = false;
+                  async-oneside = false;
+                  reassembly = {
+                    memcap = "256mb";
+                    depth = "1mb";
+                    toserver-chunk-size = 2560;
+                    toclient-chunk-size = 2560;
+                  };
+                };
+
+                threading = {
+                  set-cpu-affinity = false;
+                  detect-thread-ratio = 1.0;
+                };
+              };
+            };
+
+            # Suricata service overrides and other systemd services.
             systemd.services = mkMerge [
               {
                 flake-update = {
@@ -1777,52 +1745,18 @@
                 };
               }
               (mkIf cfg.suricata.enable {
-                suricata = {
-                  description = "Suricata IPS";
-                  after = [ "network-online.target" ];
-                  wants = [ "network-online.target" ];
-                  wantedBy = [ "multi-user.target" ];
-                  serviceConfig = {
-                    ExecStartPre = [
-                      "${pkgs.coreutils}/bin/mkdir -p /var/lib/suricata/rules /var/log/suricata"
-                      "${pkgs.coreutils}/bin/cp /etc/suricata/rules/local.rules /var/lib/suricata/rules/local.rules"
-                      "${pkgs.suricata}/bin/suricata-update --no-test --no-reload"
-                    ];
-                    ExecStart = "${pkgs.suricata}/bin/suricata -c /etc/suricata/suricata.yaml -q 0 --pidfile /run/suricata.pid";
-                    ExecReload = "${pkgs.coreutils}/bin/kill -USR2 $MAINPID";
-                    Type = "simple";
-                    Restart = "on-failure";
-                    RestartSec = "10s";
-                    LimitNOFILE = 65536;
-                    ProtectHome = true;
-                    ProtectSystem = "strict";
-                    ReadWritePaths = [
-                      "/var/log/suricata"
-                      "/var/lib/suricata"
-                      "/run"
-                    ];
-                    CapabilityBoundingSet = [
-                      "CAP_NET_ADMIN"
-                      "CAP_NET_RAW"
-                      "CAP_SYS_NICE"
-                    ];
-                    AmbientCapabilities = [
-                      "CAP_NET_ADMIN"
-                      "CAP_NET_RAW"
-                    ];
-                    NoNewPrivileges = true;
-                    PrivateTmp = true;
-                  };
+                # Override the module's ExecStart to use NFQ mode instead
+                # of interface capture (-i). The module generates the
+                # config file; we just change how suricata reads packets.
+                suricata.serviceConfig = {
+                  ExecStart = mkForce "!${config.services.suricata.package}/bin/suricata -c ${config.services.suricata.configFile} -q 0";
+                  ExecReload = "${pkgs.coreutils}/bin/kill -USR2 $MAINPID";
+                  LimitNOFILE = 65536;
                 };
 
-                suricata-update = {
-                  description = "Update Suricata ET Open rules";
-                  serviceConfig = {
-                    Type = "oneshot";
-                    ExecStart = "${pkgs.suricata}/bin/suricata-update --no-test";
-                    ExecStartPost = "${pkgs.systemd}/bin/systemctl reload suricata.service";
-                  };
-                };
+                # Reload Suricata after rule updates (uses + prefix for
+                # root privileges since suricata-update runs as limited user)
+                suricata-update.serviceConfig.ExecStartPost = "+${pkgs.systemd}/bin/systemctl try-reload-or-restart suricata.service";
               })
             ];
 
