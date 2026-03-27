@@ -1752,6 +1752,9 @@
                   ExecStart = mkForce "!${config.services.suricata.package}/bin/suricata -c ${config.services.suricata.configFile} -q 0";
                   ExecReload = "${pkgs.coreutils}/bin/kill -USR2 $MAINPID";
                   LimitNOFILE = 65536;
+                  # The -T config test in ExecStartPre loads all rules (~56MB)
+                  # which takes ~2 min on low-power hardware; default 90s is insufficient.
+                  TimeoutStartSec = 300;
                 };
 
                 # Reload Suricata after rule updates (uses + prefix for
