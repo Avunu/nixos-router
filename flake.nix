@@ -1868,20 +1868,20 @@
                 {
                   WebService = {
                     AllowUnencrypted = true;
+                    Origins = mkForce (
+                      builtins.concatStringsSep " " (
+                        [
+                          "http://${lanGW}"
+                          "http://${lanGW}:${toString cfg.cockpit.port}"
+                          "http://${cfg.hostName}.local"
+                          "http://${cfg.hostName}.local:${toString cfg.cockpit.port}"
+                          "http://${cfg.hostName}.${cfg.lan.domain}"
+                          "http://${cfg.hostName}.${cfg.lan.domain}:${toString cfg.cockpit.port}"
+                        ]
+                        ++ cfg.cockpit.allowedOrigins
+                      )
+                    );
                   };
-                  Origins = mkForce (
-                    builtins.concatStringsSep " " (
-                      [
-                        "http://${lanGW}"
-                        "http://${lanGW}:${toString cfg.cockpit.port}"
-                        "http://${cfg.hostName}.local"
-                        "http://${cfg.hostName}.local:${toString cfg.cockpit.port}"
-                        "http://${cfg.hostName}.${cfg.lan.domain}"
-                        "http://${cfg.hostName}.${cfg.lan.domain}:${toString cfg.cockpit.port}"
-                      ]
-                      ++ cfg.cockpit.allowedOrigins
-                    )
-                  );
                 }
               ];
             };
