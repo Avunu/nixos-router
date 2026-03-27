@@ -1881,6 +1881,7 @@
                         ++ cfg.cockpit.allowedOrigins
                       )
                     );
+                    ListenAddress = "0.0.0.0";
                   };
                 }
               ];
