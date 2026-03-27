@@ -1910,7 +1910,10 @@
               ]
               ++ optional cfg.suricata.enable suricata
               ++ optional (cfg.wireguard != { }) wireguard-tools
-              ++ cfg.extraPackages;
+              ++ cfg.extraPackages
+              ++ (writeShellScriptBin "system-upgrade" ''
+                sudo sh -c 'cd /etc/nixos && nix flake update && nixos-rebuild switch --impure'
+              '');
 
             # ── 9. Logging ──────────────────────────────────────
             # Cap journald storage to 500MB and 30 days to prevent the
