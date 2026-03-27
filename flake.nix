@@ -1899,13 +1899,14 @@
             environment.systemPackages =
               with pkgs;
               [
-                tcpdump
-                htop
-                ethtool
-                iftop
                 conntrack-tools
-                jq
+                ethtool
+                htop
+                iftop
                 iperf3
+                jq
+                service-wrapper
+                tcpdump
               ]
               ++ optional cfg.suricata.enable suricata
               ++ optional (cfg.wireguard != { }) wireguard-tools
