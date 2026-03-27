@@ -1909,12 +1909,14 @@
                 service-wrapper
                 tcpdump
               ]
+              ++ [
+                (writeShellScriptBin "system-upgrade" ''
+                  sudo sh -c 'cd /etc/nixos && nix flake update && nixos-rebuild switch --impure'
+                '')
+              ]
               ++ optional cfg.suricata.enable suricata
               ++ optional (cfg.wireguard != { }) wireguard-tools
-              ++ cfg.extraPackages
-              ++ (writeShellScriptBin "system-upgrade" ''
-                sudo sh -c 'cd /etc/nixos && nix flake update && nixos-rebuild switch --impure'
-              '');
+              ++ cfg.extraPackages;
 
             # ── 9. Logging ──────────────────────────────────────
             # Cap journald storage to 500MB and 30 days to prevent the
