@@ -1871,12 +1871,12 @@
                     Origins = mkForce (
                       builtins.concatStringsSep " " (
                         [
-                          "http://${lanGW}"
-                          "http://${lanGW}:${toString cfg.cockpit.port}"
-                          "http://${cfg.hostName}.local"
-                          "http://${cfg.hostName}.local:${toString cfg.cockpit.port}"
-                          "http://${cfg.hostName}.${cfg.lan.domain}"
-                          "http://${cfg.hostName}.${cfg.lan.domain}:${toString cfg.cockpit.port}"
+                          "https://${lanGW}"
+                          "https://${lanGW}:${toString cfg.cockpit.port}"
+                          "https://${cfg.hostName}.local"
+                          "https://${cfg.hostName}.local:${toString cfg.cockpit.port}"
+                          "https://${cfg.hostName}.${cfg.lan.domain}"
+                          "https://${cfg.hostName}.${cfg.lan.domain}:${toString cfg.cockpit.port}"
                         ]
                         ++ cfg.cockpit.allowedOrigins
                       )
