@@ -9,6 +9,7 @@
 # ║    • Avahi mDNS for hostname resolution (router.local)                     ║
 # ║    • WireGuard VPN tunnels with full LAN ↔ WAN ↔ WG routing                ║
 # ║    • Optional Suricata IPS inline via NFQUEUE                              ║
+# ║    • Optional EveBox web UI for Suricata EVE event review                  ║
 # ║    • Optional Cockpit web UI for administration                            ║
 # ║    • Disko-based declarative disk partitioning (UEFI or legacy)            ║
 # ║                                                                            ║
@@ -553,6 +554,7 @@
           #    router.wireguard.*  → WireGuard VPN tunnel definitions.
           #    router.dns.*        → Upstream DNS, AdGuard Home filtering.
           #    router.suricata.*   → Optional Suricata IPS.
+          #    router.evebox.*     → Optional EveBox Suricata event viewer.
           #    router.cockpit.*    → Optional Cockpit web admin UI.
           #    router.adminUser.*  → SSH admin account.
           #    router.extraPackages → Additional system packages.
@@ -904,6 +906,38 @@
               };
             };
 
+            # ── EveBox web UI ─────────────────────────────────────
+            # Optional browser-based Suricata EVE event viewer.
+            # Reads /var/log/suricata/eve.json and stores events in an
+            # SQLite database under /var/lib/evebox (managed by systemd).
+            # Accessible from trusted interfaces (LAN + WG) on the
+            # configured port (default 5636). The NixOS firewall is not
+            # used because nftables already allows all traffic from
+            # trusted IFs in the input chain.
+            # Requires router.suricata.enable = true.
+            evebox = {
+              enable = mkEnableOption "EveBox web-based Suricata EVE event viewer";
+
+              port = mkOption {
+                type = types.port;
+                default = 5636;
+                description = "Port for the EveBox web interface";
+              };
+
+              package = mkOption {
+                type = types.package;
+                default = pkgs.evebox;
+                defaultText = literalExpression "pkgs.evebox";
+                description = "EveBox package to use";
+              };
+
+              noGeoip = mkOption {
+                type = types.bool;
+                default = false;
+                description = "Disable GeoIP lookups in EveBox";
+              };
+            };
+
             # ── Cockpit web UI ────────────────────────────────────
             # Optional browser-based system administration interface.
             # Accessible from trusted interfaces (LAN + WG) on the
@@ -1003,11 +1037,12 @@
           #   4. nftables          — Stateful firewall, NAT, DNS hijacking.
           #   5. AdGuard Home      — DNS server, filtering, SafeSearch.
           #   6. Suricata          — Inline IPS (optional).
-          #   7. Cockpit           — Web admin UI (optional).
-          #   8. Packages          — System packages (diagnostic tools, etc.).
-          #   9. Logging           — journald size/retention limits.
-          #  10. Hardening         — SSH lockdown, sudo policy.
-          #  11. Maintenance       — Nix GC, auto-upgrade.
+          #   7. EveBox            — Suricata EVE event viewer (optional).
+          #   8. Cockpit           — Web admin UI (optional).
+          #   9. Packages          — System packages (diagnostic tools, etc.).
+          #  10. Logging           — journald size/retention limits.
+          #  11. Hardening         — SSH lockdown, sudo policy.
+          #  12. Maintenance       — Nix GC, auto-upgrade.
           # ══════════════════════════════════════════════════════════
           config = {
 
@@ -1787,7 +1822,73 @@
               };
             };
 
-            # ── 7. Web UI — Cockpit ─────────────────────────────
+            # ── 7. EveBox — Suricata EVE event viewer ────────────
+            # When enabled, EveBox runs as a web-based event viewer for
+            # Suricata EVE JSON logs (eve.json). It uses SQLite for storage
+            # and is only accessible from trusted networks (LAN + WG) via
+            # the nftables input chain. Requires Suricata to be enabled so
+            # that /var/log/suricata/eve.json is produced.
+            assertions = mkIf cfg.evebox.enable [
+              {
+                assertion = cfg.suricata.enable;
+                message = "router.evebox.enable requires router.suricata.enable = true";
+              }
+            ];
+
+            users.users.evebox = mkIf cfg.evebox.enable {
+              isSystemUser = true;
+              group = "evebox";
+              description = "EveBox service user";
+            };
+
+            users.groups.evebox = mkIf cfg.evebox.enable { };
+
+            systemd.services.evebox = mkIf cfg.evebox.enable {
+              description = "EveBox Suricata EVE event viewer";
+              wantedBy = [ "multi-user.target" ];
+              after = [
+                "network.target"
+                "suricata.service"
+              ];
+              requires = [ "suricata.service" ];
+
+              serviceConfig = {
+                ExecStart = concatStringsSep " " (
+                  [
+                    "${cfg.evebox.package}/bin/evebox"
+                    "server"
+                    "--sqlite"
+                    "--port"
+                    (toString cfg.evebox.port)
+                    "--data-directory"
+                    "/var/lib/evebox"
+                    "--input"
+                    "/var/log/suricata/eve.json"
+                  ]
+                  ++ optional cfg.evebox.noGeoip "--disable-geoip"
+                );
+                Restart = "on-failure";
+                RestartSec = "5";
+                User = "evebox";
+                Group = "evebox";
+                # Grant read access to Suricata log directory
+                SupplementaryGroups = [ "suricata" ];
+                StateDirectory = "evebox";
+                StateDirectoryMode = "0750";
+                # Hardening
+                NoNewPrivileges = true;
+                ProtectSystem = "strict";
+                ProtectHome = true;
+                ReadOnlyPaths = [ "/var/log/suricata" ];
+                PrivateTmp = true;
+                PrivateDevices = true;
+                ProtectKernelTunables = true;
+                ProtectKernelModules = true;
+                ProtectControlGroups = true;
+              };
+            };
+
+            # ── 8. Web UI — Cockpit ─────────────────────────────
             # Cockpit provides a browser-based admin interface for system
             # monitoring, service management, and terminal access. It's
             # only accessible from trusted networks (LAN + WG) via the
@@ -1824,7 +1925,7 @@
               ];
             };
 
-            # ── 8. Packages ──────────────────────────────────────
+            # ── 9. Packages ──────────────────────────────────────
             # Baseline diagnostic tools for router troubleshooting:
             #   tcpdump:        Packet capture and analysis.
             #   htop:           Interactive process/resource monitor.
@@ -1855,7 +1956,7 @@
               ++ optional (cfg.wireguard != { }) wireguard-tools
               ++ cfg.extraPackages;
 
-            # ── 9. Logging ──────────────────────────────────────
+            # ── 10. Logging ──────────────────────────────────────
             # Cap journald storage to 500MB and 30 days to prevent the
             # system journal from consuming all disk space on routers
             # with limited storage (common with eMMC/SSD appliances).
@@ -1864,7 +1965,7 @@
               MaxRetentionSec=30day
             '';
 
-            # ── 10. Hardening ────────────────────────────────────
+            # ── 11. Hardening ────────────────────────────────────
             # SSH is the primary remote management interface. Security:
             #   • PermitRootLogin=prohibit-password: root can only auth via
             #     key (prevents brute-force; useful for emergency recovery).
@@ -1892,7 +1993,7 @@
               openssh.authorizedKeys.keys = cfg.adminUser.sshKeys;
             };
 
-            # ── 11. Maintenance ──────────────────────────────────
+            # ── 12. Maintenance ──────────────────────────────────
             # Automated housekeeping:
             #   • Nix GC: weekly cleanup of store paths older than 30 days.
             #     Keeps disk usage bounded on long-running routers.
