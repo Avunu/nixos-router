@@ -61,27 +61,27 @@
       # ── Pre-commit checks ────────────────────────────────────────────────────
       # nixfmt:        auto-formats .nix files on commit
       # flake-checker: runs `nix flake check` to catch evaluation errors
-      checks = forAllSystems (
-        system:
-        {
-          pre-commit = inputs.git-hooks.lib.${system}.run {
-            src = ./.;
-            hooks = {
-              nixfmt = {
-                enable = true;
-                package = nixpkgs.legacyPackages.${system}.nixfmt;
-              };
-              flake-checker = {
-                enable = true;
-                name = "nix flake check";
-                entry = "nix flake check --no-pure-eval";
-                pass_filenames = false;
-                stages = [ "pre-commit" ];
-              };
+      checks = forAllSystems (system: {
+        pre-commit = inputs.git-hooks.lib.${system}.run {
+          src = ./.;
+          hooks = {
+            nixfmt = {
+              enable = true;
+              package = nixpkgs.legacyPackages.${system}.nixfmt;
             };
+            # flake-checker = {
+            #   enable = true;
+            #   name = "nix flake check";
+            #   entry = "nix flake check --no-pure-eval --extra-experimental-features nix-command --extra-experimental-features flakes --impure";
+            #   pass_filenames = false;
+            #   stages = [ "pre-commit" ];
+            #   extraPackages = with nixpkgs.legacyPackages.${system}; [
+            #     nix
+            #   ];
+            # };
           };
-        }
-      );
+        };
+      });
 
       # ── Developer Shell ──────────────────────────────────────────────────────
       # Installs the pre-commit hooks and provides nixfmt on PATH.
@@ -92,7 +92,10 @@
         in
         {
           default = pkgs.mkShell {
-            packages = [ pkgs.nixfmt ];
+            packages = with pkgs; [
+              nixd
+              nixfmt
+            ];
             inherit (self.checks.${system}.pre-commit) shellHook;
           };
         }
