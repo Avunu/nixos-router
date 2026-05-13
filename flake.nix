@@ -1035,6 +1035,43 @@
           # ══════════════════════════════════════════════════════════
           config = {
 
+            # ── 0. Image slimming ────────────────────────────────
+            # A router has no users, GUI, fonts, or need for RAID/exotic
+            # filesystems.  Stripping these reduces the system closure
+            # size and attack surface.
+
+            # Disable filesystems the router never mounts.  Only f2fs
+            # (root), vfat (ESP), and ext4 (legacy /boot) are needed.
+            boot.supportedFilesystems = {
+              btrfs = mkForce false;
+              cifs = mkForce false;
+              ntfs = mkForce false;
+              xfs = mkForce false;
+              zfs = mkForce false;
+            };
+
+            # No software RAID; the router is single-disk by design.
+            boot.swraid.enable = mkForce false;
+
+            # No Bluetooth hardware targeted by this module.
+            hardware.bluetooth.enable = mkDefault false;
+
+            # Documentation is never read on a headless router and adds
+            # ~200MB to the closure; disable all of it.
+            documentation = {
+              doc.enable = false;
+              info.enable = false;
+              man.enable = false;
+              nixos.enable = false;
+            };
+
+            # NixOS ships a small set of default packages (nano, perl, etc.)
+            # that are unnecessary on a dedicated router appliance.
+            environment.defaultPackages = mkForce [ ];
+
+            # Fonts serve no purpose on a headless system.
+            fonts.fontconfig.enable = false;
+
             # ── 1. Boot & basics ─────────────────────────────────
             # Selects between systemd-boot (UEFI) and GRUB (legacy BIOS)
             # based on `router.bootMode`. UEFI mode uses a 1G ESP partition
