@@ -25,28 +25,23 @@
   description = "NixOS Router";
 
   # ── Flake Inputs ────────────────────────────────────────────────────────────
-  # nixpkgs:  NixOS unstable channel — provides all packages and the NixOS
-  #           module system. Unstable is used for the latest kernel, networkd,
-  #           and security patches.
-  # devenv:   Developer shell with git hooks (nixfmt formatting, flake check).
-  # disko:    Declarative disk partitioning — generates partition layouts from
-  #           Nix expressions, supporting both UEFI (GPT+ESP) and legacy
-  #           (GPT+BIOS boot) modes.
+  # nixpkgs:   NixOS unstable channel — provides all packages and the NixOS
+  #            module system. Unstable is used for the latest kernel, networkd,
+  #            and security patches.
+  # git-hooks: Pre-commit hook runner (nixfmt formatting, flake check).
+  # disko:     Declarative disk partitioning — generates partition layouts from
+  #            Nix expressions, supporting both UEFI (GPT+ESP) and legacy
+  #            (GPT+BIOS boot) modes.
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    devenv = {
-      url = "github:cachix/devenv";
+    git-hooks = {
+      url = "github:cachix/git-hooks.nix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
     disko = {
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-  };
-
-  nixConfig = {
-    extra-trusted-public-keys = "devenv.cachix.org-1:w1cLUi8dv3hnoSPGAuibQv+f9TZLr6cv/Hm9XgU50cw=";
-    extra-substituters = "https://devenv.cachix.org";
   };
 
   outputs =
@@ -63,39 +58,42 @@
       ];
     in
     {
+      # ── Pre-commit checks ────────────────────────────────────────────────────
+      # nixfmt:        auto-formats .nix files on commit
+      # flake-checker: runs `nix flake check` to catch evaluation errors
+      checks = forAllSystems (
+        system:
+        {
+          pre-commit = inputs.git-hooks.lib.${system}.run {
+            src = ./.;
+            hooks = {
+              nixfmt = {
+                enable = true;
+                package = nixpkgs.legacyPackages.${system}.nixfmt;
+              };
+              flake-checker = {
+                enable = true;
+                name = "nix flake check";
+                entry = "nix flake check --no-pure-eval";
+                pass_filenames = false;
+                stages = [ "pre-commit" ];
+              };
+            };
+          };
+        }
+      );
+
       # ── Developer Shell ──────────────────────────────────────────────────────
-      # Provides a devenv-managed shell with:
-      #   • nixfmt for consistent Nix code formatting
-      #   • Pre-commit hooks:
-      #     - nixfmt:        auto-formats .nix files on commit
-      #     - flake-checker: runs `nix flake check` to catch evaluation errors
+      # Installs the pre-commit hooks and provides nixfmt on PATH.
       devShells = forAllSystems (
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          default = inputs.devenv.lib.mkShell {
-            inherit inputs pkgs;
-            modules = [
-              {
-                packages = [ pkgs.nixfmt ];
-
-                git-hooks.hooks = {
-                  nixfmt = {
-                    enable = true;
-                    package = pkgs.nixfmt;
-                  };
-                  flake-checker = {
-                    enable = true;
-                    name = "nix flake check";
-                    entry = "nix flake check --no-pure-eval";
-                    pass_filenames = false;
-                    stages = [ "pre-commit" ];
-                  };
-                };
-              }
-            ];
+          default = pkgs.mkShell {
+            packages = [ pkgs.nixfmt ];
+            inherit (self.checks.${system}.pre-commit) shellHook;
           };
         }
       );
