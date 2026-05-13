@@ -100,6 +100,30 @@
         }
       );
 
+      packages = forAllSystems (
+        system:
+        let
+          pkgs = nixpkgs.legacyPackages.${system};
+        in
+        lib.optionalAttrs (system == "x86_64-linux") {
+          # Interactive ISO generator — collects router options and builds a
+          # self-contained headless installer ISO.
+          # Run from the repo root:  ./local/generate-iso.sh
+          # Or:  nix run .#generate-iso
+          generate-iso = pkgs.writeShellApplication {
+            name = "generate-router-iso";
+            runtimeInputs = with pkgs; [
+              coreutils
+              git
+              iproute2
+              nix
+              util-linux
+            ];
+            text = builtins.readFile ./local/generate-iso.sh;
+          };
+        }
+      );
+
       # ════════════════════════════════════════════════════════════════════════
       #  ROUTER MODULE
       #
