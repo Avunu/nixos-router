@@ -1782,7 +1782,6 @@
               };
             };
 
-            # Suricata service overrides and other systemd services.
             systemd.services = mkMerge [
               {
                 flake-update = {
@@ -1792,13 +1791,16 @@
                     StartLimitBurst = 5;
                   };
                   serviceConfig = {
-                    ExecStart = "${pkgs.nix}/bin/nix flake update --flake /etc/nixos/flake.nix";
+                    ExecStart = "${pkgs.nix}/bin/nix flake update --flake /etc/nixos/";
                     Restart = "on-failure";
                     RestartSec = "30";
                     Type = "oneshot"; # Ensure that it finishes before starting nixos-upgrade
                     User = "root";
                   };
+                  after = [ "network-online.target" ];
                   before = [ "nixos-upgrade.service" ];
+                  requiredBy = [ "nixos-upgrade.service" ];
+                  wants = [ "network-online.target" ];
                   path = [
                     pkgs.nix
                     pkgs.git
@@ -1806,6 +1808,7 @@
                   ];
                 };
               }
+              # Suricata service overrides and other systemd services.
               (mkIf cfg.suricata.enable {
                 # Override the module's ExecStart to use NFQ mode instead
                 # of interface capture (-i). The module generates the
@@ -1977,9 +1980,16 @@
             system = {
               autoUpgrade = {
                 enable = mkDefault true;
-                flake = "/etc/nixos/flake.nix";
-                allowReboot = mkDefault false;
-                dates = mkDefault "04:00";
+                flake = "/etc/nixos/";
+                allowReboot = mkDefault true;
+                flags = mkDefault [
+                  "--refresh"
+                  "--update-input"
+                  "nixpkgs"
+                  "--update-input"
+                  "nixos-router"
+                ];
+                dates = mkDefault "03:00";
               };
               stateVersion = cfg.stateVersion;
             };
