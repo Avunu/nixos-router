@@ -16,10 +16,19 @@ header()  { echo -e "\n${BOLD}$*${NC}\n"; }
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FLAKE_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 LOCAL_FLAKE="${SCRIPT_DIR}/flake.nix"
+LOCAL_LOCK="${SCRIPT_DIR}/flake.lock"
 
 if [[ ! -f "$LOCAL_FLAKE" ]]; then
   error "No flake.nix found at ${LOCAL_FLAKE}"
   error "Run generate-config.sh first, or create local/flake.nix manually."
+  exit 1
+fi
+
+# A lock file is required: it is seeded into the installed system's /etc/nixos
+# and pins the build so the ISO and the appliance evaluate identically.
+if [[ ! -f "$LOCAL_LOCK" ]]; then
+  error "No flake.lock found at ${LOCAL_LOCK}"
+  error "Generate it first:  (cd ${SCRIPT_DIR} && nix flake lock)"
   exit 1
 fi
 
@@ -60,13 +69,9 @@ header "Generating installer flake..."
 BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$BUILD_DIR"' EXIT
 
-# Copy the local flake as the permanent config (written to /etc/nixos on install)
+# Copy the local flake + lock as the permanent config (seeded to /etc/nixos).
 cp "$LOCAL_FLAKE" "${BUILD_DIR}/permanent-flake.nix"
-
-# Also copy the lock file if it exists for reproducibility
-if [[ -f "${SCRIPT_DIR}/flake.lock" ]]; then
-  cp "${SCRIPT_DIR}/flake.lock" "${BUILD_DIR}/permanent-flake.lock"
-fi
+cp "$LOCAL_LOCK" "${BUILD_DIR}/permanent-flake.lock"
 
 # The installer flake references the local config's nixosConfiguration via a
 # path input. This avoids fragile text extraction — Nix evaluates it directly.
@@ -110,12 +115,21 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
 
           (
             { pkgs, lib, ... }:
+            let
+              # The target system, evaluated at ISO-BUILD time. Its toplevel and
+              # disko partition script are baked into the ISO as store paths, so
+              # the appliance installs OFFLINE — no flake re-evaluation, and thus
+              # no dependency on the build machine's paths or on the network.
+              target = self.nixosConfigurations.\${hostname};
+            in
             {
-              environment.etc."installer-flake".source = self;
-              environment.etc."permanent-flake/flake.nix".source = ./permanent-flake.nix;
+              # Seed the installed system's /etc/nixos for future nixos-rebuild.
+              environment.etc."nixos-router/flake.nix".source = ./permanent-flake.nix;
+              environment.etc."nixos-router/flake.lock".source = ./permanent-flake.lock;
 
+              # Ship the full system closure on the ISO for an offline install.
               isoImage.storeContents = [
-                self.nixosConfigurations.\${hostname}.config.system.build.toplevel
+                target.config.system.build.toplevel
               ];
 
               nix.settings.experimental-features = [
@@ -123,10 +137,7 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
                 "flakes"
               ];
 
-              environment.systemPackages = [
-                disko.packages.\${system}.default
-                pkgs.nixos-install-tools
-              ];
+              environment.systemPackages = [ pkgs.nixos-install-tools ];
 
               # The installation CD autologins a shell on tty1, which would
               # otherwise hide the installer running behind it. Disable that
@@ -162,9 +173,10 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
                 };
 
                 path = [
-                  disko.packages.\${system}.default
                   pkgs.nixos-install-tools
                   pkgs.util-linux
+                  pkgs.coreutils
+                  pkgs.nix
                 ];
 
                 script = ''
@@ -191,9 +203,21 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
                   echo "Waiting 10 seconds — press Ctrl+C to abort..."
                   sleep 10
 
-                  disko-install \\
-                    --flake /etc/installer-flake#${HOSTNAME} \\
-                    --extra-files /etc/permanent-flake/flake.nix /etc/nixos/flake.nix
+                  # 1) Partition, format, and mount the target disk at /mnt using
+                  #    the prebuilt disko script (no flake eval, no network).
+                  echo ":: Partitioning ${DISK_DEVICE}..."
+                  \${target.config.system.build.diskoScript}
+
+                  # 2) Install the prebuilt system from the ISO store (offline).
+                  echo ":: Installing system..."
+                  nixos-install \\
+                    --system \${target.config.system.build.toplevel} \\
+                    --no-root-passwd \\
+                    --no-channel-copy
+
+                  # 3) Seed /etc/nixos so the appliance can rebuild later.
+                  install -Dm0644 /etc/nixos-router/flake.nix /mnt/etc/nixos/flake.nix
+                  install -Dm0644 /etc/nixos-router/flake.lock /mnt/etc/nixos/flake.lock
 
                   echo "=============================================="
                   echo " Installation complete! Rebooting in 5 s..."
@@ -210,13 +234,12 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
 }
 EOF
 
-# Create the local-config subdirectory as a flake that the installer references.
-# This is the user's actual config — evaluated directly by Nix, no text parsing.
+# Create the local-config subdirectory as a flake the installer evaluates at
+# BUILD time (only) to produce the system toplevel + disko script. This is the
+# user's actual config — evaluated directly by Nix, no text parsing.
 mkdir -p "${BUILD_DIR}/local-config"
 cp "$LOCAL_FLAKE" "${BUILD_DIR}/local-config/flake.nix"
-if [[ -f "${SCRIPT_DIR}/flake.lock" ]]; then
-  cp "${SCRIPT_DIR}/flake.lock" "${BUILD_DIR}/local-config/flake.lock"
-fi
+cp "$LOCAL_LOCK" "${BUILD_DIR}/local-config/flake.lock"
 
 info "Generated installer flake at ${BUILD_DIR}/flake.nix"
 
