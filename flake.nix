@@ -199,6 +199,132 @@
           guestPrefix = toString cfg.guest.prefixLength;
           guestCIDR = "${cfg.guest.networkAddress}/${guestPrefix}";
 
+          # ── VLAN / interface assignment model ───────────────────
+          # Each network (wan/lan/guest) may be assigned physical interfaces
+          # (claiming UNTAGGED traffic on them) and/or a VLAN id (claiming that
+          # VLAN's TAGGED traffic on every OTHER network's interfaces — a trunk).
+          # A single physical port can therefore carry untagged traffic for its
+          # owner network AND tagged VLAN traffic for another: the kernel's 802.1q
+          # demux (vlan_do_receive) runs before the bridge rx_handler, so the
+          # `<port>.<vid>` sub-interface receives tagged frames before the owner's
+          # plain bridge ever sees them. See the systemd-networkd section below.
+          #
+          # wanPhys/lanPhys/guestPhys/allPhys:
+          #   Untagged physical ports owned by each network, and their union.
+          wanPhys = optional (cfg.wan.interface != null) cfg.wan.interface;
+          lanPhys = cfg.lan.interfaces;
+          guestPhys = optionals cfg.guest.enable cfg.guest.interfaces;
+          allPhys = wanPhys ++ lanPhys ++ guestPhys;
+
+          # netList:
+          #   Uniform description of each network: key, target bridge (null for a
+          #   direct/untagged WAN), VLAN id, and owned physical ports. The guest
+          #   entry only appears when guest.enable = true.
+          netList = [
+            {
+              key = "wan";
+              bridge = null;
+              vlan = cfg.wan.vlan;
+              phys = wanPhys;
+            }
+            {
+              key = "lan";
+              bridge = brLAN;
+              vlan = cfg.lan.vlan;
+              phys = lanPhys;
+            }
+          ]
+          ++ optional cfg.guest.enable {
+            key = "guest";
+            bridge = brGuest;
+            vlan = cfg.guest.vlan;
+            phys = guestPhys;
+          };
+
+          # vlanChild:
+          #   Sub-interface name for a VLAN id on a parent port (kernel 8021q
+          #   naming convention, e.g. enp1s0.20).
+          vlanChild = parent: vid: "${parent}.${toString vid}";
+
+          # allChildren:
+          #   Flat list of every VLAN sub-interface to create. For each network
+          #   with a VLAN id, one child per OTHER network's physical port (the
+          #   trunk rides over all other interfaces, including WAN per design).
+          childrenOf =
+            n:
+            if n.vlan == null then
+              [ ]
+            else
+              map (p: {
+                inherit p;
+                child = vlanChild p n.vlan;
+                net = n;
+              }) (subtractLists n.phys allPhys);
+          allChildren = concatMap childrenOf netList;
+
+          # childrenOnPort:
+          #   VLAN sub-interface names that ride on a given parent port — attached
+          #   to that port's .network via the `vlan` (VLAN=) list.
+          childrenOnPort = parent: map (c: c.child) (filter (c: c.p == parent) allChildren);
+
+          # wanIf:
+          #   The WAN L3 interface name used by the firewall, NAT, and IPv6 prefix
+          #   delegation. A VLAN-based (or interface-less) WAN runs its DHCP client
+          #   on a bridge (br-wan) aggregating its VLAN sub-interfaces; otherwise
+          #   it is the untagged uplink interface, exactly as before.
+          wanIsBridged = cfg.wan.vlan != null || cfg.wan.interface == null;
+          brWAN = "br-wan";
+          wanIf = if wanIsBridged then brWAN else cfg.wan.interface;
+
+          # wanNetworkBase:
+          #   DHCP-client settings for the WAN L3 interface, applied to either
+          #   the untagged uplink (10-wan) or the br-wan bridge (10-br-wan).
+          wanNetworkBase = {
+            networkConfig = {
+              DHCP = "yes";
+              IPv4Forwarding = true;
+              IPv6Forwarding = true;
+              IPv4ReversePathFilter = "strict";
+              IPv6AcceptRA = true;
+              IgnoreCarrierLoss = "3s";
+              KeepConfiguration = "dynamic-on-stop";
+            };
+            dhcpV4Config = {
+              UseDNS = false;
+              UseHostname = false;
+              UseDomains = false;
+              SendHostname = true;
+              RouteMetric = 100;
+            };
+            dhcpV6Config = {
+              UseDNS = false;
+              UseHostname = false;
+              WithoutRA = "solicit";
+              PrefixDelegationHint = "::/60";
+            };
+            ipv6AcceptRAConfig = {
+              UseDNS = false;
+              DHCPv6Client = "always";
+            };
+            linkConfig.RequiredForOnline = "routable";
+          };
+
+          # parentPorts / ownerBridgeOf / childBridgeOf:
+          #   Physical ports that need a generic bridge-member .network unit
+          #   (the untagged WAN uplink is excluded when WAN is direct — it has
+          #   its own DHCP-client unit), and the bridge a given port / VLAN
+          #   child enslaves to (WAN children/ports land on br-wan).
+          directWanPort = optionals (!wanIsBridged) wanPhys;
+          parentPorts = subtractLists directWanPort allPhys;
+          ownerOf = p: findFirst (n: elem p n.phys) (head netList) netList;
+          ownerBridgeOf =
+            p:
+            let
+              n = ownerOf p;
+            in
+            if n.key == "wan" then brWAN else n.bridge;
+          childBridgeOf = net: if net.key == "wan" then brWAN else net.bridge;
+
           # ── Standard filter list catalogue ──────────────────────
           # Registry of well-known ad/malware/phishing blocklists for AdGuard
           # Home. Each entry has a stable numeric `id` (used by AdGuard
@@ -349,7 +475,7 @@
             let
               wg = cfg.wireguard.${name};
             in
-            ''iifname "${cfg.wan.interface}" udp dport ${toString wg.listenPort} accept comment "Allow WireGuard ${name}"''
+            ''iifname "${wanIf}" udp dport ${toString wg.listenPort} accept comment "Allow WireGuard ${name}"''
           ) wgNames;
 
           # wgForwardRules:
@@ -357,17 +483,14 @@
           #   rules (LAN ↔ WG) and outbound WAN access with stateful return
           #   traffic. This allows VPN clients to reach LAN resources and
           #   route to the internet through the router.
-          wgForwardRules =
-            concatMapStringsSep "\n          "
-              (name: ''
-                # LAN ↔ ${name} (bidirectional)
-                iifname "${brLAN}" oifname "${name}" accept
-                iifname "${name}"  oifname "${brLAN}" accept
+          wgForwardRules = concatMapStringsSep "\n          " (name: ''
+            # LAN ↔ ${name} (bidirectional)
+            iifname "${brLAN}" oifname "${name}" accept
+            iifname "${name}"  oifname "${brLAN}" accept
 
-                # ${name} → WAN
-                iifname "${name}" oifname "${cfg.wan.interface}" accept
-                iifname "${cfg.wan.interface}" oifname "${name}" ct state { established, related } accept'')
-              wgNames;
+            # ${name} → WAN
+            iifname "${name}" oifname "${wanIf}" accept
+            iifname "${wanIf}" oifname "${name}" ct state { established, related } accept'') wgNames;
 
           # nftRuleset:
           #   The complete nftables configuration, organized into three tables:
@@ -413,14 +536,14 @@
                 udp dport 5353 accept comment "Allow mDNS queries"
 
                 # WAN: only established/related + select ICMP
-                iifname "${cfg.wan.interface}" ct state { established, related } accept
-                iifname "${cfg.wan.interface}" icmp type { echo-request, destination-unreachable, time-exceeded } counter accept
-                iifname "${cfg.wan.interface}" icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, echo-request, echo-reply, nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } counter accept
-                iifname "${cfg.wan.interface}" udp dport 546 accept comment "DHCPv6 client"
+                iifname "${wanIf}" ct state { established, related } accept
+                iifname "${wanIf}" icmp type { echo-request, destination-unreachable, time-exceeded } counter accept
+                iifname "${wanIf}" icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, echo-request, echo-reply, nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } counter accept
+                iifname "${wanIf}" udp dport 546 accept comment "DHCPv6 client"
                 ${wgInputRules}
 
                 # Drop everything else from WAN
-                iifname "${cfg.wan.interface}" counter drop
+                iifname "${wanIf}" counter drop
               }
 
               chain forward {
@@ -432,15 +555,15 @@
                 ${wgForwardRules}
 
                 # LAN → WAN
-                iifname "${brLAN}" oifname "${cfg.wan.interface}" accept
+                iifname "${brLAN}" oifname "${wanIf}" accept
 
                 # WAN → LAN (established only)
-                iifname "${cfg.wan.interface}" oifname "${brLAN}" ct state { established, related } accept
+                iifname "${wanIf}" oifname "${brLAN}" ct state { established, related } accept
 
                 ${optionalString cfg.guest.enable ''
                   # Guest → WAN only (fully isolated from LAN and WireGuard)
-                  iifname "${brGuest}" oifname "${cfg.wan.interface}" accept
-                  iifname "${cfg.wan.interface}" oifname "${brGuest}" ct state { established, related } accept
+                  iifname "${brGuest}" oifname "${wanIf}" accept
+                  iifname "${wanIf}" oifname "${brGuest}" ct state { established, related } accept
 
                   # LAN → Guest (one-way access for administration)
                   iifname "${brLAN}" oifname "${brGuest}" accept
@@ -471,7 +594,7 @@
               chain postrouting {
                 type nat hook postrouting priority srcnat; policy accept;
                 # IPv4 masquerade only — IPv6 uses global PD addresses
-                meta nfproto ipv4 oifname "${cfg.wan.interface}" masquerade
+                meta nfproto ipv4 oifname "${wanIf}" masquerade
               }
             }
 
@@ -623,8 +746,19 @@
             # types, and WireGuard UDP ports are allowed inbound.
             wan = {
               interface = mkOption {
-                type = types.str;
-                description = "WAN network interface name (e.g. enp1s0)";
+                type = types.nullOr types.str;
+                default = null;
+                description = "WAN untagged uplink interface name (e.g. enp1s0). Set null for a VLAN-only WAN.";
+              };
+
+              vlan = mkOption {
+                type = types.nullOr types.int;
+                default = null;
+                description = ''
+                  VLAN id this network claims (tagged) on every other network's
+                  interfaces; null = untagged-only. When set, the WAN DHCP client
+                  runs on a bridge (br-wan) aggregating the VLAN sub-interfaces.
+                '';
               };
             };
 
@@ -642,7 +776,17 @@
             lan = {
               interfaces = mkOption {
                 type = types.listOf types.str;
-                description = "Physical LAN port interface names";
+                default = [ ];
+                description = "Physical LAN port interface names (untagged). May be empty for a VLAN-only LAN.";
+              };
+
+              vlan = mkOption {
+                type = types.nullOr types.int;
+                default = null;
+                description = ''
+                  VLAN id this network claims (tagged) on every other network's
+                  interfaces; null = untagged-only.
+                '';
               };
 
               bridge = mkOption {
@@ -708,7 +852,16 @@
               interfaces = mkOption {
                 type = types.listOf types.str;
                 default = [ ];
-                description = "Physical interface names to assign to the guest bridge";
+                description = "Physical interface names to assign to the guest bridge (untagged)";
+              };
+
+              vlan = mkOption {
+                type = types.nullOr types.int;
+                default = null;
+                description = ''
+                  VLAN id this network claims (tagged) on every other network's
+                  interfaces; null = untagged-only.
+                '';
               };
 
               bridge = mkOption {
@@ -1036,6 +1189,54 @@
           # ══════════════════════════════════════════════════════════
           config = {
 
+            # ── Network assignment validation ────────────────────
+            # Catch misconfiguration of the interface/VLAN model early, with
+            # clear messages, rather than producing a broken networkd config.
+            assertions =
+              let
+                vlanIds = filter (v: v != null) (
+                  [
+                    cfg.wan.vlan
+                    cfg.lan.vlan
+                  ]
+                  ++ optional cfg.guest.enable cfg.guest.vlan
+                );
+              in
+              [
+                {
+                  assertion = cfg.wan.interface != null || cfg.wan.vlan != null;
+                  message = "router.wan: set an `interface` (untagged uplink) and/or a `vlan` id.";
+                }
+                {
+                  assertion = cfg.lan.interfaces != [ ] || cfg.lan.vlan != null;
+                  message = "router.lan: set `interfaces` (untagged) and/or a `vlan` id.";
+                }
+                {
+                  assertion = !cfg.guest.enable || (cfg.guest.interfaces != [ ] || cfg.guest.vlan != null);
+                  message = "router.guest: when enabled, set `interfaces` (untagged) and/or a `vlan` id.";
+                }
+                {
+                  assertion = allPhys != [ ];
+                  message = "router: at least one physical interface must be assigned (no port exists to carry traffic).";
+                }
+                {
+                  assertion = allPhys == unique allPhys;
+                  message = "router: a physical interface is assigned to more than one network; each port has exactly one untagged owner.";
+                }
+                {
+                  assertion = vlanIds == unique vlanIds;
+                  message = "router: two networks share a VLAN id; each network's VLAN id must be distinct.";
+                }
+                {
+                  assertion = all (v: v >= 1 && v <= 4094) vlanIds;
+                  message = "router: VLAN ids must be in the range 1–4094.";
+                }
+                {
+                  assertion = all (c: stringLength c.child <= 15) allChildren;
+                  message = "router: a VLAN sub-interface name (<port>.<vid>) exceeds the 15-char kernel limit (IFNAMSIZ); use a shorter parent interface name.";
+                }
+              ];
+
             # ── 0. Image slimming ────────────────────────────────
             # A router has no users, GUI, fonts, or need for RAID/exotic
             # filesystems.  Stripping these reduces the system closure
@@ -1246,11 +1447,16 @@
             # avoid conflicts with our explicit networkd + nftables setup.
             #
             # Interface topology:
-            #   WAN (enp1s0, etc.) ─── DHCPv4 client, strict rp_filter
-            #   LAN ports (enp2s0, etc.) ──┐
-            #                              ├── br-lan (bridge) ─── static IP (gateway)
-            #   LAN ports (enp3s0, etc.) ──┘
-            #   Guest ports ──── br-guest (bridge) ─── static IP (gateway)
+            #   Each network (wan/lan/guest) claims UNTAGGED traffic on its
+            #   assigned `interfaces` and/or TAGGED traffic for its `vlan` id on
+            #   every OTHER network's interfaces (a trunk). A port can therefore
+            #   carry both at once — untagged frames go to the owner's bridge,
+            #   tagged frames to the <port>.<vid> sub-interface (kernel 802.1q
+            #   demux precedes the bridge), so one wire feeds multiple networks.
+            #
+            #   WAN ─── DHCPv4 client (on the uplink, or br-wan when VLAN-based)
+            #   LAN ports / <port>.<lanVid> ──── br-lan ─── static IP (gateway)
+            #   Guest ports / <port>.<guestVid> ─ br-guest ─ static IP (gateway)
             #   WireGuard (wg0, etc.) ─── tunnel IP, forwarding enabled
             networking = {
               useNetworkd = true;
@@ -1264,9 +1470,12 @@
               # Don't block boot waiting for all interfaces — any one is enough.
               wait-online.anyInterface = true;
 
-              # ── Virtual devices (bridges) ──────────────────────
-              # The LAN bridge aggregates physical LAN ports into a single
-              # L2 domain. Guest bridge is created only when guest.enable = true.
+              # ── Virtual devices (bridges + VLANs) ──────────────
+              # The LAN bridge aggregates LAN members (untagged ports and/or
+              # tagged VLAN sub-interfaces) into one L2 domain. Guest bridge is
+              # created only when guest.enable = true. br-wan is created only
+              # when WAN is VLAN-based / has no untagged uplink. One VLAN netdev
+              # (<port>.<vid>) is created per (VLAN network × other port) pair.
               netdevs = {
                 "20-br-lan" = {
                   netdevConfig = {
@@ -1282,7 +1491,27 @@
                     Name = brGuest;
                   };
                 };
-              };
+              }
+              // optionalAttrs wanIsBridged {
+                "22-br-wan" = {
+                  netdevConfig = {
+                    Kind = "bridge";
+                    Name = brWAN;
+                  };
+                };
+              }
+              // listToAttrs (
+                map (
+                  c:
+                  nameValuePair "60-${c.child}" {
+                    netdevConfig = {
+                      Kind = "vlan";
+                      Name = c.child;
+                    };
+                    vlanConfig.Id = c.net.vlan;
+                  }
+                ) allChildren
+              );
 
               # ── Network units ────────────────────────────────────
               networks = {
@@ -1304,54 +1533,13 @@
                 #   for distributing IPv6 subnets to LAN/guest bridges.
                 # • ipv6AcceptRAConfig: always start DHCPv6 client (some ISPs
                 #   require it even when RA M-flag is set).
-                "10-wan" = {
-                  matchConfig.Name = cfg.wan.interface;
-                  networkConfig = {
-                    DHCP = "yes";
-                    IPv4Forwarding = true;
-                    IPv6Forwarding = true;
-                    IPv4ReversePathFilter = "strict";
-                    IPv6AcceptRA = true;
-                    IgnoreCarrierLoss = "3s";
-                    KeepConfiguration = "dynamic-on-stop";
-                  };
-                  dhcpV4Config = {
-                    UseDNS = false;
-                    UseHostname = false;
-                    UseDomains = false;
-                    SendHostname = true;
-                    RouteMetric = 100;
-                  };
-                  dhcpV6Config = {
-                    UseDNS = false;
-                    UseHostname = false;
-                    WithoutRA = "solicit";
-                    PrefixDelegationHint = "::/60";
-                  };
-                  ipv6AcceptRAConfig = {
-                    UseDNS = false;
-                    DHCPv6Client = "always";
-                  };
-                  linkConfig.RequiredForOnline = "routable";
-                };
-
-                # LAN bridge member ports: enslaved to br-lan.
-                # • ConfigureWithoutCarrier: allow networkd to configure the
-                #   port even when no cable is plugged in.
-                # • LinkLocalAddressing=no: bridge members don't need their own
-                #   IP addresses — the bridge device itself handles addressing.
-                # • IPv6AcceptRA=false: prevents rogue RA attacks on LAN ports.
-                # • RequiredForOnline=enslaved: port is "online" when joined
-                #   to the bridge, even without an IP address.
-                "30-lan-ports" = {
-                  matchConfig.Name = concatStringsSep " " cfg.lan.interfaces;
-                  networkConfig = {
-                    Bridge = brLAN;
-                    ConfigureWithoutCarrier = true;
-                    LinkLocalAddressing = "no";
-                    IPv6AcceptRA = false;
-                  };
-                  linkConfig.RequiredForOnline = "enslaved";
+                # The shared DHCP-client config (wanNetworkBase) is applied to
+                # the untagged uplink, or to the br-wan bridge when WAN is
+                # VLAN-based. Other networks' VLAN sub-interfaces that ride on
+                # the untagged WAN port are attached via the `vlan` list.
+                "10-wan" = wanNetworkBase // {
+                  matchConfig.Name = wanIf;
+                  vlan = optionals (!wanIsBridged) (childrenOnPort cfg.wan.interface);
                 };
 
                 # LAN bridge: the router's internal gateway interface.
@@ -1401,7 +1589,7 @@
                     EmitRouter = true;
                   };
                   dhcpPrefixDelegationConfig = {
-                    UplinkInterface = cfg.wan.interface;
+                    UplinkInterface = wanIf;
                     SubnetId = 0;
                     Announce = true;
                   };
@@ -1411,6 +1599,45 @@
                   linkConfig.RequiredForOnline = "no";
                 };
               }
+              # Physical bridge-member ports: one .network per port. Each port
+              # enslaves to its owner network's bridge and attaches (via the
+              # `vlan` list) the VLAN sub-interfaces of OTHER networks that ride
+              # on it. The kernel delivers tagged frames to those children before
+              # the bridge sees them, so untagged + tagged coexist on one wire.
+              # (The untagged WAN uplink is handled by 10-wan above.)
+              // listToAttrs (
+                map (
+                  p:
+                  nameValuePair "30-port-${p}" {
+                    matchConfig.Name = p;
+                    networkConfig = {
+                      Bridge = ownerBridgeOf p;
+                      ConfigureWithoutCarrier = true;
+                      LinkLocalAddressing = "no";
+                      IPv6AcceptRA = false;
+                    };
+                    vlan = childrenOnPort p;
+                    linkConfig.RequiredForOnline = "enslaved";
+                  }
+                ) parentPorts
+              )
+              # VLAN sub-interfaces (<port>.<vid>): each enslaved to the bridge
+              # of the network that owns the VLAN id (br-lan/br-guest/br-wan).
+              // listToAttrs (
+                map (
+                  c:
+                  nameValuePair "61-${c.child}" {
+                    matchConfig.Name = c.child;
+                    networkConfig = {
+                      Bridge = childBridgeOf c.net;
+                      ConfigureWithoutCarrier = true;
+                      LinkLocalAddressing = "no";
+                      IPv6AcceptRA = false;
+                    };
+                    linkConfig.RequiredForOnline = "enslaved";
+                  }
+                ) allChildren
+              )
               # WireGuard tunnel network units: generated dynamically from
               # `router.wireguard` entries. Each tunnel gets forwarding
               # enabled and relaxed rp_filter (WG traffic arrives from the
@@ -1437,17 +1664,6 @@
               # Same pattern as LAN — member ports enslaved to bridge,
               # bridge gets static IP. LLDP enabled for topology visibility.
               // optionalAttrs cfg.guest.enable {
-                # Guest bridge member ports — same rationale as LAN ports.
-                "31-guest-ports" = {
-                  matchConfig.Name = concatStringsSep " " cfg.guest.interfaces;
-                  networkConfig = {
-                    Bridge = brGuest;
-                    ConfigureWithoutCarrier = true;
-                    LinkLocalAddressing = "no";
-                    IPv6AcceptRA = false;
-                  };
-                  linkConfig.RequiredForOnline = "enslaved";
-                };
                 # Guest bridge — same config pattern as br-lan, but on
                 # a separate subnet with a different PD SubnetId.
                 # nftables isolates guest from LAN/WG.
@@ -1477,7 +1693,7 @@
                     EmitRouter = true;
                   };
                   dhcpPrefixDelegationConfig = {
-                    UplinkInterface = cfg.wan.interface;
+                    UplinkInterface = wanIf;
                     SubnetId = 1;
                     Announce = true;
                   };

@@ -39,8 +39,13 @@
                 lan = {
                   interfaces = [
                     "enp0s20f1"
+                    "enp0s20f2"
+                    "enp0s20f3"
+                    "ens2"
+                    "enp4s0"
+                    "enp7s0"
+                    "enp8s0"
                   ];
-                  bridge = "br-lan";
                   address = "10.48.4.1";
                   networkAddress = "10.48.4.0";
                   prefixLength = 24;
@@ -53,17 +58,24 @@
                 };
 
                 # ── Guest network ─────────────────────────────────
+                # Each network (wan/lan/guest) can be assigned physical
+                # `interfaces` (claims UNTAGGED traffic on them) and/or a single
+                # `vlan` id (claims that VLAN's TAGGED traffic on every other
+                # network's interfaces — a trunk over the other ports).
+                #
+                # VLAN-based alternative (guest rides as tagged VLAN 20 over the
+                # LAN port instead of dedicating physical ports):
+                #   guest = {
+                #     enable = true;
+                #     vlan = 20;          # no `interfaces` → VLAN-only
+                #     address = "192.168.20.1";
+                #     networkAddress = "192.168.20.0";
+                #     prefixLength = 24;
+                #     dhcp = { poolOffset = 100; poolSize = 150; leaseTime = "1h"; };
+                #   };
                 guest = {
                   enable = true;
-                  interfaces = [
-                    "enp0s20f2"
-                    "enp0s20f3"
-                    "ens2"
-                    "enp4s0"
-                    "enp7s0"
-                    "enp8s0"
-                  ]; # physical ports for guest
-                  bridge = "br-guest";
+                  vlan = 20;
                   address = "192.168.20.1";
                   networkAddress = "192.168.20.0";
                   prefixLength = 24;
