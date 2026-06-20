@@ -282,7 +282,7 @@ echo "    sudo dd if=\"$OUTPUT_ISO\" of=/dev/sdX bs=4M status=progress conv=fsyn
 echo ""
 echo "  Or deploy directly over SSH with nixos-anywhere (no USB needed):"
 echo "    nix run github:nix-community/nixos-anywhere -- \\"
-echo "      --flake \"${BUILD_DIR}#${HOSTNAME}\" \\"
+echo "      --flake \"${SCRIPT_DIR}#${HOSTNAME}\" \\"
 echo "      root@<ip-address>"
 echo ""
 echo "  When booted, the router installs automatically."
