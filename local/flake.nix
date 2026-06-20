@@ -14,7 +14,7 @@
       nixos-router,
     }:
     let
-      hostName = "258-router";
+      hostName = "948-router";
       system = "x86_64-linux";
     in
     {
@@ -41,13 +41,13 @@
                     "enp0s20f1"
                   ];
                   bridge = "br-lan";
-                  address = "10.58.1.1";
-                  networkAddress = "10.58.1.0";
+                  address = "10.48.4.1";
+                  networkAddress = "10.48.4.0";
                   prefixLength = 24;
                   domain = "lan";
                   dhcp = {
                     poolOffset = 100;
-                    poolSize = 151;
+                    poolSize = 150;
                     leaseTime = "30d";
                   };
                 };
@@ -152,17 +152,8 @@
                       steven_black = true;
                       yoyo_adservers = true;
                     };
-                    extraUserRules = [
-                      # "@@||example.com^"   # office whitelists
-                    ];
-                    # Convenient allow/block lists (converted to AdGuard rules automatically)
                     allowList = [
-                      "example.com" # Allows example.com and subdomains
-                      "trusted-site.org/path" # Allows specific path
-                    ];
-                    blockList = [
-                      "bad-site.com" # Blocks bad-site.com and subdomains
-                      "ads.example.net" # Blocks specific subdomain
+                      "supabase.com" # blocked by utcapitole
                     ];
                   };
                 };
@@ -178,7 +169,7 @@
                   enable = true;
                   port = 9090;
                   # plugins = [ pkgs.cockpit-machines ];
-                  # allowedOrigins = [ "https://office-router.lan:9090" ];
+                  allowedOrigins = [ "https://948-router.lan:9090" ];
                 };
 
                 # ── Admin user ───────────────────────────────────
