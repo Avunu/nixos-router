@@ -109,7 +109,7 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
           "\${nixpkgs}/nixos/modules/installer/cd-dvd/installation-cd-minimal.nix"
 
           (
-            { pkgs, ... }:
+            { pkgs, lib, ... }:
             {
               environment.etc."installer-flake".source = self;
               environment.etc."permanent-flake/flake.nix".source = ./permanent-flake.nix;
@@ -128,6 +128,13 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
                 pkgs.nixos-install-tools
               ];
 
+              # The installation CD autologins a shell on tty1, which would
+              # otherwise hide the installer running behind it. Disable that
+              # getty and run the installer ON tty1 in the foreground. Other VTs
+              # (Alt+F2…F6) still offer a login shell for debugging.
+              systemd.services."getty@tty1".enable = lib.mkForce false;
+              systemd.services."autovt@tty1".enable = lib.mkForce false;
+
               systemd.services.unattended-install = {
                 description = "Unattended NixOS Router Installation";
                 wantedBy = [ "multi-user.target" ];
@@ -135,12 +142,23 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
                   "network.target"
                   "polkit.service"
                 ];
+                # Replace the getty on tty1 and take its terminal.
+                conflicts = [
+                  "getty@tty1.service"
+                  "autovt@tty1.service"
+                ];
 
                 serviceConfig = {
-                  Type = "oneshot";
+                  # idle: let boot messages settle so the installer UI is clean.
+                  Type = "idle";
+                  # Claim tty1 as the controlling terminal (foreground) so output
+                  # is visible and the Ctrl+C abort window is interactive.
+                  StandardInput = "tty-force";
                   StandardOutput = "tty";
                   StandardError = "tty";
                   TTYPath = "/dev/tty1";
+                  TTYReset = "yes";
+                  TTYVHangup = "yes";
                 };
 
                 path = [
