@@ -36,10 +36,17 @@ wait_for_enter() {
     return 1
 }
 
+# The Linux console has no scrollback on current kernels, so the full install
+# output (especially a long Nix build error) is mirrored to this log. On failure
+# we open it in a scrollable pager, and it stays readable from any other VT
+# (Alt+F2 … F6):  less /tmp/unattended-install.log
+LOG=/tmp/unattended-install.log
+
 echo "=============================================="
 echo " AUTOMATED NIXOS ROUTER INSTALL (disko-install)"
 echo " Hostname : ${FLAKE_ATTR}"
 echo " Disk     : ${DISK_DEVICE}  (ALL DATA WILL BE WIPED)"
+echo " Log      : ${LOG}  (also viewable on Alt+F2 … F6)"
 echo "=============================================="
 
 if [ ! -b "$DISK_DEVICE" ]; then
@@ -116,12 +123,38 @@ echo ":: Starting disko-install (offline)..."
 #
 # The user's flake.nix/flake.lock are seeded into the installed system's
 # /etc/nixos so the appliance can `nixos-rebuild` later.
-disko-install \
+#
+# All output is teed to $LOG. The `if` (with `set -o pipefail`) captures failure
+# without tripping `set -e`, so we can show the full error in a pager instead of
+# leaving it scrolled off the top of an unscrollable console.
+if disko-install \
     --flake "/etc/installer-flake#${FLAKE_ATTR}" \
     --disk "${DISK_NAME}" "${DISK_DEVICE}" \
     "${efi_args[@]}" \
     --extra-files /etc/installer-flake/local-config/flake.nix etc/nixos/flake.nix \
-    --extra-files /etc/installer-flake/local-config/flake.lock etc/nixos/flake.lock
+    --extra-files /etc/installer-flake/local-config/flake.lock etc/nixos/flake.lock \
+    2>&1 | tee "$LOG"; then
+    install_ok=1
+else
+    install_ok=0
+fi
+
+if [ "$install_ok" -ne 1 ]; then
+    echo ""
+    echo "=============================================="
+    echo " INSTALLATION FAILED"
+    echo "=============================================="
+    echo " Full log: ${LOG}"
+    echo " Opening it in a scrollable pager:"
+    echo "   ↑/↓ PageUp/PageDown to scroll, '/' to search, 'G' to jump to the end, 'q' to quit."
+    sleep 4
+    less "$LOG" || true
+    echo ""
+    echo " Re-open the log any time with:  less ${LOG}"
+    echo " Other consoles are available on Alt+F2 … Alt+F6."
+    echo " Dropping to a root shell for debugging."
+    exec bash -i
+fi
 
 echo "=============================================="
 echo " Installation complete! Rebooting in 5 s..."

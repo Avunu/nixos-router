@@ -212,6 +212,8 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
                   pkgs.efibootmgr
                   pkgs.coreutils
                   pkgs.nix
+                  pkgs.less              # scrollable pager for the failure log
+                  pkgs.bashInteractive   # drop-to-shell on failure (bash -i)
                 ];
 
                 script = builtins.readFile ./unattended-install.sh;

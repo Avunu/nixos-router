@@ -30,7 +30,7 @@
                 timeZone = "America/New_York";
                 stateVersion = "26.11";
                 diskDevice = "/dev/sda";
-                bootMode = "legacy";
+                bootMode = "uefi";
 
                 # ── WAN ──────────────────────────────────────────
                 wan.interface = "enp0s20f0";
