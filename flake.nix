@@ -101,29 +101,12 @@
         }
       );
 
-      packages = forAllSystems (
-        system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in
-        lib.optionalAttrs (system == "x86_64-linux") {
-          # Interactive ISO generator — collects router options and builds a
-          # self-contained headless installer ISO.
-          # Run from the repo root:  ./local/generate-iso.sh
-          # Or:  nix run .#generate-iso
-          generate-iso = pkgs.writeShellApplication {
-            name = "generate-router-iso";
-            runtimeInputs = with pkgs; [
-              coreutils
-              git
-              iproute2
-              nix
-              util-linux
-            ];
-            text = builtins.readFile ./local/generate-iso.sh;
-          };
-        }
-      );
+      # ── Installer scripts ────────────────────────────────────────────────────
+      # The ISO workflow is two repo-relative scripts run directly from a checkout
+      # (they read/write local/flake.nix beside themselves, so they are not
+      # packaged as `nix run` targets):
+      #   ./local/generate-config.sh   — interactively writes local/flake.nix
+      #   ./local/build-iso.sh         — builds the installer ISO from it
 
       # ════════════════════════════════════════════════════════════════════════
       #  ROUTER MODULE
@@ -159,7 +142,7 @@
           #   Bridge name, gateway IP, prefix length, and CIDR notation for
           #   the primary LAN network. Used in networkd, nftables, and
           #   Suricata HOME_NET.
-          brLAN = cfg.lan.bridge;
+          brLAN = "br-lan";
           lanGW = cfg.lan.address;
           lanPrefix = toString cfg.lan.prefixLength;
           lanCIDR = "${cfg.lan.networkAddress}/${lanPrefix}";
@@ -194,44 +177,54 @@
           # ── Guest network derived values ────────────────────────
           # Mirror of the LAN derived values, for the isolated guest network.
           # Guest traffic is only allowed to reach the WAN — never LAN or WG.
-          brGuest = cfg.guest.bridge;
+          brGuest = "br-guest";
           guestGW = cfg.guest.address;
           guestPrefix = toString cfg.guest.prefixLength;
           guestCIDR = "${cfg.guest.networkAddress}/${guestPrefix}";
 
           # ── VLAN / interface assignment model ───────────────────
           # Each network (wan/lan/guest) may be assigned physical interfaces
-          # (claiming UNTAGGED traffic on them) and/or a VLAN id (claiming that
-          # VLAN's TAGGED traffic on every OTHER network's interfaces — a trunk).
-          # A single physical port can therefore carry untagged traffic for its
-          # owner network AND tagged VLAN traffic for another: the kernel's 802.1q
-          # demux (vlan_do_receive) runs before the bridge rx_handler, so the
+          # (claiming UNTAGGED traffic on them) and/or a VLAN id for TAGGED
+          # traffic. VLAN availability is EXPLICIT: a network's tag is carried on
+          # the global `trunkInterfaces` (implicit for every network) plus that
+          # network's own `taggedInterfaces` (WAN: trunk only). A single physical
+          # port can therefore carry untagged traffic for its owner network AND
+          # tagged VLAN traffic for another: the kernel's 802.1q demux
+          # (vlan_do_receive) runs before the bridge rx_handler, so the
           # `<port>.<vid>` sub-interface receives tagged frames before the owner's
           # plain bridge ever sees them. See the systemd-networkd section below.
           #
-          # wanPhys/lanPhys/guestPhys/allPhys:
-          #   Untagged physical ports owned by each network, and their union.
+          # wanPhys/lanPhys/guestPhys:
+          #   Untagged physical ports owned by each network.
           wanPhys = optional (cfg.wan.interface != null) cfg.wan.interface;
           lanPhys = cfg.lan.interfaces;
           guestPhys = optionals cfg.guest.enable cfg.guest.interfaces;
-          allPhys = wanPhys ++ lanPhys ++ guestPhys;
+          # ownedPorts: physical ports that have an untagged owner network.
+          # Untagged ownership is exclusive (a port has at most one owner).
+          ownedPorts = wanPhys ++ lanPhys ++ guestPhys;
 
           # netList:
           #   Uniform description of each network: key, target bridge (null for a
-          #   direct/untagged WAN), VLAN id, and owned physical ports. The guest
-          #   entry only appears when guest.enable = true.
+          #   direct/untagged WAN), VLAN id, owned (untagged) ports, and the
+          #   ports its VLAN tag rides on (`taggedPorts`). VLAN availability is
+          #   EXPLICIT: the global `trunkInterfaces` (implicit for every network)
+          #   plus each network's own `taggedInterfaces`. WAN's tag is restricted
+          #   to `trunkInterfaces` only. The guest entry only appears when
+          #   guest.enable = true.
           netList = [
             {
               key = "wan";
               bridge = null;
               vlan = cfg.wan.vlan;
               phys = wanPhys;
+              taggedPorts = cfg.trunkInterfaces;
             }
             {
               key = "lan";
               bridge = brLAN;
               vlan = cfg.lan.vlan;
               phys = lanPhys;
+              taggedPorts = unique (cfg.trunkInterfaces ++ cfg.lan.taggedInterfaces);
             }
           ]
           ++ optional cfg.guest.enable {
@@ -239,6 +232,7 @@
             bridge = brGuest;
             vlan = cfg.guest.vlan;
             phys = guestPhys;
+            taggedPorts = unique (cfg.trunkInterfaces ++ cfg.guest.taggedInterfaces);
           };
 
           # vlanChild:
@@ -247,9 +241,16 @@
           vlanChild = parent: vid: "${parent}.${toString vid}";
 
           # allChildren:
-          #   Flat list of every VLAN sub-interface to create. For each network
-          #   with a VLAN id, one child per OTHER network's physical port (the
-          #   trunk rides over all other interfaces, including WAN per design).
+          #   Flat list of every VLAN sub-interface to create — for each network
+          #   with a VLAN id, one child per port in its `taggedPorts`.
+          #
+          #   Security note: because the kernel's VLAN demux precedes the bridge,
+          #   a tag injected on a port lands directly in the matching network,
+          #   bypassing that port's input chain. Availability is explicit, so a
+          #   network's tag only appears where listed. The intended topology is a
+          #   managed/smart switch acting as the trust boundary; WAN's tag is
+          #   confined to `trunkInterfaces` so the internet side can never inject
+          #   an internal VLAN onto a LAN/guest port.
           childrenOf =
             n:
             if n.vlan == null then
@@ -259,8 +260,14 @@
                 inherit p;
                 child = vlanChild p n.vlan;
                 net = n;
-              }) (subtractLists n.phys allPhys);
+              }) n.taggedPorts;
           allChildren = concatMap childrenOf netList;
+
+          # allPhys: every physical port that needs a parent .network unit —
+          # untagged owners, declared trunk ports, and any port a VLAN child
+          # rides on. Trunk/tagged-only ports have no untagged network of their
+          # own and act as pure carriers.
+          allPhys = unique (ownedPorts ++ cfg.trunkInterfaces ++ map (c: c.p) allChildren);
 
           # childrenOnPort:
           #   VLAN sub-interface names that ride on a given parent port — attached
@@ -310,10 +317,11 @@
           };
 
           # parentPorts / ownerBridgeOf / childBridgeOf:
-          #   Physical ports that need a generic bridge-member .network unit
-          #   (the untagged WAN uplink is excluded when WAN is direct — it has
-          #   its own DHCP-client unit), and the bridge a given port / VLAN
-          #   child enslaves to (WAN children/ports land on br-wan).
+          #   parentPorts: physical ports that need their own parent .network
+          #   unit (the untagged WAN uplink is excluded when WAN is direct — it
+          #   has its own 10-wan DHCP-client unit). An owned port enslaves to its
+          #   owner's bridge; a trunk-only port is a pure carrier (no bridge/L3).
+          #   childBridgeOf: the bridge a VLAN child enslaves to (WAN → br-wan).
           directWanPort = optionals (!wanIsBridged) wanPhys;
           parentPorts = subtractLists directWanPort allPhys;
           ownerOf = p: findFirst (n: elem p n.phys) (head netList) netList;
@@ -324,6 +332,28 @@
             in
             if n.key == "wan" then brWAN else n.bridge;
           childBridgeOf = net: if net.key == "wan" then brWAN else net.bridge;
+
+          # mkPortUnit:
+          #   The parent .network unit for a physical port: attaches the VLAN
+          #   sub-interfaces riding on it (`vlan` list) and, if the port has an
+          #   untagged owner, enslaves it to that owner's bridge. Trunk-only
+          #   ports carry tagged VLANs only and terminate no L3 themselves.
+          mkPortUnit =
+            p:
+            let
+              owned = elem p ownedPorts;
+            in
+            {
+              matchConfig.Name = p;
+              networkConfig = {
+                ConfigureWithoutCarrier = true;
+                LinkLocalAddressing = "no";
+                IPv6AcceptRA = false;
+              }
+              // optionalAttrs owned { Bridge = ownerBridgeOf p; };
+              vlan = childrenOnPort p;
+              linkConfig.RequiredForOnline = if owned then "enslaved" else "no";
+            };
 
           # ── Standard filter list catalogue ──────────────────────
           # Registry of well-known ad/malware/phishing blocklists for AdGuard
@@ -738,6 +768,19 @@
               description = "Boot mode: uefi (systemd-boot) or legacy (GRUB)";
             };
 
+            # ── Trunk interfaces ───────────────────────────────────
+            # Physical ports that carry VLAN-tagged traffic but have no untagged
+            # network of their own. The canonical case is a single-NIC router
+            # (e.g. a Raspberry Pi) cabled to a smart switch that delivers every
+            # network as a tagged VLAN on that one port. List the port here and
+            # give each network a `vlan` id; VLAN sub-interfaces are created on
+            # every trunk port (in addition to other networks' interfaces).
+            trunkInterfaces = mkOption {
+              type = types.listOf types.str;
+              default = [ ];
+              description = "Physical ports carrying tagged VLANs with no untagged network of their own (e.g. a single switch-trunk uplink).";
+            };
+
             # ── WAN ────────────────────────────────────────────────
             # The upstream (internet-facing) interface. This interface is
             # configured as a DHCPv4 client and is the masquerade source
@@ -755,9 +798,10 @@
                 type = types.nullOr types.int;
                 default = null;
                 description = ''
-                  VLAN id this network claims (tagged) on every other network's
-                  interfaces; null = untagged-only. When set, the WAN DHCP client
-                  runs on a bridge (br-wan) aggregating the VLAN sub-interfaces.
+                  WAN VLAN id (tagged); null = untagged uplink. The WAN tag is
+                  carried only on `trunkInterfaces` (never on LAN/guest ports).
+                  When set, the WAN DHCP client runs on a bridge (br-wan)
+                  aggregating those VLAN sub-interfaces.
                 '';
               };
             };
@@ -784,15 +828,20 @@
                 type = types.nullOr types.int;
                 default = null;
                 description = ''
-                  VLAN id this network claims (tagged) on every other network's
-                  interfaces; null = untagged-only.
+                  VLAN id for this network's tagged traffic; null = untagged-only.
+                  The tag is carried on `trunkInterfaces` plus this network's
+                  `taggedInterfaces`.
                 '';
               };
 
-              bridge = mkOption {
-                type = types.str;
-                default = "br-lan";
-                description = "Name of the LAN bridge device";
+              taggedInterfaces = mkOption {
+                type = types.listOf types.str;
+                default = [ ];
+                description = ''
+                  Interfaces on which this network's VLAN tag is available, in
+                  addition to the global `trunkInterfaces`. Non-exclusive: a port
+                  may carry several networks' tags. Requires `vlan` to be set.
+                '';
               };
 
               address = mkOption {
@@ -859,15 +908,20 @@
                 type = types.nullOr types.int;
                 default = null;
                 description = ''
-                  VLAN id this network claims (tagged) on every other network's
-                  interfaces; null = untagged-only.
+                  VLAN id for this network's tagged traffic; null = untagged-only.
+                  The tag is carried on `trunkInterfaces` plus this network's
+                  `taggedInterfaces`.
                 '';
               };
 
-              bridge = mkOption {
-                type = types.str;
-                default = "br-guest";
-                description = "Bridge device name for the guest network";
+              taggedInterfaces = mkOption {
+                type = types.listOf types.str;
+                default = [ ];
+                description = ''
+                  Interfaces on which this network's VLAN tag is available, in
+                  addition to the global `trunkInterfaces`. Non-exclusive: a port
+                  may carry several networks' tags. Requires `vlan` to be set.
+                '';
               };
 
               address = mkOption {
@@ -1220,8 +1274,20 @@
                   message = "router: at least one physical interface must be assigned (no port exists to carry traffic).";
                 }
                 {
-                  assertion = allPhys == unique allPhys;
+                  assertion = ownedPorts == unique ownedPorts;
                   message = "router: a physical interface is assigned to more than one network; each port has exactly one untagged owner.";
+                }
+                {
+                  assertion = all (n: n.vlan == null || n.taggedPorts != [ ]) netList;
+                  message = "router: a VLAN-based network has no ports to carry its tag; add to its `taggedInterfaces` (WAN: `trunkInterfaces`) or set `trunkInterfaces`.";
+                }
+                {
+                  assertion = cfg.lan.taggedInterfaces == [ ] || cfg.lan.vlan != null;
+                  message = "router.lan: `taggedInterfaces` is set but `vlan` is null; set a `vlan` id.";
+                }
+                {
+                  assertion = cfg.guest.taggedInterfaces == [ ] || cfg.guest.vlan != null;
+                  message = "router.guest: `taggedInterfaces` is set but `vlan` is null; set a `vlan` id.";
                 }
                 {
                   assertion = vlanIds == unique vlanIds;
@@ -1449,10 +1515,10 @@
             # Interface topology:
             #   Each network (wan/lan/guest) claims UNTAGGED traffic on its
             #   assigned `interfaces` and/or TAGGED traffic for its `vlan` id on
-            #   every OTHER network's interfaces (a trunk). A port can therefore
-            #   carry both at once — untagged frames go to the owner's bridge,
-            #   tagged frames to the <port>.<vid> sub-interface (kernel 802.1q
-            #   demux precedes the bridge), so one wire feeds multiple networks.
+            #   the trunk (`trunkInterfaces`) plus its own `taggedInterfaces`. A
+            #   port can carry both at once — untagged frames go to the owner's
+            #   bridge, tagged frames to the <port>.<vid> sub-interface (kernel
+            #   802.1q demux precedes the bridge), so one wire feeds many networks.
             #
             #   WAN ─── DHCPv4 client (on the uplink, or br-wan when VLAN-based)
             #   LAN ports / <port>.<lanVid> ──── br-lan ─── static IP (gateway)
@@ -1599,28 +1665,14 @@
                   linkConfig.RequiredForOnline = "no";
                 };
               }
-              # Physical bridge-member ports: one .network per port. Each port
-              # enslaves to its owner network's bridge and attaches (via the
-              # `vlan` list) the VLAN sub-interfaces of OTHER networks that ride
-              # on it. The kernel delivers tagged frames to those children before
-              # the bridge sees them, so untagged + tagged coexist on one wire.
-              # (The untagged WAN uplink is handled by 10-wan above.)
-              // listToAttrs (
-                map (
-                  p:
-                  nameValuePair "30-port-${p}" {
-                    matchConfig.Name = p;
-                    networkConfig = {
-                      Bridge = ownerBridgeOf p;
-                      ConfigureWithoutCarrier = true;
-                      LinkLocalAddressing = "no";
-                      IPv6AcceptRA = false;
-                    };
-                    vlan = childrenOnPort p;
-                    linkConfig.RequiredForOnline = "enslaved";
-                  }
-                ) parentPorts
-              )
+              # Physical ports: one parent .network per port. An owned port
+              # enslaves to its owner network's bridge (untagged); a trunk-only
+              # port is a pure carrier. Each attaches (via the `vlan` list) the
+              # VLAN sub-interfaces of other networks that ride on it. The kernel
+              # delivers tagged frames to those children before the bridge sees
+              # them, so untagged + tagged coexist on one wire. (The untagged WAN
+              # uplink is handled by 10-wan above.)
+              // listToAttrs (map (p: nameValuePair "30-port-${p}" (mkPortUnit p)) parentPorts)
               # VLAN sub-interfaces (<port>.<vid>): each enslaved to the bridge
               # of the network that owns the VLAN id (br-lan/br-guest/br-wan).
               // listToAttrs (

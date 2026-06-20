@@ -58,24 +58,34 @@
                 };
 
                 # ── Guest network ─────────────────────────────────
-                # Each network (wan/lan/guest) can be assigned physical
-                # `interfaces` (claims UNTAGGED traffic on them) and/or a single
-                # `vlan` id (claims that VLAN's TAGGED traffic on every other
-                # network's interfaces — a trunk over the other ports).
+                # Each network (wan/lan/guest) is assigned physical `interfaces`
+                # for UNTAGGED traffic (exclusive — one owner per port) and/or a
+                # `vlan` id for TAGGED traffic. A VLAN tag is carried only on the
+                # explicit ports: the global `trunkInterfaces` (implicit for all)
+                # plus that network's own `taggedInterfaces`.
                 #
-                # VLAN-based alternative (guest rides as tagged VLAN 20 over the
-                # LAN port instead of dedicating physical ports):
-                #   guest = {
-                #     enable = true;
-                #     vlan = 20;          # no `interfaces` → VLAN-only
-                #     address = "192.168.20.1";
-                #     networkAddress = "192.168.20.0";
-                #     prefixLength = 24;
-                #     dhcp = { poolOffset = 100; poolSize = 150; leaseTime = "1h"; };
-                #   };
+                # Here guest has no `interfaces`; it rides as tagged VLAN 20 over
+                # the LAN ports listed in `taggedInterfaces` (adjust to match the
+                # ports your VLAN-aware switch trunks guest traffic on).
+                #
+                # Single-NIC variant (e.g. a Pi behind a smart switch that
+                # delivers every network as a tagged VLAN on one cable):
+                #   trunkInterfaces = [ "eth0" ];
+                #   wan = { interface = null; vlan = 10; };
+                #   lan = { vlan = 20; address = "10.48.4.1"; ... };
+                #   guest = { enable = true; vlan = 30; ... };
                 guest = {
                   enable = true;
                   vlan = 20;
+                  taggedInterfaces = [
+                    "enp0s20f1"
+                    "enp0s20f2"
+                    "enp0s20f3"
+                    "ens2"
+                    "enp4s0"
+                    "enp7s0"
+                    "enp8s0"
+                  ];
                   address = "192.168.20.1";
                   networkAddress = "192.168.20.0";
                   prefixLength = 24;
