@@ -43,12 +43,22 @@ fi
 DISK_DEVICE=$(grep -oP 'diskDevice\s*=\s*"\K[^"]+' "$LOCAL_FLAKE" | head -1)
 DISK_DEVICE="${DISK_DEVICE:-unknown}"
 
-# Determine nixos-router input
+# Determine the nixos-router input for the installer flake.
+#
+# disko-install RE-EVALUATES the flake on the appliance at install time, so the
+# nixos-router source must resolve OFFLINE there. An absolute `path:` input to
+# this build machine would not exist on the appliance, so when building from a
+# local checkout we VENDOR nixos-router (flake.nix + flake.lock — the flake is
+# fully self-contained, no ./modules imports) into the installer flake tree and
+# reference it by a relative path. The whole tree is shipped on the ISO, so the
+# relative path resolves within the Nix store at install time.
 if [[ -f "$FLAKE_ROOT/flake.nix" ]] && grep -q "NixOS Router" "$FLAKE_ROOT/flake.nix" 2>/dev/null; then
-  NIXOS_ROUTER_INPUT="path:$FLAKE_ROOT"
-  info "Using local nixos-router flake at $FLAKE_ROOT"
+  NIXOS_ROUTER_INPUT="path:./nixos-router-src"
+  VENDOR_NIXOS_ROUTER=1
+  info "Using (vendored) local nixos-router flake at $FLAKE_ROOT"
 else
   NIXOS_ROUTER_INPUT="github:Avunu/nixos-router"
+  VENDOR_NIXOS_ROUTER=0
   info "Using upstream nixos-router from GitHub"
 fi
 
@@ -69,12 +79,13 @@ header "Generating installer flake..."
 BUILD_DIR=$(mktemp -d)
 trap 'rm -rf "$BUILD_DIR"' EXIT
 
-# Copy the local flake + lock as the permanent config (seeded to /etc/nixos).
-cp "$LOCAL_FLAKE" "${BUILD_DIR}/permanent-flake.nix"
-cp "$LOCAL_LOCK" "${BUILD_DIR}/permanent-flake.lock"
-
 # The installer flake references the local config's nixosConfiguration via a
 # path input. This avoids fragile text extraction — Nix evaluates it directly.
+#
+# disko-install RE-EVALUATES this flake on the appliance, so the whole tree is
+# shipped to /etc/installer-flake (self.outPath) and the eval-reachable input
+# sources + the prebuilt closure are baked into the ISO store — the install runs
+# entirely OFFLINE.
 cat > "${BUILD_DIR}/flake.nix" << EOF
 {
   inputs = {
@@ -100,13 +111,19 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
     let
       hostname = "${HOSTNAME}";
       system = "x86_64-linux";
+
+      # The target appliance system, evaluated at ISO-BUILD time so its full
+      # closure can be baked onto the ISO for an OFFLINE install.
+      target = self.nixosConfigurations.\${hostname};
     in
     {
-      packages.\${system}.default =
-        self.nixosConfigurations.installerIso.config.system.build.isoImage;
-
+      # Exposed at the top level so the appliance's disko-install can
+      # re-evaluate it: \`disko-install --flake /etc/installer-flake#\${hostname}\`.
       nixosConfigurations.\${hostname} =
         local-config.nixosConfigurations.\${hostname};
+
+      packages.\${system}.default =
+        self.nixosConfigurations.installerIso.config.system.build.isoImage;
 
       nixosConfigurations.installerIso = nixpkgs.lib.nixosSystem {
         inherit system;
@@ -115,21 +132,26 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
 
           (
             { pkgs, lib, ... }:
-            let
-              # The target system, evaluated at ISO-BUILD time. Its toplevel and
-              # disko partition script are baked into the ISO as store paths, so
-              # the appliance installs OFFLINE — no flake re-evaluation, and thus
-              # no dependency on the build machine's paths or on the network.
-              target = self.nixosConfigurations.\${hostname};
-            in
             {
-              # Seed the installed system's /etc/nixos for future nixos-rebuild.
-              environment.etc."nixos-router/flake.nix".source = ./permanent-flake.nix;
-              environment.etc."nixos-router/flake.lock".source = ./permanent-flake.lock;
+              # Ship the self-contained installer flake (this flake plus its
+              # relative-path inputs: the vendored nixos-router and the user's
+              # local-config) so disko-install can re-evaluate it offline. The
+              # relative paths resolve within this store path on the appliance.
+              environment.etc."installer-flake".source = self.outPath;
 
-              # Ship the full system closure on the ISO for an offline install.
+              # Bake everything disko-install needs for an OFFLINE install:
+              #   • the prebuilt system toplevel + disko partitioning script, so
+              #     neither is rebuilt on the appliance;
+              #   • the source trees of the eval-reachable flake inputs (nixpkgs,
+              #     disko, nixos-router) so the re-evaluation never hits the
+              #     network. local-config and nixos-router-src ride along inside
+              #     self.outPath above.
               isoImage.storeContents = [
                 target.config.system.build.toplevel
+                target.config.system.build.diskoScript
+                nixpkgs.outPath
+                disko.outPath
+                nixos-router.outPath
               ];
 
               nix.settings.experimental-features = [
@@ -137,7 +159,11 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
                 "flakes"
               ];
 
-              environment.systemPackages = [ pkgs.nixos-install-tools ];
+              # disko.packages.default provides BOTH \`disko\` and \`disko-install\`.
+              environment.systemPackages = [
+                disko.packages.\${system}.default
+                pkgs.nixos-install-tools
+              ];
 
               # The installation CD autologins a shell on tty1, which would
               # otherwise hide the installer running behind it. Disable that
@@ -147,7 +173,7 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
               systemd.services."autovt@tty1".enable = lib.mkForce false;
 
               systemd.services.unattended-install = {
-                description = "Unattended NixOS Router Installation";
+                description = "Unattended NixOS Router Installation (disko-install)";
                 wantedBy = [ "multi-user.target" ];
                 after = [
                   "network.target"
@@ -159,11 +185,18 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
                   "autovt@tty1.service"
                 ];
 
+                # Parameters consumed by ./unattended-install.sh.
+                environment = {
+                  routerHostname = hostname;
+                  routerDisk = "${DISK_DEVICE}";
+                  routerDiskName = "main";
+                };
+
                 serviceConfig = {
                   # idle: let boot messages settle so the installer UI is clean.
                   Type = "idle";
                   # Claim tty1 as the controlling terminal (foreground) so output
-                  # is visible and the Ctrl+C abort window is interactive.
+                  # is visible and the Ctrl+C / Enter abort window is interactive.
                   StandardInput = "tty-force";
                   StandardOutput = "tty";
                   StandardError = "tty";
@@ -173,58 +206,15 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
                 };
 
                 path = [
+                  disko.packages.\${system}.default
                   pkgs.nixos-install-tools
                   pkgs.util-linux
+                  pkgs.efibootmgr
                   pkgs.coreutils
                   pkgs.nix
                 ];
 
-                script = ''
-                  set -euo pipefail
-
-                  echo "=============================================="
-                  echo " AUTOMATED NIXOS ROUTER INSTALL"
-                  echo " Hostname : ${HOSTNAME}"
-                  echo " Disk     : ${DISK_DEVICE}"
-                  echo "=============================================="
-
-                  if [ -b "/dev/disk/by-label/ESP" ] || \\
-                     [ -b "/dev/disk/by-label/root" ] || \\
-                     [ -b "/dev/disk/by-label/boot" ]; then
-                    echo ""
-                    echo "ERROR: Existing installation detected (partition labels found)."
-                    echo "       Halting to prevent accidental data loss."
-                    echo "       Manually wipe ${DISK_DEVICE} if a clean install is intended."
-                    echo ""
-                    exit 1
-                  fi
-
-                  echo "No existing installation detected."
-                  echo "Waiting 10 seconds — press Ctrl+C to abort..."
-                  sleep 10
-
-                  # 1) Partition, format, and mount the target disk at /mnt using
-                  #    the prebuilt disko script (no flake eval, no network).
-                  echo ":: Partitioning ${DISK_DEVICE}..."
-                  \${target.config.system.build.diskoScript}
-
-                  # 2) Install the prebuilt system from the ISO store (offline).
-                  echo ":: Installing system..."
-                  nixos-install \\
-                    --system \${target.config.system.build.toplevel} \\
-                    --no-root-passwd \\
-                    --no-channel-copy
-
-                  # 3) Seed /etc/nixos so the appliance can rebuild later.
-                  install -Dm0644 /etc/nixos-router/flake.nix /mnt/etc/nixos/flake.nix
-                  install -Dm0644 /etc/nixos-router/flake.lock /mnt/etc/nixos/flake.lock
-
-                  echo "=============================================="
-                  echo " Installation complete! Rebooting in 5 s..."
-                  echo "=============================================="
-                  sleep 5
-                  reboot
-                '';
+                script = builtins.readFile ./unattended-install.sh;
               };
             }
           )
@@ -234,17 +224,37 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
 }
 EOF
 
-# Create the local-config subdirectory as a flake the installer evaluates at
-# BUILD time (only) to produce the system toplevel + disko script. This is the
-# user's actual config — evaluated directly by Nix, no text parsing.
+# Create the local-config subdirectory: the user's actual config, evaluated by
+# Nix directly (no text parsing) both at ISO-build time and at install time.
+# Its flake.nix/flake.lock are also seeded into the appliance's /etc/nixos
+# (by unattended-install.sh) so it can nixos-rebuild later.
 mkdir -p "${BUILD_DIR}/local-config"
 cp "$LOCAL_FLAKE" "${BUILD_DIR}/local-config/flake.nix"
 cp "$LOCAL_LOCK" "${BUILD_DIR}/local-config/flake.lock"
 
+# Vendor the local nixos-router source so the re-evaluation resolves OFFLINE on
+# the appliance (an absolute path:/... input to this build machine would not
+# exist there). The flake is self-contained — flake.nix + flake.lock only.
+if [[ "$VENDOR_NIXOS_ROUTER" == "1" ]]; then
+  mkdir -p "${BUILD_DIR}/nixos-router-src"
+  cp "$FLAKE_ROOT/flake.nix" "${BUILD_DIR}/nixos-router-src/flake.nix"
+  cp "$FLAKE_ROOT/flake.lock" "${BUILD_DIR}/nixos-router-src/flake.lock"
+fi
+
+# The unattended installer script, read into the unit via builtins.readFile.
+cp "${SCRIPT_DIR}/unattended-install.sh" "${BUILD_DIR}/unattended-install.sh"
+
 info "Generated installer flake at ${BUILD_DIR}/flake.nix"
 
 git init -q "${BUILD_DIR}"
-git -C "${BUILD_DIR}" add .
+git -C "${BUILD_DIR}" add -A
+
+# Produce a COMPLETE, CONSISTENT flake.lock. disko-install re-evaluates the
+# flake offline on the appliance; a missing/stale lock would force a network
+# re-lock there. The lock must be git-tracked so it lands in self.outPath that
+# is shipped to /etc/installer-flake.
+nix flake lock "${BUILD_DIR}" --extra-experimental-features 'nix-command flakes'
+git -C "${BUILD_DIR}" add -A
 
 # ── Build ISO ────────────────────────────────────────────────────────────────
 header "Building installer ISO..."
