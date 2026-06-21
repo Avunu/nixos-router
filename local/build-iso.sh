@@ -132,6 +132,54 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
 
           (
             { pkgs, lib, ... }:
+            let
+              # Recursively collect EVERY flake input's source path. disko-install
+              # re-evaluates the whole flake on the appliance, which forces the
+              # complete input set — not just the inputs the router config uses.
+              # Shipping only nixpkgs/disko/nixos-router left git-hooks,
+              # flake-compat and gitignore unresolved, so the offline machine
+              # tried to fetch them ("could not resolve hostname"). This collector
+              # walks self.inputs transitively. (From disko's offline-install docs.)
+              flakeOutPaths =
+                let
+                  collector =
+                    parent:
+                    map (
+                      child:
+                      [ child.outPath ]
+                      ++ (if child ? inputs && child.inputs != { } then (collector child) else [ ])
+                    ) (lib.attrValues parent.inputs);
+                in
+                # Keep only top-level store paths. The relative-path inputs
+                # (local-config, nixos-router-src) resolve to subpaths of this
+                # flake's own source, which is already shipped via
+                # /etc/installer-flake; their transitive github inputs are still
+                # collected by the recursion above.
+                lib.filter (p: builtins.match "/nix/store/[^/]+" (toString p) != null) (
+                  lib.unique (lib.flatten (collector self))
+                );
+
+              # The full set disko-install needs to partition + install OFFLINE:
+              # the prebuilt system + disko script, the derivations it may realize
+              # at install time (the disko script, stdenv, the perl modules the
+              # activation script needs, the closureInfo builder), and every flake
+              # input source for the re-evaluation.
+              installDeps = [
+                target.config.system.build.toplevel
+                target.config.system.build.diskoScript
+                target.config.system.build.diskoScript.drvPath
+                target.pkgs.stdenv.drvPath
+                target.pkgs.perlPackages.ConfigIniFiles
+                target.pkgs.perlPackages.FileSlurp
+                (target.pkgs.closureInfo { rootPaths = [ ]; }).drvPath
+              ]
+              ++ flakeOutPaths;
+
+              # closureInfo's store-paths output references the full closure of
+              # every dep; referencing it from /etc pulls them all into the
+              # installer system's own closure, so they land on the ISO store.
+              installClosure = pkgs.closureInfo { rootPaths = installDeps; };
+            in
             {
               # Ship the self-contained installer flake (this flake plus its
               # relative-path inputs: the vendored nixos-router and the user's
@@ -139,25 +187,20 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
               # relative paths resolve within this store path on the appliance.
               environment.etc."installer-flake".source = self.outPath;
 
-              # Bake everything disko-install needs for an OFFLINE install:
-              #   • the prebuilt system toplevel + disko partitioning script, so
-              #     neither is rebuilt on the appliance;
-              #   • the source trees of the eval-reachable flake inputs (nixpkgs,
-              #     disko, nixos-router) so the re-evaluation never hits the
-              #     network. local-config and nixos-router-src ride along inside
-              #     self.outPath above.
-              isoImage.storeContents = [
-                target.config.system.build.toplevel
-                target.config.system.build.diskoScript
-                nixpkgs.outPath
-                disko.outPath
-                nixos-router.outPath
-              ];
+              # Bake the COMPLETE offline install closure onto the ISO.
+              environment.etc."install-closure".source = "\${installClosure}/store-paths";
+              isoImage.storeContents = [ installClosure ];
 
               nix.settings.experimental-features = [
                 "nix-command"
                 "flakes"
               ];
+
+              # This is a guaranteed-offline appliance install: forbid all
+              # network access so a missing store path fails fast with a clear
+              # error instead of a confusing "could not resolve host" hang.
+              nix.settings.substituters = lib.mkForce [ ];
+              nix.settings.builders = lib.mkForce [ ];
 
               # disko.packages.default provides BOTH \`disko\` and \`disko-install\`.
               environment.systemPackages = [
