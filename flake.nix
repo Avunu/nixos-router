@@ -312,6 +312,14 @@
             ipv6AcceptRAConfig = {
               UseDNS = false;
               DHCPv6Client = "always";
+              # Ignore the MTU option in upstream Router Advertisements.
+              # Some ISP uplinks advertise a jumbo MTU (e.g. 9192) on the
+              # handoff segment; networkd then tries to set the WAN's IPv6
+              # MTU above its 1500 link MTU, which the kernel rejects with
+              # EINVAL on every RA — flooding the logs. The internet path
+              # MTU is 1500 regardless, so the advertised value is useless
+              # here.
+              UseMTU = false;
             };
             linkConfig.RequiredForOnline = "routable";
           };
