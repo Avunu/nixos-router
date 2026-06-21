@@ -590,6 +590,14 @@
                 # WAN → LAN (established only)
                 iifname "${wanIf}" oifname "${brLAN}" ct state { established, related } accept
 
+                ${optionalString cfg.upnp.enable ''
+                  # UPnP/NAT-PMP: accept inbound traffic matching an active
+                  # miniupnpd port mapping. miniupnpd installs the DNAT in
+                  # its own `inet miniupnpd` table; without this rule the
+                  # redirected packets would hit this chain's `policy drop`.
+                  iifname "${wanIf}" oifname "${brLAN}" ct status dnat accept
+                ''}
+
                 ${optionalString cfg.guest.enable ''
                   # Guest → WAN only (fully isolated from LAN and WireGuard)
                   iifname "${brGuest}" oifname "${wanIf}" accept
@@ -1133,6 +1141,33 @@
                 type = types.lines;
                 default = "";
                 description = "Additional Suricata local rules";
+              };
+            };
+
+            # ── UPnP-IGD / NAT-PMP (miniupnpd) ─────────────────────
+            # Optional automatic inbound port forwarding for LAN
+            # clients (game consoles, P2P, some self-hosted apps).
+            #
+            # Disabled by default, deliberately: UPnP/NAT-PMP let LAN
+            # devices punch holes in the firewall with no authentication,
+            # which runs counter to the rest of the hardened design (IPS,
+            # forced DNS, guest isolation). Only enable it with a concrete
+            # need, and never expose it to the guest network.
+            #
+            # When enabled, hardened defaults are applied automatically
+            # (see the services.miniupnpd block in the config section):
+            #   • nftables backend (auto-selected by the module).
+            #   • secure_mode — a client may only map ports to its OWN IP.
+            #   • listens on the LAN bridge ONLY (guest/IoT can never
+            #     request mappings).
+            #   • only non-privileged ports (1024-65535) may be mapped.
+            upnp = {
+              enable = mkEnableOption "UPnP-IGD / NAT-PMP automatic port forwarding (miniupnpd)";
+
+              extraConfig = mkOption {
+                type = types.lines;
+                default = "";
+                description = "Additional miniupnpd.conf lines, appended after the hardened defaults";
               };
             };
 
@@ -1887,6 +1922,46 @@
               };
             };
 
+            # ── UPnP-IGD / NAT-PMP — miniupnpd ───────────────────
+            # Active only when router.upnp.enable = true. The NixOS
+            # module auto-selects the nftables backend (because
+            # networking.nftables.enable = true) and adds an
+            # `inet miniupnpd` table to the ruleset, into which the daemon
+            # installs DNAT mappings at runtime. The `ct status dnat accept`
+            # rule in the nftRuleset forward chain lets that redirected
+            # traffic cross the drop-policy forward chain.
+            #
+            # Hardened defaults:
+            #   • secure_mode=yes — a client may only forward a port to its
+            #     OWN IP, never to another host on the LAN.
+            #   • internalIPs = LAN bridge only — the guest/IoT network can
+            #     never request mappings.
+            #   • allow/deny — only ports 1024-65535 from the LAN subnet may
+            #     be mapped; everything else is denied.
+            #
+            # NOTE: when the nftables ruleset reloads (e.g. on a
+            # `nixos-rebuild switch`) it is flushed (flushRuleset defaults
+            # on for a monolithic ruleset), clearing miniupnpd's live
+            # mappings. Clients re-request them on their next renewal; the
+            # lease_file + partOf binding lets a miniupnpd restart restore
+            # them from disk immediately.
+            services.miniupnpd = mkIf cfg.upnp.enable {
+              enable = true;
+              externalInterface = wanIf;
+              internalIPs = [ brLAN ];
+              natpmp = true;
+              upnp = true;
+              appendConfig = ''
+                secure_mode=yes
+                friendly_name=NixOS Router
+                lease_file=/var/lib/miniupnpd/upnp.leases
+                # Only non-privileged ports from the LAN subnet may be mapped.
+                allow 1024-65535 ${lanCIDR} 1024-65535
+                deny 0-65535 0.0.0.0/0 0-65535
+                ${cfg.upnp.extraConfig}
+              '';
+            };
+
             # ── 6. IPS — Suricata ────────────────────────────────
             # When enabled, Suricata runs as an inline IPS via NFQUEUE
             # using the NixOS services.suricata module. The module manages
@@ -2093,6 +2168,16 @@
                 # Reload Suricata after rule updates (uses + prefix for
                 # root privileges since suricata-update runs as limited user)
                 suricata-update.serviceConfig.ExecStartPost = "+${pkgs.systemd}/bin/systemctl try-reload-or-restart suricata.service";
+              })
+              # miniupnpd: start after the firewall is up (so its
+              # `inet miniupnpd` table exists) and follow firewall restarts.
+              # StateDirectory provisions /var/lib/miniupnpd for the lease_file.
+              (mkIf cfg.upnp.enable {
+                miniupnpd = {
+                  after = [ "nftables.service" ];
+                  partOf = [ "nftables.service" ];
+                  serviceConfig.StateDirectory = "miniupnpd";
+                };
               })
             ];
 
