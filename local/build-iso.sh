@@ -159,19 +159,24 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
                   lib.unique (lib.flatten (collector self))
                 );
 
-              # The full set disko-install needs to partition + install OFFLINE:
-              # the prebuilt system + disko script, the derivations it may realize
-              # at install time (the disko script, stdenv, the perl modules the
-              # activation script needs, the closureInfo builder), and every flake
-              # input source for the re-evaluation.
+              # The set disko-install needs to partition + install OFFLINE: the
+              # prebuilt system + disko script (both realized from the store — we
+              # proved their drvPaths match what disko-install re-evaluates, so
+              # nothing is rebuilt), the perl modules the activation script needs,
+              # and every flake input SOURCE for the re-evaluation.
+              #
+              # NB: we deliberately do NOT ship stdenv.drvPath / *.drvPath here.
+              # A .drv's closure pulls the ENTIRE build toolchain (gcc/clang,
+              # bootstrap, source tarballs) onto the ISO — gigabytes, and pointless
+              # for an appliance that never builds from source. disko-install only
+              # *realizes* the prebuilt outputs, and the one derivation it does
+              # build at install time (its own closureInfo) needs just coreutils,
+              # which is already in the system closure.
               installDeps = [
                 target.config.system.build.toplevel
                 target.config.system.build.diskoScript
-                target.config.system.build.diskoScript.drvPath
-                target.pkgs.stdenv.drvPath
                 target.pkgs.perlPackages.ConfigIniFiles
                 target.pkgs.perlPackages.FileSlurp
-                (target.pkgs.closureInfo { rootPaths = [ ]; }).drvPath
               ]
               ++ flakeOutPaths;
 
@@ -203,64 +208,53 @@ cat > "${BUILD_DIR}/flake.nix" << EOF
               nix.settings.builders = lib.mkForce [ ];
 
               # disko.packages.default provides BOTH \`disko\` and \`disko-install\`.
+              # less (scrollable failure log) + efibootmgr (EFI entries) must be
+              # on PATH for the installer, which now runs as the console session.
               environment.systemPackages = [
                 disko.packages.\${system}.default
                 pkgs.nixos-install-tools
+                pkgs.util-linux
+                pkgs.efibootmgr
+                pkgs.less
               ];
 
-              # The installation CD autologins a shell on tty1, which would
-              # otherwise hide the installer running behind it. Disable that
-              # getty and run the installer ON tty1 in the foreground. Other VTs
-              # (Alt+F2…F6) still offer a login shell for debugging.
-              systemd.services."getty@tty1".enable = lib.mkForce false;
-              systemd.services."autovt@tty1".enable = lib.mkForce false;
-
-              systemd.services.unattended-install = {
-                description = "Unattended NixOS Router Installation (disko-install)";
-                wantedBy = [ "multi-user.target" ];
-                after = [
-                  "network.target"
-                  "polkit.service"
-                ];
-                # Replace the getty on tty1 and take its terminal.
-                conflicts = [
-                  "getty@tty1.service"
-                  "autovt@tty1.service"
-                ];
-
-                # Parameters consumed by ./unattended-install.sh.
-                environment = {
-                  routerHostname = hostname;
-                  routerDisk = "${DISK_DEVICE}";
-                  routerDiskName = "main";
-                };
-
-                serviceConfig = {
-                  # idle: let boot messages settle so the installer UI is clean.
-                  Type = "idle";
-                  # Claim tty1 as the controlling terminal (foreground) so output
-                  # is visible and the Ctrl+C / Enter abort window is interactive.
-                  StandardInput = "tty-force";
-                  StandardOutput = "tty";
-                  StandardError = "tty";
-                  TTYPath = "/dev/tty1";
-                  TTYReset = "yes";
-                  TTYVHangup = "yes";
-                };
-
-                path = [
-                  disko.packages.\${system}.default
-                  pkgs.nixos-install-tools
-                  pkgs.util-linux
-                  pkgs.efibootmgr
-                  pkgs.coreutils
-                  pkgs.nix
-                  pkgs.less              # scrollable pager for the failure log
-                  pkgs.bashInteractive   # drop-to-shell on failure (bash -i)
-                ];
-
-                script = builtins.readFile ./unattended-install.sh;
+              # ── kmscon console ──────────────────────────────────────────────
+              # kmscon is a userspace KMS/DRM terminal with real scrollback
+              # (Shift+PageUp), unlike the kernel VT. It replaces getty/autovt on
+              # every VT, so the installer — which now runs AS the tty1 login
+              # session (below) — is fully scrollable while it runs.
+              services.kmscon = {
+                enable = true;
+                config.sb-size = 50000; # scrollback lines
               };
+              # Autologin root on tty1 (kmscon honours the getty autologin
+              # settings); the installation CD defaults this to the "nixos" user.
+              services.getty.autologinUser = lib.mkForce "root";
+
+              # Launch the installer as the first console login (under kmscon, so
+              # its output scrolls). The run-once flag keeps later logins on other
+              # VTs (Alt+F2…F6) as plain debug shells. exec'ing through bash gives
+              # the script a real controlling terminal for its countdown + pager.
+              environment.variables = {
+                routerHostname = hostname;
+                routerDisk = "${DISK_DEVICE}";
+                routerDiskName = "main";
+              };
+              programs.bash.loginShellInit = ''
+                if [ ! -e /run/unattended-install.started ]; then
+                  : > /run/unattended-install.started
+                  exec \${pkgs.bashInteractive}/bin/bash \${./unattended-install.sh}
+                fi
+              '';
+
+              # ── Lighten the installer image ─────────────────────────────────
+              # Drop ZFS (huge kernel module + userspace), all documentation
+              # (man-cache + NixOS manual), and bluetooth. mkForce overrides the
+              # installation-media defaults (mkImageMediaOverride / mkDefault).
+              boot.supportedFilesystems.zfs = lib.mkForce false;
+              documentation.enable = lib.mkForce false;
+              documentation.nixos.enable = lib.mkForce false; # installer forces this separately
+              hardware.bluetooth.enable = lib.mkForce false;
             }
           )
         ];

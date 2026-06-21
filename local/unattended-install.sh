@@ -151,6 +151,7 @@ if [ "$install_ok" -ne 1 ]; then
     less "$LOG" || true
     echo ""
     echo " Re-open the log any time with:  less ${LOG}"
+    echo " Scroll this console directly with Shift+PageUp/PageDown (kmscon)."
     echo " Other consoles are available on Alt+F2 … Alt+F6."
     echo " Dropping to a root shell for debugging."
     exec bash -i
