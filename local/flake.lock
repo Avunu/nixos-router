@@ -91,11 +91,11 @@
         ]
       },
       "locked": {
-        "lastModified": 1781982074,
-        "narHash": "sha256-/JHqNncA1PmsSeuKquIBHWPz8eLmkSj3gW2phVCX3uk=",
+        "lastModified": 1782041935,
+        "narHash": "sha256-C0FOKU2+FJPtHmb8K7ttBXvX5Y3vXxnz1+UBnWTAwO4=",
         "owner": "Avunu",
         "repo": "nixos-router",
-        "rev": "e417c0f5f12330164c5fdf834ce4df0ebb6b7561",
+        "rev": "091fc93405b3c472fab58dda7c56aa63935c7ab8",
         "type": "github"
       },
       "original": {
