@@ -522,6 +522,32 @@
             iifname "${name}" oifname "${wanIf}" accept
             iifname "${wanIf}" oifname "${name}" ct state { established, related } accept'') wgNames;
 
+          # portForwardDnatRules / portForwardFilterRules:
+          #   Static inbound port forwarding (DNAT) generated from
+          #   cfg.portForwards. Each entry rewrites WAN-inbound traffic on
+          #   the listed ports to an internal host (prerouting DNAT), and a
+          #   matching accept rule lets that traffic cross the drop-policy
+          #   forward chain (matched on destination IP + port, so it does
+          #   not depend on which bridge the host is on). IPv4 only; ports
+          #   are mapped 1:1 (router port == destination port). An optional
+          #   `source` restricts the accepted WAN source prefix.
+          pfDports =
+            ports:
+            if length ports == 1 then
+              toString (head ports)
+            else
+              "{ ${concatMapStringsSep ", " toString ports} }";
+          pfSaddr = source: optionalString (source != null) "ip saddr ${source} ";
+          pfComment = name: optionalString (name != "") " comment \"${name}\"";
+          portForwardDnatRules = concatMapStringsSep "\n                " (
+            f:
+            ''iifname "${wanIf}" ${pfSaddr f.source}${f.protocol} dport ${pfDports f.ports} dnat ip to ${f.destination}${pfComment f.name}''
+          ) cfg.portForwards;
+          portForwardFilterRules = concatMapStringsSep "\n                " (
+            f:
+            ''iifname "${wanIf}" ${pfSaddr f.source}ip daddr ${f.destination} ${f.protocol} dport ${pfDports f.ports} ct state { new, established, related } accept${pfComment f.name}''
+          ) cfg.portForwards;
+
           # nftRuleset:
           #   The complete nftables configuration, organized into three tables:
           #
@@ -598,6 +624,12 @@
                   iifname "${wanIf}" oifname "${brLAN}" ct status dnat accept
                 ''}
 
+                ${optionalString (cfg.portForwards != [ ]) ''
+                  # Static inbound port forwards: allow WAN traffic destined
+                  # for the configured internal hosts/ports (DNAT'd above).
+                  ${portForwardFilterRules}
+                ''}
+
                 ${optionalString cfg.guest.enable ''
                   # Guest → WAN only (fully isolated from LAN and WireGuard)
                   iifname "${brGuest}" oifname "${wanIf}" accept
@@ -626,6 +658,11 @@
                   iifname "${brGuest}" tcp dport 53 ip daddr != ${guestGW} dnat to ${guestGW}:53
                   iifname "${brGuest}" meta nfproto ipv6 udp dport 53 redirect to :53
                   iifname "${brGuest}" meta nfproto ipv6 tcp dport 53 redirect to :53
+                ''}
+
+                ${optionalString (cfg.portForwards != [ ]) ''
+                  # Static inbound port forwards (WAN → internal hosts)
+                  ${portForwardDnatRules}
                 ''}
               }
 
@@ -1169,6 +1206,70 @@
                 default = "";
                 description = "Additional miniupnpd.conf lines, appended after the hardened defaults";
               };
+            };
+
+            # ── Static port forwards (DNAT) ───────────────────────
+            # Explicit inbound port forwarding from the WAN to internal
+            # hosts. Unlike UPnP, every hole is declared in configuration
+            # and auditable. Each entry forwards its listed ports to a
+            # fixed internal IPv4 host; ports are mapped 1:1 (router port ==
+            # destination port). Use the optional `source` to restrict the
+            # forward to a specific WAN source prefix.
+            #
+            # SECURITY: each forward exposes the host directly to the
+            # internet. When Suricata is enabled the inbound traffic is
+            # IPS-inspected; regardless, only forward what must be reachable
+            # and prefer narrowing `source` where possible.
+            portForwards = mkOption {
+              default = [ ];
+              description = "Static inbound port forwards (DNAT) from the WAN to internal hosts. IPv4 only.";
+              example = literalExpression ''
+                [
+                  {
+                    name = "Synology DSM";
+                    destination = "10.48.4.2";
+                    ports = [ 5080 5443 ];
+                  }
+                ]
+              '';
+              type = types.listOf (
+                types.submodule {
+                  options = {
+                    name = mkOption {
+                      type = types.str;
+                      default = "";
+                      description = "Descriptive label, emitted as an nftables rule comment.";
+                    };
+                    protocol = mkOption {
+                      type = types.enum [
+                        "tcp"
+                        "udp"
+                      ];
+                      default = "tcp";
+                      description = "Transport protocol to forward.";
+                    };
+                    destination = mkOption {
+                      type = types.str;
+                      example = "10.48.4.2";
+                      description = "Internal IPv4 address to forward the traffic to.";
+                    };
+                    ports = mkOption {
+                      type = types.listOf types.port;
+                      example = [
+                        80
+                        443
+                      ];
+                      description = "WAN-facing ports to forward, each mapped 1:1 to the same port on `destination`.";
+                    };
+                    source = mkOption {
+                      type = types.nullOr types.str;
+                      default = null;
+                      example = "203.0.113.0/24";
+                      description = "Optional WAN source prefix the forward is restricted to. Null allows any source.";
+                    };
+                  };
+                }
+              );
             };
 
             # ── Cockpit web UI ────────────────────────────────────
