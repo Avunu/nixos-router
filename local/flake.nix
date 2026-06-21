@@ -186,12 +186,25 @@
                   extraRules = "";
                 };
 
-                # ── Cockpit web UI ───────────────────────────────
-                cockpit = {
+                # ── Web admin UI (OliveTin + Netdata + Homepage) ──
+                # OliveTin (control) :1337, Netdata (monitoring) :19999,
+                # Homepage (landing page) :8082 — all LAN/WG-only.
+                #
+                # OliveTin's login secret stays out of the Nix store. Once the
+                # router is up, generate an Argon2id hash:
+                #   curl -sS --json '{"password":"<your-pw>"}' \
+                #     http://948-router.lan:1337/api/PasswordHash
+                # then place /run/secrets/olivetin-auth.yaml (agenix/sops or
+                # out-of-band) containing:
+                #   authLocalUsers:
+                #     enabled: true
+                #     users:
+                #       - username: admin
+                #         usergroup: admins
+                #         password: $argon2id$v=19$...
+                webui = {
                   enable = true;
-                  port = 9090;
-                  # plugins = [ pkgs.cockpit-machines ];
-                  allowedOrigins = [ "https://948-router.lan:9090" ];
+                  olivetin.auth.secretFile = "/run/secrets/olivetin-auth.yaml";
                 };
 
                 # ── Admin user ───────────────────────────────────

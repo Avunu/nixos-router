@@ -9,7 +9,7 @@
 # ║    • Avahi mDNS for hostname resolution (router.local)                     ║
 # ║    • WireGuard VPN tunnels with full LAN ↔ WAN ↔ WG routing                ║
 # ║    • Optional Suricata IPS inline via NFQUEUE                              ║
-# ║    • Optional Cockpit web UI for administration                            ║
+# ║    • Web admin UI: OliveTin + Netdata + Homepage                           ║
 # ║    • Disko-based declarative disk partitioning (UEFI or legacy)            ║
 # ║                                                                            ║
 # ║  Usage:                                                                    ║
@@ -113,7 +113,7 @@
       #
       #  This NixOS module is the core of the flake. It declares all
       #  `router.*` options and maps them to NixOS config (systemd-networkd,
-      #  nftables, dnsmasq, AdGuard Home, WireGuard, Suricata, Cockpit, etc.).
+      #  nftables, dnsmasq, AdGuard Home, WireGuard, Suricata, OliveTin, etc.).
       #
       #  The module is structured as:
       #    1. `let` block:  Derived values, helpers, sub-module types, and
@@ -556,6 +556,489 @@
             ''iifname "${wanIf}" ${pfSaddr f.source}ip daddr ${f.destination} ${f.protocol} dport ${pfDports f.ports} ct state { new, established, related } accept${pfComment f.name}''
           ) cfg.portForwards;
 
+          # ════════════════════════════════════════════════════════
+          #  Web admin UI — OliveTin control actions + wrappers
+          # ════════════════════════════════════════════════════════
+          # OliveTin runs as an unprivileged user. Each privileged
+          # operation is a tiny wrapper script that sudo allowlists by
+          # exact store path; the wrapper self-validates its input. The
+          # generated `actions`/`dashboards` feed services.olivetin.settings
+          # in the config section (§7).
+          sudoBin = "${config.security.wrapperDir}/sudo";
+          otHost = cfg.hostName;
+          otFlake = cfg.webui.olivetin.flakePath;
+          aghBase = "http://127.0.0.1:${toString cfg.dns.adguard.webPort}";
+
+          # Units OliveTin may restart — drives both the UI dropdown and
+          # the restart wrapper's allowlist.
+          managedUnits = [
+            "systemd-networkd"
+            "sshd"
+            "avahi-daemon"
+            "olivetin"
+          ]
+          ++ optional cfg.dns.adguard.enable "adguardhome"
+          ++ optional cfg.suricata.enable "suricata"
+          ++ optional cfg.webui.netdata.enable "netdata"
+          ++ optional cfg.webui.homepage.enable "homepage-dashboard";
+
+          otWrappers = {
+            restart = pkgs.writeShellApplication {
+              name = "router-svc-restart";
+              runtimeInputs = [ pkgs.systemd ];
+              text = ''
+                unit="''${1:-}"
+                case "$unit" in
+                  ${concatStringsSep "|" managedUnits})
+                    exec systemctl restart "$unit.service"
+                    ;;
+                  *)
+                    echo "refusing to restart unmanaged unit: $unit" >&2
+                    exit 1
+                    ;;
+                esac
+              '';
+            };
+            reboot = pkgs.writeShellApplication {
+              name = "router-reboot";
+              runtimeInputs = [ pkgs.systemd ];
+              text = "exec systemctl reboot";
+            };
+            updateStage = pkgs.writeShellApplication {
+              name = "router-update-stage";
+              runtimeInputs = [
+                pkgs.nix
+                pkgs.nixos-rebuild
+                pkgs.git
+                pkgs.systemd
+                pkgs.coreutils
+              ];
+              text = ''
+                nix flake update --flake ${otFlake}
+                exec nixos-rebuild boot --flake ${otFlake}#${otHost}
+              '';
+            };
+            updateApply = pkgs.writeShellApplication {
+              name = "router-update-apply";
+              runtimeInputs = [
+                pkgs.nix
+                pkgs.nixos-rebuild
+                pkgs.git
+                pkgs.systemd
+                pkgs.coreutils
+              ];
+              text = "exec nixos-rebuild switch --flake ${otFlake}#${otHost}";
+            };
+            rollback = pkgs.writeShellApplication {
+              name = "router-update-rollback";
+              runtimeInputs = [
+                pkgs.nix
+                pkgs.nixos-rebuild
+                pkgs.systemd
+              ];
+              text = "exec nixos-rebuild switch --rollback";
+            };
+            suricataUpdate = pkgs.writeShellApplication {
+              name = "router-suricata-update";
+              runtimeInputs = [ pkgs.systemd ];
+              text = ''
+                systemctl start --wait suricata-update.service
+                exec systemctl reload suricata.service
+              '';
+            };
+            suricataRecent = pkgs.writeShellApplication {
+              name = "router-suricata-recent";
+              runtimeInputs = [
+                pkgs.coreutils
+                pkgs.jq
+              ];
+              text = ''
+                n="''${1:-50}"
+                case "$n" in
+                  "" | *[!0-9]*) n=50 ;;
+                esac
+                tail -n "$n" /var/log/suricata/eve.json 2>/dev/null \
+                  | jq -r 'select(.event_type=="alert" or .event_type=="drop")
+                           | [.timestamp, .event_type, (.src_ip // "-"), (.dest_ip // "-"), (.proto // "-"), (.alert.signature // "-")]
+                           | @tsv' \
+                  || true
+              '';
+            };
+            wgShow = pkgs.writeShellApplication {
+              name = "router-wg-show";
+              runtimeInputs = [ pkgs.wireguard-tools ];
+              text = "exec wg show all dump";
+            };
+          };
+
+          sudoCmd = w: "${sudoBin} ${getExe w}";
+          unitChoices = map (u: {
+            value = u;
+            title = u;
+          }) managedUnits;
+          confirmArg = {
+            name = "confirm";
+            title = "Confirm";
+            type = "confirmation";
+          };
+
+          # Generated OliveTin actions, grouped by area. Read-only actions
+          # run directly; privileged ones call a sudo-wrapped script.
+          otActions = [
+            # ── System ──
+            {
+              title = "System · failed units";
+              icon = "🩺";
+              shell = "systemctl --failed --no-legend --no-pager || true";
+            }
+            {
+              title = "System · resource snapshot";
+              icon = "📊";
+              shell = "uptime; echo; free -h; echo; df -h /";
+            }
+            {
+              title = "System · service status";
+              icon = "🔍";
+              arguments = [
+                {
+                  name = "unit";
+                  title = "Service";
+                  choices = unitChoices;
+                }
+              ];
+              shell = "systemctl status {{ unit }}.service --no-pager -n 25 || true";
+            }
+            {
+              title = "System · restart service";
+              icon = "🔄";
+              arguments = [
+                {
+                  name = "service";
+                  title = "Service";
+                  choices = unitChoices;
+                }
+              ];
+              shell = "${sudoCmd otWrappers.restart} {{ service }}";
+            }
+            {
+              title = "System · reboot router";
+              icon = "⚠️";
+              timeout = 60;
+              arguments = [ confirmArg ];
+              shell = ''
+                : "{{ confirm }}"
+                ${sudoCmd otWrappers.reboot}
+              '';
+            }
+            # ── Updates ──
+            {
+              title = "Update · stage for next boot";
+              icon = "⬆️";
+              timeout = 3600;
+              shell = sudoCmd otWrappers.updateStage;
+            }
+            {
+              title = "Update · apply now (switch)";
+              icon = "🚀";
+              timeout = 3600;
+              arguments = [ confirmArg ];
+              shell = ''
+                : "{{ confirm }}"
+                ${sudoCmd otWrappers.updateApply}
+              '';
+            }
+            {
+              title = "Update · rollback to previous";
+              icon = "↩️";
+              timeout = 1200;
+              arguments = [ confirmArg ];
+              shell = ''
+                : "{{ confirm }}"
+                ${sudoCmd otWrappers.rollback}
+              '';
+            }
+            {
+              title = "Update · list generations";
+              icon = "🗂️";
+              shell = "nix-env --list-generations --profile /nix/var/nix/profiles/system || true";
+            }
+            # ── Network ──
+            {
+              title = "Network · devices (neighbours)";
+              icon = "🖥️";
+              shell = "ip neigh show | sort";
+            }
+            {
+              title = "Network · interfaces";
+              icon = "🔌";
+              shell = "networkctl list --no-pager; echo; ip -br addr";
+            }
+            {
+              title = "Network · WireGuard peers";
+              icon = "🔐";
+              shell = ''${sudoCmd otWrappers.wgShow} || echo "no wireguard peers"'';
+            }
+            # ── DNS (AdGuard REST API on localhost) ──
+            {
+              title = "DNS · recent queries";
+              icon = "🌐";
+              arguments = [
+                {
+                  name = "limit";
+                  title = "Rows";
+                  type = "int";
+                  default = "50";
+                }
+              ];
+              shell = ''curl -s "${aghBase}/control/querylog?limit={{ limit }}" | jq -r '.data[] | [.time, .client, (.question.name // .question.host // "?"), (.reason // "")] | @tsv' '';
+            }
+            {
+              title = "DNS · recent blocks";
+              icon = "🛑";
+              arguments = [
+                {
+                  name = "limit";
+                  title = "Rows";
+                  type = "int";
+                  default = "50";
+                }
+              ];
+              shell = ''curl -s "${aghBase}/control/querylog?response_status=blocked&limit={{ limit }}" | jq -r '.data[] | [.time, .client, (.question.name // .question.host // "?"), (.reason // "")] | @tsv' '';
+            }
+            {
+              title = "DNS · search domain";
+              icon = "🔎";
+              arguments = [
+                {
+                  name = "domain";
+                  title = "Domain contains";
+                  type = "ascii_identifier";
+                }
+                {
+                  name = "limit";
+                  title = "Rows";
+                  type = "int";
+                  default = "50";
+                }
+              ];
+              shell = ''curl -s "${aghBase}/control/querylog?search={{ domain }}&limit={{ limit }}" | jq -r '.data[] | [.time, .client, (.question.name // .question.host // "?"), (.reason // "")] | @tsv' '';
+            }
+            {
+              title = "DNS · stats summary";
+              icon = "📈";
+              shell = ''curl -s "${aghBase}/control/stats" | jq '{queries: .num_dns_queries, blocked: .num_blocked_filtering, safebrowsing: .num_replaced_safebrowsing, safesearch: .num_replaced_safesearch, avg_ms: .avg_processing_time}' '';
+            }
+            {
+              title = "DNS · pause filtering 5 min";
+              icon = "⏸️";
+              arguments = [ confirmArg ];
+              shell = ''
+                : "{{ confirm }}"
+                curl -s -X POST "${aghBase}/control/protection" --json '{"enabled":false,"duration":300000}' && echo "filtering paused 5 min"
+              '';
+            }
+            {
+              title = "DNS · resume filtering";
+              icon = "▶️";
+              shell = ''curl -s -X POST "${aghBase}/control/protection" --json '{"enabled":true}' && echo "filtering resumed"'';
+            }
+            {
+              title = "DNS · flush cache";
+              icon = "🧹";
+              shell = ''curl -s -X POST "${aghBase}/control/cache_clear" && echo "cache cleared"'';
+            }
+            {
+              title = "DNS · reload filters";
+              icon = "🔁";
+              shell = ''curl -s -X POST "${aghBase}/control/filtering/refresh" --json '{"whitelist":false}' && echo "filters refreshed"'';
+            }
+            # ── Security (Suricata) ──
+            {
+              title = "Security · recent blocks/alerts";
+              icon = "🛡️";
+              arguments = [
+                {
+                  name = "count";
+                  title = "Lines to scan";
+                  type = "int";
+                  default = "50";
+                }
+              ];
+              shell = "${sudoCmd otWrappers.suricataRecent} {{ count }}";
+            }
+            {
+              title = "Security · top signatures";
+              icon = "🏷️";
+              shell = "${sudoCmd otWrappers.suricataRecent} 5000 | awk -F'\\t' '{print $6}' | sort | uniq -c | sort -rn | head -20";
+            }
+            {
+              title = "Security · update rules";
+              icon = "📥";
+              timeout = 900;
+              shell = sudoCmd otWrappers.suricataUpdate;
+            }
+            {
+              title = "Security · suricata status";
+              icon = "🔍";
+              shell = "systemctl status suricata.service --no-pager -n 20 || true";
+            }
+            # ── Logs ──
+            {
+              title = "Logs · tail unit";
+              icon = "📜";
+              arguments = [
+                {
+                  name = "unit";
+                  title = "Service";
+                  choices = unitChoices;
+                }
+                {
+                  name = "lines";
+                  title = "Lines";
+                  type = "int";
+                  default = "100";
+                }
+              ];
+              shell = "journalctl -u {{ unit }}.service -n {{ lines }} --no-pager";
+            }
+            {
+              title = "Logs · grep unit";
+              icon = "🔦";
+              arguments = [
+                {
+                  name = "unit";
+                  title = "Service";
+                  choices = unitChoices;
+                }
+                {
+                  name = "pattern";
+                  title = "Pattern";
+                  type = "ascii_sentence";
+                }
+                {
+                  name = "lines";
+                  title = "Lines";
+                  type = "int";
+                  default = "200";
+                }
+              ];
+              shell = "journalctl -u {{ unit }}.service -n {{ lines }} --no-pager -g {{ pattern }}";
+            }
+            {
+              title = "Logs · recent errors";
+              icon = "🚨";
+              shell = "journalctl -p err -b -n 100 --no-pager";
+            }
+          ];
+
+          otDashboards = [
+            {
+              title = "System";
+              contents = [
+                {
+                  title = "Status";
+                  type = "fieldset";
+                  contents = [
+                    { title = "System · failed units"; }
+                    { title = "System · resource snapshot"; }
+                    { title = "System · service status"; }
+                  ];
+                }
+                {
+                  title = "Control";
+                  type = "fieldset";
+                  contents = [
+                    { title = "System · restart service"; }
+                    { title = "System · reboot router"; }
+                  ];
+                }
+              ];
+            }
+            {
+              title = "Updates";
+              contents = [
+                { title = "Update · stage for next boot"; }
+                { title = "Update · apply now (switch)"; }
+                { title = "Update · rollback to previous"; }
+                { title = "Update · list generations"; }
+              ];
+            }
+            {
+              title = "Network";
+              contents = [
+                { title = "Network · devices (neighbours)"; }
+                { title = "Network · interfaces"; }
+                { title = "Network · WireGuard peers"; }
+              ];
+            }
+            {
+              title = "DNS";
+              contents = [
+                {
+                  title = "Lookups";
+                  type = "fieldset";
+                  contents = [
+                    { title = "DNS · recent queries"; }
+                    { title = "DNS · recent blocks"; }
+                    { title = "DNS · search domain"; }
+                    { title = "DNS · stats summary"; }
+                  ];
+                }
+                {
+                  title = "Controls";
+                  type = "fieldset";
+                  contents = [
+                    { title = "DNS · pause filtering 5 min"; }
+                    { title = "DNS · resume filtering"; }
+                    { title = "DNS · flush cache"; }
+                    { title = "DNS · reload filters"; }
+                  ];
+                }
+              ];
+            }
+            {
+              title = "Security";
+              contents = [
+                { title = "Security · recent blocks/alerts"; }
+                { title = "Security · top signatures"; }
+                { title = "Security · update rules"; }
+                { title = "Security · suricata status"; }
+              ];
+            }
+            {
+              title = "Logs";
+              contents = [
+                { title = "Logs · tail unit"; }
+                { title = "Logs · grep unit"; }
+                { title = "Logs · recent errors"; }
+              ];
+            }
+          ];
+
+          # Non-secret OliveTin config. The `authLocalUsers` block (with the
+          # Argon2id password hash) is merged in from auth.secretFile via
+          # services.olivetin.extraConfigFiles, so it never enters the store.
+          olivetinSettings = {
+            logLevel = "INFO";
+            ListenAddressSingleHTTPFrontend = "0.0.0.0:${toString cfg.webui.olivetin.port}";
+            pageTitle = "${cfg.hostName} admin";
+            authRequireGuestsToLogin = true;
+            accessControlLists = [
+              {
+                name = "admins";
+                matchUsergroups = [ "admins" ];
+                addToEveryAction = true;
+                permissions = {
+                  view = true;
+                  exec = true;
+                  logs = true;
+                };
+              }
+            ];
+            actions = otActions ++ cfg.webui.olivetin.extraActions;
+            dashboards = otDashboards;
+          };
+
           # nftRuleset:
           #   The complete nftables configuration, organized into three tables:
           #
@@ -784,7 +1267,7 @@
           #    router.wireguard.*  → WireGuard VPN tunnel definitions.
           #    router.dns.*        → Upstream DNS, AdGuard Home filtering.
           #    router.suricata.*   → Optional Suricata IPS.
-          #    router.cockpit.*    → Optional Cockpit web admin UI.
+          #    router.webui.*      → Unified web admin UI (OliveTin + Netdata + Homepage).
           #    router.adminUser.*  → SSH admin account.
           #    router.extraPackages → Additional system packages.
           # ══════════════════════════════════════════════════════════
@@ -1280,58 +1763,87 @@
               );
             };
 
-            # ── Cockpit web UI ────────────────────────────────────
-            # Optional browser-based system administration interface.
-            # Accessible from trusted interfaces (LAN + WG) on the
-            # configured port (default 9090). The NixOS firewall is not
-            # used (openFirewall = false) because nftables already allows
-            # all traffic from trusted IFs in the input chain.
-            cockpit = {
-              enable = mkEnableOption "Cockpit web-based system administration UI";
+            # ── Web admin UI — OliveTin + Netdata + Homepage ──────
+            # Unified browser-based admin surface (replaces Cockpit):
+            #   • OliveTin  — control actions (restart services, staged
+            #     updates, DNS query search, Suricata blocks); guarded by
+            #     a local-user login.
+            #   • Netdata   — live system monitoring (offline; no cloud).
+            #   • Homepage  — read-only landing page tying them together.
+            # All reachable from trusted interfaces (LAN + WG) via the
+            # nftables input chain; never exposed to the WAN. The NixOS
+            # firewall is not used (nftables already accepts trusted IFs).
+            webui = {
+              enable = mkEnableOption "unified web admin UI (OliveTin + Netdata + Homepage)";
 
-              port = mkOption {
-                type = types.port;
-                default = 9090;
-                description = "Port for the Cockpit web interface";
+              olivetin = {
+                port = mkOption {
+                  type = types.port;
+                  default = 1337;
+                  description = "Port for the OliveTin control UI";
+                };
+
+                flakePath = mkOption {
+                  type = types.str;
+                  default = "/etc/nixos";
+                  description = "Path to the flake used for system updates triggered from the web UI";
+                };
+
+                auth.secretFile = mkOption {
+                  type = types.nullOr types.path;
+                  default = null;
+                  example = "/run/secrets/olivetin-auth.yaml";
+                  description = ''
+                    Path to a YAML file merged into OliveTin's config (kept out of
+                    the Nix store via systemd LoadCredential) that supplies the
+                    entire `authLocalUsers` block — username(s) and Argon2id
+                    password hash(es). Generate a hash with the argon2 CLI, or:
+                      curl -sS --json '{"password":"<pw>"}' \
+                        http://<router>:1337/api/PasswordHash
+                    then write, e.g.:
+                      authLocalUsers:
+                        enabled: true
+                        users:
+                          - username: admin
+                            usergroup: admins
+                            password: $argon2id$v=19$...
+                    Required when router.webui.enable is set (enforced by assertion).
+                  '';
+                };
+
+                extraActions = mkOption {
+                  type = types.listOf (types.attrsOf types.anything);
+                  default = [ ];
+                  description = "Additional OliveTin action definitions appended to the generated set";
+                };
               };
 
-              package = mkOption {
-                type = types.package;
-                default = pkgs.cockpit;
-                defaultText = literalExpression "pkgs.cockpit";
-                description = "Cockpit package to use";
+              netdata = {
+                enable = mkOption {
+                  type = types.bool;
+                  default = true;
+                  description = "Enable Netdata live monitoring as part of the web UI";
+                };
+
+                port = mkOption {
+                  type = types.port;
+                  default = 19999;
+                  description = "Port for the Netdata dashboard";
+                };
               };
 
-              plugins = mkOption {
-                type = types.listOf types.package;
-                default = [ ];
-                description = "Additional Cockpit plugin packages";
-              };
+              homepage = {
+                enable = mkOption {
+                  type = types.bool;
+                  default = true;
+                  description = "Enable the Homepage landing dashboard as part of the web UI";
+                };
 
-              allowedOrigins = mkOption {
-                type = types.listOf types.str;
-                default = [ ];
-                description = "Allowed origins for the Cockpit web interface (e.g. [ \"https://router.lan:9090\" ])";
-              };
-
-              showBanner = mkOption {
-                type = types.bool;
-                default = true;
-                description = "Show system banner on the Cockpit login page";
-              };
-
-              settings = mkOption {
-                type =
-                  with types;
-                  attrsOf (
-                    attrsOf (oneOf [
-                      bool
-                      int
-                      str
-                    ])
-                  );
-                default = { };
-                description = "Additional cockpit.conf settings as nested attribute set (section → key → value)";
+                port = mkOption {
+                  type = types.port;
+                  default = 8082;
+                  description = "Port for the Homepage landing dashboard";
+                };
               };
             };
 
@@ -1379,7 +1891,7 @@
           #   4. nftables          — Stateful firewall, NAT, DNS hijacking.
           #   5. AdGuard Home      — DNS server, filtering, SafeSearch.
           #   6. Suricata          — Inline IPS (optional).
-          #   7. Cockpit           — Web admin UI (optional).
+          #   7. Web admin UI      — OliveTin + Netdata + Homepage (optional).
           #   8. Packages          — System packages (diagnostic tools, etc.).
           #   9. Logging           — journald size/retention limits.
           #  10. Hardening         — SSH lockdown, sudo policy.
@@ -1444,6 +1956,10 @@
                 {
                   assertion = all (c: stringLength c.child <= 15) allChildren;
                   message = "router: a VLAN sub-interface name (<port>.<vid>) exceeds the 15-char kernel limit (IFNAMSIZ); use a shorter parent interface name.";
+                }
+                {
+                  assertion = !cfg.webui.enable || cfg.webui.olivetin.auth.secretFile != null;
+                  message = "router.webui.enable requires router.webui.olivetin.auth.secretFile — the YAML file providing OliveTin's authLocalUsers login block (kept out of the Nix store).";
                 }
               ];
 
@@ -1965,7 +2481,11 @@
             services.adguardhome = mkIf cfg.dns.adguard.enable {
               enable = true;
               mutableSettings = false; # disable runtime changes via AGH UI (managed by NixOS config)
-              host = lanGW;
+              # Web UI/API binds to localhost only when the unified web UI is
+              # enabled — AGH's own UI is hidden from the LAN and surfaced
+              # exclusively through OliveTin (DNS views) + Homepage (widget),
+              # both of which reach it over 127.0.0.1. Otherwise bind to lanGW.
+              host = if cfg.webui.enable then "127.0.0.1" else lanGW;
               port = cfg.dns.adguard.webPort;
               settings =
                 let
@@ -2001,6 +2521,17 @@
                         answer = lanGW;
                       }
                     ];
+                  };
+
+                  # Query log + statistics power the OliveTin DNS views and the
+                  # Homepage AdGuard widget (read via the REST API on localhost).
+                  querylog = {
+                    enabled = true;
+                    interval = "168h"; # 7-day retention
+                  };
+                  statistics = {
+                    enabled = true;
+                    interval = "168h";
                   };
 
                   safe_search = mkIf cfg.dns.adguard.safeSearch {
@@ -2314,41 +2845,136 @@
               };
             };
 
-            # ── 7. Web UI — Cockpit ─────────────────────────────
-            # Cockpit provides a browser-based admin interface for system
-            # monitoring, service management, and terminal access. It's
-            # only accessible from trusted networks (LAN + WG) via the
-            # nftables input chain — openFirewall is disabled since we
-            # manage access through nftables, not the NixOS firewall.
-            services.cockpit = mkIf cfg.cockpit.enable {
+            # ── 7. Web admin UI — OliveTin + Netdata + Homepage ──
+            # Unified admin surface (replaces Cockpit). All three bind to
+            # the LAN/WG-trusted interfaces only — the nftables input chain
+            # accepts trusted IFs while the WAN drops new connections, so
+            # openFirewall stays false everywhere (nftables, not the NixOS
+            # firewall, governs exposure). OliveTin gates control actions
+            # behind a local login; Netdata and Homepage are read-only.
+            services.olivetin = mkIf cfg.webui.enable {
               enable = true;
-              port = cfg.cockpit.port;
-              package = cfg.cockpit.package;
-              plugins = cfg.cockpit.plugins;
-              openFirewall = false; # managed by nftables (LAN/WG already accepted)
-              showBanner = cfg.cockpit.showBanner;
-              settings = mkMerge [
-                cfg.cockpit.settings
+              package = pkgs.olivetin-3k;
+              extraConfigFiles = optional (
+                cfg.webui.olivetin.auth.secretFile != null
+              ) cfg.webui.olivetin.auth.secretFile;
+              path = with pkgs; [
+                bash
+                coreutils
+                jq
+                curl
+                gnugrep
+                gnused
+                gawk
+                iproute2
+                systemd
+                avahi
+                nix
+              ];
+              settings = olivetinSettings;
+            };
+
+            # OliveTin reads the journal via group membership (no sudo) and
+            # runs privileged ops only through the sudo-allowlisted wrappers.
+            users.users.olivetin.extraGroups = mkIf cfg.webui.enable [ "systemd-journal" ];
+            security.sudo.extraRules = mkIf cfg.webui.enable [
+              {
+                users = [ "olivetin" ];
+                commands = map (w: {
+                  command = getExe w;
+                  options = [ "NOPASSWD" ];
+                }) (builtins.attrValues otWrappers);
+              }
+            ];
+
+            # Netdata — live monitoring (offline; no cloud claiming/telemetry).
+            services.netdata = mkIf (cfg.webui.enable && cfg.webui.netdata.enable) {
+              enable = true;
+              config = {
+                global = {
+                  "update every" = "1";
+                };
+                web = {
+                  "default port" = toString cfg.webui.netdata.port;
+                };
+                ml = {
+                  "enabled" = "yes";
+                };
+              };
+            };
+
+            # Homepage — read-only landing page (no built-in auth; LAN/WG trust).
+            services.homepage-dashboard = mkIf (cfg.webui.enable && cfg.webui.homepage.enable) {
+              enable = true;
+              listenPort = cfg.webui.homepage.port;
+              openFirewall = false;
+              allowedHosts = concatStringsSep "," [
+                "localhost:${toString cfg.webui.homepage.port}"
+                "127.0.0.1:${toString cfg.webui.homepage.port}"
+                "${lanGW}:${toString cfg.webui.homepage.port}"
+                "${cfg.hostName}.${cfg.lan.domain}:${toString cfg.webui.homepage.port}"
+                "${cfg.hostName}.local:${toString cfg.webui.homepage.port}"
+              ];
+              settings = {
+                title = "${cfg.hostName} admin";
+                headerStyle = "boxed";
+              };
+              widgets = [
                 {
-                  WebService = {
-                    AllowUnencrypted = true;
-                    Origins = mkForce (
-                      builtins.concatStringsSep " " (
-                        [
-                          "https://${lanGW}"
-                          "https://${lanGW}:${toString cfg.cockpit.port}"
-                          "https://${cfg.hostName}.local"
-                          "https://${cfg.hostName}.local:${toString cfg.cockpit.port}"
-                          "https://${cfg.hostName}.${cfg.lan.domain}"
-                          "https://${cfg.hostName}.${cfg.lan.domain}:${toString cfg.cockpit.port}"
-                        ]
-                        ++ cfg.cockpit.allowedOrigins
-                      )
-                    );
-                    ListenAddress = "0.0.0.0";
+                  resources = {
+                    cpu = true;
+                    memory = true;
+                    disk = "/";
+                  };
+                }
+                {
+                  search = {
+                    provider = "duckduckgo";
+                    target = "_blank";
                   };
                 }
               ];
+              services = [
+                {
+                  "Control" = [
+                    {
+                      "OliveTin" = {
+                        href = "http://${lanGW}:${toString cfg.webui.olivetin.port}/";
+                        description = "System actions & control";
+                        siteMonitor = "http://127.0.0.1:${toString cfg.webui.olivetin.port}";
+                      };
+                    }
+                  ];
+                }
+              ]
+              ++ optional cfg.webui.netdata.enable {
+                "Monitoring" = [
+                  {
+                    "Netdata" = {
+                      href = "http://${lanGW}:${toString cfg.webui.netdata.port}/";
+                      description = "Live system metrics";
+                      widget = {
+                        type = "netdata";
+                        url = "http://127.0.0.1:${toString cfg.webui.netdata.port}";
+                      };
+                    };
+                  }
+                ];
+              }
+              ++ optional cfg.dns.adguard.enable {
+                "DNS" = [
+                  {
+                    "AdGuard Home" = {
+                      href = "http://${lanGW}:${toString cfg.webui.olivetin.port}/";
+                      description = "Filtering — manage via OliveTin";
+                      widget = {
+                        type = "adguard";
+                        url = aghBase;
+                      };
+                    };
+                  }
+                ];
+              };
             };
 
             # ── 8. Packages ──────────────────────────────────────
