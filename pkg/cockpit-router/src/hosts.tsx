@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import {
   Toolbar,
   ToolbarContent,
@@ -25,7 +25,23 @@ interface Neigh {
   state?: string[];
 }
 
+// One physical device, consolidated from every neighbor entry sharing its MAC
+// (a node typically has several addresses: IPv4 + link-local/global IPv6).
+interface HostNode {
+  mac: string;
+  ips: string[];
+  devs: string[];
+  states: string[];
+}
+
 const isIPv4 = (ip: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(ip);
+
+// IPv4 before IPv6, numeric within each family.
+const ipCompare = (a: string, b: string) => {
+  const av = isIPv4(a);
+  if (av !== isIPv4(b)) return av ? -1 : 1;
+  return a.localeCompare(b, undefined, { numeric: true });
+};
 
 // ── MAC vendor lookup (nmap's OUI prefix database, read once) ───────────────
 let ouiMapPromise: Promise<Map<string, string>> | null = null;
@@ -169,10 +185,51 @@ export const Hosts = () => {
       });
   }, [rows]);
 
-  const shown = rows.filter(
-    (r) =>
+  // Collapse the neighbor entries into one row per MAC. Grouping is keyed by the
+  // upper-cased MAC, but the first-seen casing is kept for display.
+  const nodes: HostNode[] = useMemo(() => {
+    const byMac = new Map<string, HostNode>();
+    for (const r of rows) {
+      if (!r.lladdr) continue;
+      const key = r.lladdr.toUpperCase();
+      let node = byMac.get(key);
+      if (!node) {
+        node = { mac: r.lladdr, ips: [], devs: [], states: [] };
+        byMac.set(key, node);
+      }
+      if (!node.ips.includes(r.dst)) node.ips.push(r.dst);
+      if (r.dev && !node.devs.includes(r.dev)) node.devs.push(r.dev);
+      for (const s of r.state || []) if (!node.states.includes(s)) node.states.push(s);
+    }
+    const list = [...byMac.values()];
+    for (const n of list) n.ips.sort(ipCompare);
+    list.sort((a, b) => ipCompare(a.ips[0], b.ips[0]));
+    return list;
+  }, [rows]);
+
+  // Hostnames resolve per IP; a node shows the distinct names across its IPs.
+  const nodeName = (n: HostNode) =>
+    [...new Set(n.ips.map((ip) => names[ip]).filter(Boolean))].join(", ");
+
+  // Open ports are scanned per IP; report the union, distinguishing "scanned,
+  // none open" (empty array) from "not scanned yet" (undefined).
+  const nodePorts = (n: HostNode): number[] | undefined => {
+    const set = new Set<number>();
+    let scanned = false;
+    for (const ip of n.ips) {
+      const p = ports[ip];
+      if (p) {
+        scanned = true;
+        for (const x of p) set.add(x);
+      }
+    }
+    return scanned ? [...set].sort((a, b) => a - b) : undefined;
+  };
+
+  const shown = nodes.filter(
+    (n) =>
       !filter ||
-      [r.dst, r.lladdr, r.dev, names[r.dst], vendorFor(r.lladdr, oui)]
+      [...n.ips, n.mac, ...n.devs, nodeName(n), vendorFor(n.mac, oui)]
         .join(" ")
         .toLowerCase()
         .includes(filter.toLowerCase()),
@@ -249,16 +306,20 @@ export const Hosts = () => {
                   </Tr>
                 </Thead>
                 <Tbody>
-                  {shown.map((r, i) => {
-                    const open = ports[r.dst];
+                  {shown.map((n) => {
+                    const open = nodePorts(n);
                     return (
-                      <Tr key={i}>
-                        <Td>{r.dst}</Td>
-                        <Td>{names[r.dst] || "—"}</Td>
-                        <Td>{vendorFor(r.lladdr, oui) || "—"}</Td>
-                        <Td>{r.lladdr || "—"}</Td>
-                        <Td>{r.dev}</Td>
-                        <Td>{(r.state || []).join(", ")}</Td>
+                      <Tr key={n.mac}>
+                        <Td>
+                          {n.ips.map((ip) => (
+                            <div key={ip}>{ip}</div>
+                          ))}
+                        </Td>
+                        <Td>{nodeName(n) || "—"}</Td>
+                        <Td>{vendorFor(n.mac, oui) || "—"}</Td>
+                        <Td>{n.mac}</Td>
+                        <Td>{n.devs.join(", ")}</Td>
+                        <Td>{n.states.join(", ")}</Td>
                         <Td>
                           {open && open.length > 0 ? (
                             <LabelGroup numLabels={8}>
