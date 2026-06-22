@@ -3,6 +3,7 @@
   buildNpmPackage,
   importNpmLock,
   nodejs,
+  cockpit,
   iproute2,
   iputils,
   dnsutils,
@@ -36,6 +37,16 @@ buildNpmPackage (finalAttrs: {
 
   inherit nodejs;
   npmBuildScript = "build";
+
+  # Vendor Cockpit's own pkg/lib (matching the deployed cockpit version) so the
+  # build resolves `cockpit-dark-theme`, `patternfly/patternfly-6-cockpit.scss`
+  # and `page.scss` from it — this is what gives the plugin Cockpit's native
+  # theming (light/dark, spacing, fonts) instead of stock PatternFly.
+  postPatch = ''
+    mkdir -p pkg
+    cp -r ${cockpit.src}/pkg/lib pkg/lib
+    chmod -R u+w pkg
+  '';
 
   # This is a Cockpit static package, not an npm library — install the bundled
   # dist/ into the cockpit share tree instead of running `npm install` to $out.
