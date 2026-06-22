@@ -2415,6 +2415,10 @@
               ]
               ++ [
                 (writeShellScriptBin "system-upgrade" ''
+                  sudo systemctl stop nixos-rebuild-switch-to-configuration.service
+                  sudo systemctl stop nixos-upgrade.service
+                  sudo systemctl daemon-reload
+                  sudo systemctl reset-failed nixos-rebuild-switch-to-configuration.service
                   sudo sh -c 'cd /etc/nixos && nix flake update && nixos-rebuild switch --impure'
                 '')
               ]
