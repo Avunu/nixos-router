@@ -1,0 +1,9 @@
+{
+  "name": "router",
+  "menu": {
+    "index": {
+      "label": "Router",
+      "order": 30
+    }
+  }
+}
