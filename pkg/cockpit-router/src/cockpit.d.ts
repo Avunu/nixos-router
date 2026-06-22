@@ -3,7 +3,7 @@
 declare const cockpit: any;
 
 interface Window {
-  cockpitRouterConfig?: { adguardPort: number };
+  cockpitRouterConfig?: { adguardPort: number; macPrefixesPath?: string };
 }
 
 // Side-effect imports resolved by esbuild via pkg/lib (nodePaths) and the sass plugin.

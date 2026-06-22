@@ -11,6 +11,7 @@
   traceroute,
   systemd,
   avahi,
+  nmap,
   # The AdGuard Home web/API port the plugin talks to on localhost. Baked into
   # config.js at install time so the frontend knows where to reach it.
   adguardPort ? 3000,
@@ -54,7 +55,7 @@ buildNpmPackage (finalAttrs: {
     runHook preInstall
     mkdir -p $out/share/cockpit/router
     cp -r dist/* $out/share/cockpit/router/
-    echo 'window.cockpitRouterConfig = { adguardPort: ${toString adguardPort} };' \
+    echo 'window.cockpitRouterConfig = { adguardPort: ${toString adguardPort}, macPrefixesPath: "${nmap}/share/nmap/nmap-mac-prefixes" };' \
       > $out/share/cockpit/router/config.js
     runHook postInstall
   '';
@@ -69,6 +70,7 @@ buildNpmPackage (finalAttrs: {
     traceroute
     systemd
     avahi
+    nmap
   ];
 
   meta = {
