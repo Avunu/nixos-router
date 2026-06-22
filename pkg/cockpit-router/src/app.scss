@@ -2,13 +2,13 @@
 @use "page.scss";
 
 // ── Sticky table headers ────────────────────────────────────────────────────
-// PatternFly's <Table isStickyHeader> pins the <thead> to the top of the table's
-// nearest scroll container. By default that container is the whole Page __main,
-// so the header (and the filter toolbar) scroll out of view with the body. Make
-// each router tab fill the page height and scroll only its table body instead:
-// the toolbar / stats card stay fixed above, and the sticky <thead> pins inside
-// the inner scroll region. The min-block-size:0 chain lets each flex child shrink
-// below its content so the inner overflow takes effect.
+// Each table uses PatternFly's dynamic sticky header (<Table isStickyHeaderBase
+// isStickyHeaderStuck={…}>) wrapped in Outer/InnerScrollContainer. The <thead>
+// pins to the top of the InnerScrollContainer (which owns the overflow), and the
+// "stuck" styling is toggled from that container's scroll position. Make each
+// router tab fill the page height so the toolbar / stats card stay fixed above
+// and only the table body scrolls. The min-block-size:0 chain lets each flex
+// child shrink below its content so the inner overflow takes effect.
 .ct-router-body,
 .ct-router-body > * {
   display: flex;
@@ -26,6 +26,14 @@
 }
 
 .ct-table-scroll {
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  min-block-size: 0;
+}
+
+// The InnerScrollContainer is the scroll region; let PatternFly's scroll wrappers
+// fill the available StackItem height instead of their default 25rem min-height.
+.ct-table-scroll > .pf-v6-c-scroll-outer-wrapper {
+  flex: 1 1 auto;
   min-block-size: 0;
 }

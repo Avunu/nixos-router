@@ -14,7 +14,7 @@ import {
   Stack,
   StackItem,
 } from "@patternfly/react-core";
-import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
+import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
 
 const _ = cockpit.gettext;
 
@@ -97,6 +97,7 @@ export const Hosts = () => {
   const [filter, setFilter] = useState("");
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState("");
+  const [isStuck, setIsStuck] = useState(false);
   const scanProc = useRef<any>(null);
 
   useEffect(() => {
@@ -228,49 +229,58 @@ export const Hosts = () => {
             <EmptyStateBody>{_("No connected hosts found.")}</EmptyStateBody>
           </EmptyState>
         ) : (
-          <Table variant="compact" aria-label={_("Connected hosts")} isStickyHeader>
-            <Thead>
-              <Tr>
-                <Th>{_("IP address")}</Th>
-                <Th>{_("Hostname")}</Th>
-                <Th>{_("Vendor")}</Th>
-                <Th>{_("MAC address")}</Th>
-                <Th>{_("Interface")}</Th>
-                <Th>{_("State")}</Th>
-                <Th>{_("Open ports")}</Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {shown.map((r, i) => {
-                const open = ports[r.dst];
-                return (
-                  <Tr key={i}>
-                    <Td>{r.dst}</Td>
-                    <Td>{names[r.dst] || "—"}</Td>
-                    <Td>{vendorFor(r.lladdr, oui) || "—"}</Td>
-                    <Td>{r.lladdr || "—"}</Td>
-                    <Td>{r.dev}</Td>
-                    <Td>{(r.state || []).join(", ")}</Td>
-                    <Td>
-                      {open && open.length > 0 ? (
-                        <LabelGroup numLabels={8}>
-                          {open.map((p) => (
-                            <Label key={p} isCompact color="blue">
-                              {p}
-                            </Label>
-                          ))}
-                        </LabelGroup>
-                      ) : open ? (
-                        _("none")
-                      ) : (
-                        "—"
-                      )}
-                    </Td>
+          <OuterScrollContainer>
+            <InnerScrollContainer onScroll={(e) => setIsStuck(e.currentTarget.scrollTop > 0)}>
+              <Table
+                variant="compact"
+                aria-label={_("Connected hosts")}
+                isStickyHeaderBase
+                isStickyHeaderStuck={isStuck}
+              >
+                <Thead>
+                  <Tr>
+                    <Th>{_("IP address")}</Th>
+                    <Th>{_("Hostname")}</Th>
+                    <Th>{_("Vendor")}</Th>
+                    <Th>{_("MAC address")}</Th>
+                    <Th>{_("Interface")}</Th>
+                    <Th>{_("State")}</Th>
+                    <Th>{_("Open ports")}</Th>
                   </Tr>
-                );
-              })}
-            </Tbody>
-          </Table>
+                </Thead>
+                <Tbody>
+                  {shown.map((r, i) => {
+                    const open = ports[r.dst];
+                    return (
+                      <Tr key={i}>
+                        <Td>{r.dst}</Td>
+                        <Td>{names[r.dst] || "—"}</Td>
+                        <Td>{vendorFor(r.lladdr, oui) || "—"}</Td>
+                        <Td>{r.lladdr || "—"}</Td>
+                        <Td>{r.dev}</Td>
+                        <Td>{(r.state || []).join(", ")}</Td>
+                        <Td>
+                          {open && open.length > 0 ? (
+                            <LabelGroup numLabels={8}>
+                              {open.map((p) => (
+                                <Label key={p} isCompact color="blue">
+                                  {p}
+                                </Label>
+                              ))}
+                            </LabelGroup>
+                          ) : open ? (
+                            _("none")
+                          ) : (
+                            "—"
+                          )}
+                        </Td>
+                      </Tr>
+                    );
+                  })}
+                </Tbody>
+              </Table>
+            </InnerScrollContainer>
+          </OuterScrollContainer>
         )}
       </StackItem>
     </Stack>

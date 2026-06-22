@@ -13,7 +13,7 @@ import {
   Stack,
   StackItem,
 } from "@patternfly/react-core";
-import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
+import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
 
 const _ = cockpit.gettext;
 const EVE = "/var/log/suricata/eve.json";
@@ -36,6 +36,7 @@ export const Suricata = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("");
+  const [isStuck, setIsStuck] = useState(false);
 
   const load = useCallback(() => {
     setError("");
@@ -111,34 +112,43 @@ export const Suricata = () => {
             <EmptyStateBody>{_("No alerts or drops in the recent log.")}</EmptyStateBody>
           </EmptyState>
         ) : (
-          <Table variant="compact" aria-label={_("Suricata events")} isStickyHeader>
-            <Thead>
-              <Tr>
-                <Th>{_("Time")}</Th>
-                <Th>{_("Type")}</Th>
-                <Th>{_("Source")}</Th>
-                <Th>{_("Destination")}</Th>
-                <Th>{_("Proto")}</Th>
-                <Th>{_("Signature")}</Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {shown.map((r, i) => (
-                <Tr key={i}>
-                  <Td>{r.timestamp}</Td>
-                  <Td>
-                    <Label color={r.event_type === "drop" ? "red" : sevColor(r.alert?.severity)} isCompact>
-                      {r.event_type}
-                    </Label>
-                  </Td>
-                  <Td>{r.src_ip || "—"}</Td>
-                  <Td>{r.dest_ip || "—"}</Td>
-                  <Td>{r.proto || "—"}</Td>
-                  <Td>{r.alert?.signature || "—"}</Td>
-                </Tr>
-              ))}
-            </Tbody>
-          </Table>
+          <OuterScrollContainer>
+            <InnerScrollContainer onScroll={(e) => setIsStuck(e.currentTarget.scrollTop > 0)}>
+              <Table
+                variant="compact"
+                aria-label={_("Suricata events")}
+                isStickyHeaderBase
+                isStickyHeaderStuck={isStuck}
+              >
+                <Thead>
+                  <Tr>
+                    <Th>{_("Time")}</Th>
+                    <Th>{_("Type")}</Th>
+                    <Th>{_("Source")}</Th>
+                    <Th>{_("Destination")}</Th>
+                    <Th>{_("Proto")}</Th>
+                    <Th>{_("Signature")}</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {shown.map((r, i) => (
+                    <Tr key={i}>
+                      <Td>{r.timestamp}</Td>
+                      <Td>
+                        <Label color={r.event_type === "drop" ? "red" : sevColor(r.alert?.severity)} isCompact>
+                          {r.event_type}
+                        </Label>
+                      </Td>
+                      <Td>{r.src_ip || "—"}</Td>
+                      <Td>{r.dest_ip || "—"}</Td>
+                      <Td>{r.proto || "—"}</Td>
+                      <Td>{r.alert?.signature || "—"}</Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </InnerScrollContainer>
+          </OuterScrollContainer>
         )}
       </StackItem>
     </Stack>

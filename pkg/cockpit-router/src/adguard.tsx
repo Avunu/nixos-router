@@ -19,7 +19,7 @@ import {
   Stack,
   StackItem,
 } from "@patternfly/react-core";
-import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
+import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
 
 const _ = cockpit.gettext;
 const PORT = (window.cockpitRouterConfig && window.cockpitRouterConfig.adguardPort) || 3000;
@@ -50,6 +50,7 @@ export const AdGuard = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [filter, setFilter] = useState("");
+  const [isStuck, setIsStuck] = useState(false);
 
   const load = useCallback(() => {
     setError("");
@@ -137,30 +138,39 @@ export const AdGuard = () => {
             <EmptyStateBody>{_("No queries in the log.")}</EmptyStateBody>
           </EmptyState>
         ) : (
-          <Table variant="compact" aria-label={_("AdGuard query log")} isStickyHeader>
-            <Thead>
-              <Tr>
-                <Th>{_("Time")}</Th>
-                <Th>{_("Client")}</Th>
-                <Th>{_("Domain")}</Th>
-                <Th>{_("Result")}</Th>
-              </Tr>
-            </Thead>
-            <Tbody>
-              {rows.map((e, i) => (
-                <Tr key={i}>
-                  <Td>{e.time}</Td>
-                  <Td>{e.client}</Td>
-                  <Td>{e.question?.name || e.question?.host || "—"}</Td>
-                  <Td>
-                    <Label color={blocked(e) ? "red" : "green"} isCompact>
-                      {e.reason || "—"}
-                    </Label>
-                  </Td>
-                </Tr>
-              ))}
-            </Tbody>
-          </Table>
+          <OuterScrollContainer>
+            <InnerScrollContainer onScroll={(e) => setIsStuck(e.currentTarget.scrollTop > 0)}>
+              <Table
+                variant="compact"
+                aria-label={_("AdGuard query log")}
+                isStickyHeaderBase
+                isStickyHeaderStuck={isStuck}
+              >
+                <Thead>
+                  <Tr>
+                    <Th>{_("Time")}</Th>
+                    <Th>{_("Client")}</Th>
+                    <Th>{_("Domain")}</Th>
+                    <Th>{_("Result")}</Th>
+                  </Tr>
+                </Thead>
+                <Tbody>
+                  {rows.map((e, i) => (
+                    <Tr key={i}>
+                      <Td>{e.time}</Td>
+                      <Td>{e.client}</Td>
+                      <Td>{e.question?.name || e.question?.host || "—"}</Td>
+                      <Td>
+                        <Label color={blocked(e) ? "red" : "green"} isCompact>
+                          {e.reason || "—"}
+                        </Label>
+                      </Td>
+                    </Tr>
+                  ))}
+                </Tbody>
+              </Table>
+            </InnerScrollContainer>
+          </OuterScrollContainer>
         )}
       </StackItem>
     </Stack>
