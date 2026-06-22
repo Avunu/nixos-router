@@ -13,9 +13,6 @@ import {
   LabelGroup,
   Stack,
   StackItem,
-  Tabs,
-  Tab,
-  TabTitleText,
   Form,
   FormGroup,
   TextInput,
@@ -23,7 +20,7 @@ import {
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
 import { readOption, writeOption } from "./nix";
-import { PendingBanner, useLoader, useSaver, SaverStatus, Loading } from "./settings";
+import { PendingBanner, useLoader, useSaver, SaverStatus, Loading, SubNav } from "./settings";
 
 const _ = cockpit.gettext;
 
@@ -447,17 +444,21 @@ const HostsSettings = () => {
 };
 
 export const Hosts = () => {
-  const [tab, setTab] = useState<number | string>(0);
+  const [tab, setTab] = useState("hosts");
   return (
     <Stack className="ct-router-stack">
       <StackItem>
-        <Tabs activeKey={tab} onSelect={(_e, k) => setTab(k)} isBox aria-label={_("Hosts")}>
-          <Tab eventKey={0} title={<TabTitleText>{_("Connected hosts")}</TabTitleText>} />
-          <Tab eventKey={1} title={<TabTitleText>{_("DHCP settings")}</TabTitleText>} />
-        </Tabs>
+        <SubNav
+          active={tab}
+          onSelect={setTab}
+          items={[
+            { id: "hosts", label: _("Connected hosts") },
+            { id: "settings", label: _("DHCP settings") },
+          ]}
+        />
       </StackItem>
       <StackItem isFilled className="ct-table-scroll">
-        {tab === 0 ? <HostsTable /> : <HostsSettings />}
+        {tab === "hosts" ? <HostsTable /> : <HostsSettings />}
       </StackItem>
     </Stack>
   );

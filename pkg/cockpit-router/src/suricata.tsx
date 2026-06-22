@@ -12,9 +12,6 @@ import {
   Label,
   Stack,
   StackItem,
-  Tabs,
-  Tab,
-  TabTitleText,
   Form,
   FormGroup,
   Switch,
@@ -23,7 +20,7 @@ import {
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
 import { readOption, writeOption } from "./nix";
-import { PendingBanner, useLoader, useSaver, SaverStatus, Loading } from "./settings";
+import { PendingBanner, useLoader, useSaver, SaverStatus, Loading, SubNav } from "./settings";
 
 const _ = cockpit.gettext;
 const EVE = "/var/log/suricata/eve.json";
@@ -229,17 +226,21 @@ const SuricataSettings = () => {
 };
 
 export const Suricata = () => {
-  const [tab, setTab] = useState<number | string>(0);
+  const [tab, setTab] = useState("events");
   return (
     <Stack className="ct-router-stack">
       <StackItem>
-        <Tabs activeKey={tab} onSelect={(_e, k) => setTab(k)} isBox aria-label={_("IPS")}>
-          <Tab eventKey={0} title={<TabTitleText>{_("Events")}</TabTitleText>} />
-          <Tab eventKey={1} title={<TabTitleText>{_("Settings")}</TabTitleText>} />
-        </Tabs>
+        <SubNav
+          active={tab}
+          onSelect={setTab}
+          items={[
+            { id: "events", label: _("Events") },
+            { id: "settings", label: _("Settings") },
+          ]}
+        />
       </StackItem>
       <StackItem isFilled className="ct-table-scroll">
-        {tab === 0 ? <SuricataLog /> : <SuricataSettings />}
+        {tab === "events" ? <SuricataLog /> : <SuricataSettings />}
       </StackItem>
     </Stack>
   );

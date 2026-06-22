@@ -11,10 +11,38 @@ import {
   Spinner,
   Split,
   SplitItem,
+  Nav,
+  NavList,
+  NavItem,
 } from "@patternfly/react-core";
 import { markPending, isPending } from "./nix";
 
 const _ = cockpit.gettext;
+
+// Horizontal sub-navigation matching Cockpit's own page pattern (see
+// pkg/systemd/service-tabs.tsx): a `Nav variant="horizontal-subnav"` of link
+// buttons rather than PatternFly Tabs, so the router pages look native.
+export const SubNav = ({
+  items,
+  active,
+  onSelect,
+}: {
+  items: { id: string; label: string }[];
+  active: string;
+  onSelect: (id: string) => void;
+}) => (
+  <Nav variant="horizontal-subnav" onSelect={(_e, result) => onSelect(result.itemId as string)}>
+    <NavList>
+      {items.map((it) => (
+        <NavItem key={it.id} itemId={it.id} preventDefault isActive={active === it.id}>
+          <Button variant="link" component="a">
+            {it.label}
+          </Button>
+        </NavItem>
+      ))}
+    </NavList>
+  </Nav>
+);
 
 // Shown at the top of every settings surface once any value has been written but
 // not yet applied. Cleared by the System page after a successful rebuild.

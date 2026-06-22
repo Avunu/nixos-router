@@ -4,9 +4,6 @@ import {
   Alert,
   Stack,
   StackItem,
-  Tabs,
-  Tab,
-  TabTitleText,
   Form,
   FormGroup,
   FormSelect,
@@ -28,7 +25,7 @@ import {
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import { readOption, writeOption } from "./nix";
-import { PendingBanner, useLoader, useSaver, SaverStatus, Loading } from "./settings";
+import { PendingBanner, useLoader, useSaver, SaverStatus, Loading, SubNav } from "./settings";
 
 const _ = cockpit.gettext;
 
@@ -350,20 +347,24 @@ const ActiveRules = () => {
 };
 
 export const Firewall = () => {
-  const [tab, setTab] = useState<number | string>(0);
+  const [tab, setTab] = useState("forwards");
   return (
     <Stack className="ct-router-stack">
       <StackItem>
-        <Tabs activeKey={tab} onSelect={(_e, k) => setTab(k)} isBox aria-label={_("Firewall")}>
-          <Tab eventKey={0} title={<TabTitleText>{_("Port forwards")}</TabTitleText>} />
-          <Tab eventKey={1} title={<TabTitleText>{_("UPnP")}</TabTitleText>} />
-          <Tab eventKey={2} title={<TabTitleText>{_("Active rules")}</TabTitleText>} />
-        </Tabs>
+        <SubNav
+          active={tab}
+          onSelect={setTab}
+          items={[
+            { id: "forwards", label: _("Port forwards") },
+            { id: "upnp", label: _("UPnP") },
+            { id: "rules", label: _("Active rules") },
+          ]}
+        />
       </StackItem>
       <StackItem isFilled className="ct-table-scroll">
-        {tab === 0 && <PortForwards />}
-        {tab === 1 && <UpnpSettings />}
-        {tab === 2 && <ActiveRules />}
+        {tab === "forwards" && <PortForwards />}
+        {tab === "upnp" && <UpnpSettings />}
+        {tab === "rules" && <ActiveRules />}
       </StackItem>
     </Stack>
   );

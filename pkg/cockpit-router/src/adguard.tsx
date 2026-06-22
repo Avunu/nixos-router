@@ -18,9 +18,6 @@ import {
   Label,
   Stack,
   StackItem,
-  Tabs,
-  Tab,
-  TabTitleText,
   Form,
   FormGroup,
   FormSection,
@@ -30,7 +27,7 @@ import {
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
 import { readOption, writeOption } from "./nix";
-import { PendingBanner, ListEditor, useLoader, useSaver, SaverStatus, Loading } from "./settings";
+import { PendingBanner, ListEditor, useLoader, useSaver, SaverStatus, Loading, SubNav } from "./settings";
 
 const _ = cockpit.gettext;
 const PORT = (window.cockpitRouterConfig && window.cockpitRouterConfig.adguardPort) || 3000;
@@ -384,17 +381,21 @@ const AdGuardSettings = () => {
 };
 
 export const AdGuard = () => {
-  const [tab, setTab] = useState<number | string>(0);
+  const [tab, setTab] = useState("log");
   return (
     <Stack className="ct-router-stack">
       <StackItem>
-        <Tabs activeKey={tab} onSelect={(_e, k) => setTab(k)} isBox aria-label={_("DNS")}>
-          <Tab eventKey={0} title={<TabTitleText>{_("Query log")}</TabTitleText>} />
-          <Tab eventKey={1} title={<TabTitleText>{_("Settings")}</TabTitleText>} />
-        </Tabs>
+        <SubNav
+          active={tab}
+          onSelect={setTab}
+          items={[
+            { id: "log", label: _("Query log") },
+            { id: "settings", label: _("Settings") },
+          ]}
+        />
       </StackItem>
       <StackItem isFilled className="ct-table-scroll">
-        {tab === 0 ? <AdGuardLog /> : <AdGuardSettings />}
+        {tab === "log" ? <AdGuardLog /> : <AdGuardSettings />}
       </StackItem>
     </Stack>
   );
