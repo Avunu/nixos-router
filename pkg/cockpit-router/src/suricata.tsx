@@ -10,6 +10,8 @@ import {
   EmptyState,
   EmptyStateBody,
   Label,
+  Stack,
+  StackItem,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 
@@ -78,59 +80,67 @@ export const Suricata = () => {
   if (loading) return <Spinner />;
 
   return (
-    <>
-      <Toolbar>
-        <ToolbarContent>
-          <ToolbarItem>
-            <SearchInput
-              placeholder={_("Filter by IP, signature, category")}
-              value={filter}
-              onChange={(_e, v) => setFilter(v)}
-              onClear={() => setFilter("")}
-            />
-          </ToolbarItem>
-          <ToolbarItem>
-            <Button variant="secondary" onClick={load}>
-              {_("Refresh")}
-            </Button>
-          </ToolbarItem>
-        </ToolbarContent>
-      </Toolbar>
-      {error && <Alert variant="danger" title={_("Could not read Suricata events")} isInline>{error}</Alert>}
-      {shown.length === 0 ? (
-        <EmptyState>
-          <EmptyStateBody>{_("No alerts or drops in the recent log.")}</EmptyStateBody>
-        </EmptyState>
-      ) : (
-        <Table variant="compact" aria-label={_("Suricata events")}>
-          <Thead>
-            <Tr>
-              <Th>{_("Time")}</Th>
-              <Th>{_("Type")}</Th>
-              <Th>{_("Source")}</Th>
-              <Th>{_("Destination")}</Th>
-              <Th>{_("Proto")}</Th>
-              <Th>{_("Signature")}</Th>
-            </Tr>
-          </Thead>
-          <Tbody>
-            {shown.map((r, i) => (
-              <Tr key={i}>
-                <Td>{r.timestamp}</Td>
-                <Td>
-                  <Label color={r.event_type === "drop" ? "red" : sevColor(r.alert?.severity)} isCompact>
-                    {r.event_type}
-                  </Label>
-                </Td>
-                <Td>{r.src_ip || "—"}</Td>
-                <Td>{r.dest_ip || "—"}</Td>
-                <Td>{r.proto || "—"}</Td>
-                <Td>{r.alert?.signature || "—"}</Td>
-              </Tr>
-            ))}
-          </Tbody>
-        </Table>
+    <Stack hasGutter className="ct-router-stack">
+      <StackItem>
+        <Toolbar>
+          <ToolbarContent>
+            <ToolbarItem>
+              <SearchInput
+                placeholder={_("Filter by IP, signature, category")}
+                value={filter}
+                onChange={(_e, v) => setFilter(v)}
+                onClear={() => setFilter("")}
+              />
+            </ToolbarItem>
+            <ToolbarItem>
+              <Button variant="secondary" onClick={load}>
+                {_("Refresh")}
+              </Button>
+            </ToolbarItem>
+          </ToolbarContent>
+        </Toolbar>
+      </StackItem>
+      {error && (
+        <StackItem>
+          <Alert variant="danger" title={_("Could not read Suricata events")} isInline>{error}</Alert>
+        </StackItem>
       )}
-    </>
+      <StackItem isFilled className="ct-table-scroll">
+        {shown.length === 0 ? (
+          <EmptyState>
+            <EmptyStateBody>{_("No alerts or drops in the recent log.")}</EmptyStateBody>
+          </EmptyState>
+        ) : (
+          <Table variant="compact" aria-label={_("Suricata events")} isStickyHeader>
+            <Thead>
+              <Tr>
+                <Th>{_("Time")}</Th>
+                <Th>{_("Type")}</Th>
+                <Th>{_("Source")}</Th>
+                <Th>{_("Destination")}</Th>
+                <Th>{_("Proto")}</Th>
+                <Th>{_("Signature")}</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {shown.map((r, i) => (
+                <Tr key={i}>
+                  <Td>{r.timestamp}</Td>
+                  <Td>
+                    <Label color={r.event_type === "drop" ? "red" : sevColor(r.alert?.severity)} isCompact>
+                      {r.event_type}
+                    </Label>
+                  </Td>
+                  <Td>{r.src_ip || "—"}</Td>
+                  <Td>{r.dest_ip || "—"}</Td>
+                  <Td>{r.proto || "—"}</Td>
+                  <Td>{r.alert?.signature || "—"}</Td>
+                </Tr>
+              ))}
+            </Tbody>
+          </Table>
+        )}
+      </StackItem>
+    </Stack>
   );
 };

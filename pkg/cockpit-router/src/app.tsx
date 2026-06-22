@@ -40,7 +40,7 @@ export const App = () => {
           <Tab eventKey={3} title={<TabTitleText>{_("Diagnostics")}</TabTitleText>} />
         </Tabs>
       </PageSection>
-      <PageSection>
+      <PageSection isFilled className="ct-router-body">
         {active === 0 && <Hosts />}
         {active === 1 && <Suricata />}
         {active === 2 && <AdGuard />}

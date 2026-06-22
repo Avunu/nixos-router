@@ -11,6 +11,8 @@ import {
   EmptyStateBody,
   Label,
   LabelGroup,
+  Stack,
+  StackItem,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 
@@ -178,89 +180,99 @@ export const Hosts = () => {
   if (loading) return <Spinner />;
 
   return (
-    <>
-      <Toolbar>
-        <ToolbarContent>
-          <ToolbarItem>
-            <SearchInput
-              placeholder={_("Filter by IP, host, MAC, vendor")}
-              value={filter}
-              onChange={(_e, v) => setFilter(v)}
-              onClear={() => setFilter("")}
-            />
-          </ToolbarItem>
-          <ToolbarItem>
-            <Button variant="secondary" onClick={load} isDisabled={scanning}>
-              {_("Refresh")}
-            </Button>
-          </ToolbarItem>
-          <ToolbarItem>
-            <Button
-              variant="secondary"
-              onClick={scanPorts}
-              isDisabled={scanning}
-              icon={scanning ? <Spinner size="sm" /> : undefined}
-            >
-              {scanning ? _("Scanning ports…") : _("Scan ports")}
-            </Button>
-          </ToolbarItem>
-        </ToolbarContent>
-      </Toolbar>
-      {error && <Alert variant="danger" title={error} isInline />}
+    <Stack hasGutter className="ct-router-stack">
+      <StackItem>
+        <Toolbar>
+          <ToolbarContent>
+            <ToolbarItem>
+              <SearchInput
+                placeholder={_("Filter by IP, host, MAC, vendor")}
+                value={filter}
+                onChange={(_e, v) => setFilter(v)}
+                onClear={() => setFilter("")}
+              />
+            </ToolbarItem>
+            <ToolbarItem>
+              <Button variant="secondary" onClick={load} isDisabled={scanning}>
+                {_("Refresh")}
+              </Button>
+            </ToolbarItem>
+            <ToolbarItem>
+              <Button
+                variant="secondary"
+                onClick={scanPorts}
+                isDisabled={scanning}
+                icon={scanning ? <Spinner size="sm" /> : undefined}
+              >
+                {scanning ? _("Scanning ports…") : _("Scan ports")}
+              </Button>
+            </ToolbarItem>
+          </ToolbarContent>
+        </Toolbar>
+      </StackItem>
+      {error && (
+        <StackItem>
+          <Alert variant="danger" title={error} isInline />
+        </StackItem>
+      )}
       {scanError && (
-        <Alert variant="warning" title={_("Port scan failed")} isInline>
-          {scanError}
-        </Alert>
+        <StackItem>
+          <Alert variant="warning" title={_("Port scan failed")} isInline>
+            {scanError}
+          </Alert>
+        </StackItem>
       )}
-      {shown.length === 0 ? (
-        <EmptyState>
-          <EmptyStateBody>{_("No connected hosts found.")}</EmptyStateBody>
-        </EmptyState>
-      ) : (
-        <Table variant="compact" aria-label={_("Connected hosts")}>
-          <Thead>
-            <Tr>
-              <Th>{_("IP address")}</Th>
-              <Th>{_("Hostname")}</Th>
-              <Th>{_("Vendor")}</Th>
-              <Th>{_("MAC address")}</Th>
-              <Th>{_("Interface")}</Th>
-              <Th>{_("State")}</Th>
-              <Th>{_("Open ports")}</Th>
-            </Tr>
-          </Thead>
-          <Tbody>
-            {shown.map((r, i) => {
-              const open = ports[r.dst];
-              return (
-                <Tr key={i}>
-                  <Td>{r.dst}</Td>
-                  <Td>{names[r.dst] || "—"}</Td>
-                  <Td>{vendorFor(r.lladdr, oui) || "—"}</Td>
-                  <Td>{r.lladdr || "—"}</Td>
-                  <Td>{r.dev}</Td>
-                  <Td>{(r.state || []).join(", ")}</Td>
-                  <Td>
-                    {open && open.length > 0 ? (
-                      <LabelGroup numLabels={8}>
-                        {open.map((p) => (
-                          <Label key={p} isCompact color="blue">
-                            {p}
-                          </Label>
-                        ))}
-                      </LabelGroup>
-                    ) : open ? (
-                      _("none")
-                    ) : (
-                      "—"
-                    )}
-                  </Td>
-                </Tr>
-              );
-            })}
-          </Tbody>
-        </Table>
-      )}
-    </>
+      <StackItem isFilled className="ct-table-scroll">
+        {shown.length === 0 ? (
+          <EmptyState>
+            <EmptyStateBody>{_("No connected hosts found.")}</EmptyStateBody>
+          </EmptyState>
+        ) : (
+          <Table variant="compact" aria-label={_("Connected hosts")} isStickyHeader>
+            <Thead>
+              <Tr>
+                <Th>{_("IP address")}</Th>
+                <Th>{_("Hostname")}</Th>
+                <Th>{_("Vendor")}</Th>
+                <Th>{_("MAC address")}</Th>
+                <Th>{_("Interface")}</Th>
+                <Th>{_("State")}</Th>
+                <Th>{_("Open ports")}</Th>
+              </Tr>
+            </Thead>
+            <Tbody>
+              {shown.map((r, i) => {
+                const open = ports[r.dst];
+                return (
+                  <Tr key={i}>
+                    <Td>{r.dst}</Td>
+                    <Td>{names[r.dst] || "—"}</Td>
+                    <Td>{vendorFor(r.lladdr, oui) || "—"}</Td>
+                    <Td>{r.lladdr || "—"}</Td>
+                    <Td>{r.dev}</Td>
+                    <Td>{(r.state || []).join(", ")}</Td>
+                    <Td>
+                      {open && open.length > 0 ? (
+                        <LabelGroup numLabels={8}>
+                          {open.map((p) => (
+                            <Label key={p} isCompact color="blue">
+                              {p}
+                            </Label>
+                          ))}
+                        </LabelGroup>
+                      ) : open ? (
+                        _("none")
+                      ) : (
+                        "—"
+                      )}
+                    </Td>
+                  </Tr>
+                );
+              })}
+            </Tbody>
+          </Table>
+        )}
+      </StackItem>
+    </Stack>
   );
 };
