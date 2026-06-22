@@ -17,9 +17,10 @@ header()  { echo -e "\n${BOLD}$*${NC}\n"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_FLAKE="${SCRIPT_DIR}/flake.nix"
+OUTPUT_SETTINGS="${SCRIPT_DIR}/router-settings.nix"
 
 header "NixOS Router Configuration Generator"
-echo "Generates local/flake.nix for your router."
+echo "Generates local/flake.nix and local/router-settings.nix for your router."
 echo "Run build-iso.sh afterwards to build the installer ISO."
 echo ""
 
@@ -201,7 +202,9 @@ if [[ "$CONFIRM" != "yes" ]]; then
   exit 1
 fi
 
-# ── Generate flake.nix ───────────────────────────────────────────────────────
+# ── Generate flake.nix (thin importer) ───────────────────────────────────────
+# All router.* options live in router-settings.nix so the Cockpit web UI can
+# edit them in place (via nix-editor); the flake just wires the module in.
 cat > "$OUTPUT_FLAKE" << FLAKE
 {
   inputs = {
@@ -229,68 +232,8 @@ cat > "$OUTPUT_FLAKE" << FLAKE
           modules = [
             { nix.nixPath = [ "nixpkgs=\${self.inputs.nixpkgs}" ]; }
             nixos-router.nixosModules.router
-            {
-              router = {
-                hostName = hostName;
-                timeZone = "${TIMEZONE}";
-                stateVersion = "${STATE_VERSION}";
-                diskDevice = "${DISK_DEVICE}";
-                bootMode = "${BOOT_MODE}";
-
-                wan.interface = "${WAN_IFACE}";
-
-                lan = {
-                  interfaces = [${LAN_IFACES_NIX}
-                  ];
-                  address = "${LAN_ADDR}";
-                  networkAddress = "${LAN_NET}";
-                  prefixLength = ${LAN_PREFIX};
-                  domain = "${LAN_DOMAIN}";
-                  dhcp = {
-                    poolOffset = 100;
-                    poolSize = 151;
-                    leaseTime = "24h";
-                  };
-                };
-${GUEST_BLOCK}
-                dns = {
-                  upstreamServers = [
-                    "https://dns.cloudflare.com/dns-query"
-                    "https://dns.google/dns-query"
-                  ];
-                  bootstrapServers = [
-                    "1.1.1.1"
-                    "8.8.8.8"
-                  ];
-                  adguard = {
-                    enable = ${ENABLE_ADGUARD};
-                    webPort = 3000;
-                    safeSearch = true;
-                    utCapitoleCategories = [
-                      "malware"
-                      "phishing"
-                      "cryptojacking"
-                      # "porn"
-                      # "gambling"
-                    ];
-                  };
-                };
-
-                suricata.enable = ${ENABLE_SURICATA};
-
-                cockpit = {
-                  enable = ${ENABLE_COCKPIT};
-                  port = 9090;
-                };
-
-                adminUser = {
-                  name = "${ADMIN_USER}";
-                  initialPassword = "${ADMIN_PASSWORD}";
-                  sshKeys = [${SSH_KEYS_NIX}
-                  ];
-                };
-              };
-            }
+            # Editable router settings (also written by the Cockpit web UI).
+            ./router-settings.nix
           ];
         };
       };
@@ -298,8 +241,85 @@ ${GUEST_BLOCK}
 }
 FLAKE
 
-success "Configuration written to: $OUTPUT_FLAKE"
+# ── Generate router-settings.nix (the editable settings module) ──────────────
+cat > "$OUTPUT_SETTINGS" << SETTINGS
+# Router settings — the editable \`router.*\` configuration for this host.
+#
+# This module is imported by flake.nix and is the file the Cockpit "Settings"
+# tabs write to (via nix-editor). Hand-edit it freely; the web UI only touches
+# the options exposed by its forms (filtering, DNS, firewall, UPnP, IPS, DHCP).
+{
+  router = {
+    hostName = "${HOSTNAME}";
+    timeZone = "${TIMEZONE}";
+    stateVersion = "${STATE_VERSION}";
+    diskDevice = "${DISK_DEVICE}";
+    bootMode = "${BOOT_MODE}";
+
+    wan.interface = "${WAN_IFACE}";
+
+    lan = {
+      interfaces = [${LAN_IFACES_NIX}
+      ];
+      address = "${LAN_ADDR}";
+      networkAddress = "${LAN_NET}";
+      prefixLength = ${LAN_PREFIX};
+      domain = "${LAN_DOMAIN}";
+      dhcp = {
+        poolOffset = 100;
+        poolSize = 151;
+        leaseTime = "24h";
+      };
+    };
+${GUEST_BLOCK}
+    dns = {
+      upstreamServers = [
+        "https://dns.cloudflare.com/dns-query"
+        "https://dns.google/dns-query"
+      ];
+      bootstrapServers = [
+        "1.1.1.1"
+        "8.8.8.8"
+      ];
+      adguard = {
+        enable = ${ENABLE_ADGUARD};
+        webPort = 3000;
+        safeSearch = true;
+        utCapitoleCategories = [
+          "malware"
+          "phishing"
+          "cryptojacking"
+          # "porn"
+          # "gambling"
+        ];
+      };
+    };
+
+    suricata.enable = ${ENABLE_SURICATA};
+
+    upnp.enable = false;
+
+    portForwards = [ ];
+
+    cockpit = {
+      enable = ${ENABLE_COCKPIT};
+      port = 9090;
+    };
+
+    adminUser = {
+      name = "${ADMIN_USER}";
+      initialPassword = "${ADMIN_PASSWORD}";
+      sshKeys = [${SSH_KEYS_NIX}
+      ];
+    };
+  };
+}
+SETTINGS
+
+success "Configuration written to:"
+echo "    $OUTPUT_FLAKE"
+echo "    $OUTPUT_SETTINGS"
 echo ""
-echo "  Edit the file to customize further, then run:"
+echo "  Edit router-settings.nix to customize further, then run:"
 echo "    ./build-iso.sh"
 echo ""

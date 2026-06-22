@@ -12,9 +12,21 @@
   systemd,
   avahi,
   nmap,
+  # nix-editor binary used by the Settings tabs to persist option changes into
+  # the router settings module. Added to passthru.cockpitPath so it lands on
+  # /etc/cockpit/bin (cockpit-bridge's PATH). Optional so `nix build
+  # .#cockpit-router` without an override still produces a usable monitoring
+  # plugin (the Settings/System pages just can't write until it is provided).
+  nixEditor ? null,
   # The AdGuard Home web/API port the plugin talks to on localhost. Baked into
   # config.js at install time so the frontend knows where to reach it.
   adguardPort ? 3000,
+  # Baked into config.js so the frontend can build flake references for reads
+  # (nix eval) and writes (nix-editor), and run nixos-rebuild from the System
+  # page. Defaults match the standard deployment layout.
+  hostName ? "",
+  flakePath ? "/etc/nixos",
+  settingsFile ? "/etc/nixos/router-settings.nix",
 }:
 
 buildNpmPackage (finalAttrs: {
@@ -55,7 +67,7 @@ buildNpmPackage (finalAttrs: {
     runHook preInstall
     mkdir -p $out/share/cockpit/router
     cp -r dist/* $out/share/cockpit/router/
-    echo 'window.cockpitRouterConfig = { adguardPort: ${toString adguardPort}, macPrefixesPath: "${nmap}/share/nmap/nmap-mac-prefixes" };' \
+    echo 'window.cockpitRouterConfig = { adguardPort: ${toString adguardPort}, macPrefixesPath: "${nmap}/share/nmap/nmap-mac-prefixes", hostName: "${hostName}", flakePath: "${flakePath}", settingsFile: "${settingsFile}" };' \
       > $out/share/cockpit/router/config.js
     runHook postInstall
   '';
@@ -71,7 +83,8 @@ buildNpmPackage (finalAttrs: {
     systemd
     avahi
     nmap
-  ];
+  ]
+  ++ lib.optional (nixEditor != null) nixEditor;
 
   meta = {
     description = "Cockpit plugin with router views (hosts, Suricata, AdGuard, diagnostics)";

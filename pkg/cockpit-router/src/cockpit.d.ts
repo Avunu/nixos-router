@@ -3,7 +3,15 @@
 declare const cockpit: any;
 
 interface Window {
-  cockpitRouterConfig?: { adguardPort: number; macPrefixesPath?: string };
+  cockpitRouterConfig?: {
+    adguardPort: number;
+    macPrefixesPath?: string;
+    // Baked in by package.nix so the frontend can build flake references for
+    // nix eval (reads) / nix-editor (writes) and run nixos-rebuild.
+    hostName?: string;
+    flakePath?: string;
+    settingsFile?: string;
+  };
 }
 
 // Side-effect imports resolved by esbuild via pkg/lib (nodePaths) and the sass plugin.

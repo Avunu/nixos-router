@@ -13,8 +13,17 @@ import {
   LabelGroup,
   Stack,
   StackItem,
+  Tabs,
+  Tab,
+  TabTitleText,
+  Form,
+  FormGroup,
+  TextInput,
+  ActionGroup,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
+import { readOption, writeOption } from "./nix";
+import { PendingBanner, useLoader, useSaver, SaverStatus, Loading } from "./settings";
 
 const _ = cockpit.gettext;
 
@@ -103,7 +112,7 @@ function resolveNames(ips: string[]): Promise<Record<string, string>> {
   });
 }
 
-export const Hosts = () => {
+const HostsTable = () => {
   const [rows, setRows] = useState<Neigh[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
   const [oui, setOui] = useState<Map<string, string>>(new Map());
@@ -343,6 +352,112 @@ export const Hosts = () => {
             </InnerScrollContainer>
           </OuterScrollContainer>
         )}
+      </StackItem>
+    </Stack>
+  );
+};
+
+interface DhcpForm {
+  domain: string;
+  poolOffset: number;
+  poolSize: number;
+  leaseTime: string;
+}
+
+const HostsSettings = () => {
+  const { value, setValue, loading, error } = useLoader<DhcpForm>(async () => {
+    const [domain, dhcp] = await Promise.all([
+      readOption<string>("lan.domain"),
+      readOption<any>("lan.dhcp"),
+    ]);
+    return {
+      domain: domain || "",
+      poolOffset: dhcp?.poolOffset ?? 100,
+      poolSize: dhcp?.poolSize ?? 150,
+      leaseTime: dhcp?.leaseTime || "24h",
+    };
+  }, { domain: "", poolOffset: 100, poolSize: 150, leaseTime: "24h" });
+  const { saving, status, run } = useSaver();
+  const set = (patch: Partial<DhcpForm>) => setValue((v) => ({ ...v, ...patch }));
+
+  if (loading) return <Loading />;
+  if (error) return <Alert variant="danger" isInline title={_("Could not load settings")}>{error}</Alert>;
+
+  const save = () =>
+    run(async () => {
+      await writeOption("lan.domain", value.domain);
+      await writeOption("lan.dhcp.poolOffset", value.poolOffset);
+      await writeOption("lan.dhcp.poolSize", value.poolSize);
+      await writeOption("lan.dhcp.leaseTime", value.leaseTime);
+    });
+
+  return (
+    <Stack hasGutter className="ct-router-stack">
+      <StackItem isFilled style={{ overflowY: "auto" }}>
+        <PendingBanner />
+        <Form isHorizontal onSubmit={(e) => e.preventDefault()}>
+          <FormGroup label={_("LAN domain")} fieldId="lanDomain">
+            <TextInput
+              id="lanDomain"
+              value={value.domain}
+              onChange={(_e, v) => set({ domain: v })}
+            />
+          </FormGroup>
+          <FormGroup
+            label={_("DHCP pool offset")}
+            fieldId="poolOffset"
+            labelHelp={_("First host address in the DHCP pool, counted from the network address")}
+          >
+            <TextInput
+              id="poolOffset"
+              type="number"
+              value={value.poolOffset}
+              onChange={(_e, v) => set({ poolOffset: Number(v) || 0 })}
+            />
+          </FormGroup>
+          <FormGroup label={_("DHCP pool size")} fieldId="poolSize">
+            <TextInput
+              id="poolSize"
+              type="number"
+              value={value.poolSize}
+              onChange={(_e, v) => set({ poolSize: Number(v) || 0 })}
+            />
+          </FormGroup>
+          <FormGroup
+            label={_("DHCP lease time")}
+            fieldId="leaseTime"
+            labelHelp={_("e.g. 12h, 30d")}
+          >
+            <TextInput
+              id="leaseTime"
+              value={value.leaseTime}
+              onChange={(_e, v) => set({ leaseTime: v })}
+            />
+          </FormGroup>
+          <SaverStatus status={status} />
+          <ActionGroup>
+            <Button variant="primary" onClick={save} isLoading={saving} isDisabled={saving}>
+              {_("Save")}
+            </Button>
+          </ActionGroup>
+        </Form>
+      </StackItem>
+    </Stack>
+  );
+};
+
+export const Hosts = () => {
+  const [tab, setTab] = useState<number | string>(0);
+  return (
+    <Stack className="ct-router-stack">
+      <StackItem>
+        <Tabs activeKey={tab} onSelect={(_e, k) => setTab(k)} isBox aria-label={_("Hosts")}>
+          <Tab eventKey={0} title={<TabTitleText>{_("Connected hosts")}</TabTitleText>} />
+          <Tab eventKey={1} title={<TabTitleText>{_("DHCP settings")}</TabTitleText>} />
+        </Tabs>
+      </StackItem>
+      <StackItem isFilled className="ct-table-scroll">
+        {tab === 0 ? <HostsTable /> : <HostsSettings />}
       </StackItem>
     </Stack>
   );

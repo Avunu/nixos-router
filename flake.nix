@@ -42,6 +42,13 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+    # nix-editor: small Rust CLI that reads/writes attribute paths in .nix
+    # files. The Cockpit router plugin spawns it to persist option changes from
+    # the web UI into the host's router settings module.
+    nix-editor = {
+      url = "github:snowfallorg/nix-editor";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -112,7 +119,9 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          cockpit-router = pkgs.callPackage ./pkg/cockpit-router/package.nix { };
+          cockpit-router = pkgs.callPackage ./pkg/cockpit-router/package.nix {
+            nixEditor = inputs.nix-editor.packages.${system}.default;
+          };
         }
       );
 
@@ -197,6 +206,10 @@
           #   in so the plugin can reach the local AGH REST API.
           cockpitRouterPlugin = pkgs.callPackage ./pkg/cockpit-router/package.nix {
             adguardPort = cfg.dns.adguard.webPort;
+            nixEditor = inputs.nix-editor.packages.${pkgs.stdenv.hostPlatform.system}.default;
+            hostName = cfg.hostName;
+            flakePath = cfg.cockpit.flakePath;
+            settingsFile = cfg.cockpit.settingsFile;
           };
 
           # ── Guest network derived values ────────────────────────
@@ -1357,6 +1370,29 @@
                   );
                 default = { };
                 description = "Additional cockpit.conf settings as nested attribute set (section → key → value)";
+              };
+
+              flakePath = mkOption {
+                type = types.str;
+                default = "/etc/nixos";
+                description = ''
+                  Path to the host flake on the deployed router. The Cockpit
+                  router plugin reads effective option values via
+                  `nix eval <flakePath>#nixosConfigurations.<hostName>.config.router.*`
+                  and runs `nixos-rebuild --flake <flakePath>#<hostName>` from the
+                  System page.
+                '';
+              };
+
+              settingsFile = mkOption {
+                type = types.str;
+                default = "/etc/nixos/router-settings.nix";
+                description = ''
+                  Path to the editable `router.*` settings module that the Cockpit
+                  plugin writes to (via nix-editor) when settings are changed in the
+                  web UI. Must be a module imported by the host flake so that the
+                  values it sets take effect on the next rebuild.
+                '';
               };
             };
 

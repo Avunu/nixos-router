@@ -39,7 +39,14 @@ await esbuild.build({
       setup(build) {
         // One HTML page per Cockpit menu entry (see src/manifest.json); each
         // loads the shared index.js bundle and selects its view via data-view.
-        const htmlPages = ["hosts.html", "ips.html", "dns.html", "diagnostics.html"];
+        const htmlPages = [
+          "hosts.html",
+          "ips.html",
+          "dns.html",
+          "firewall.html",
+          "diagnostics.html",
+          "system.html",
+        ];
         build.onEnd((result) => {
           if (result.errors.length === 0) {
             fs.copyFileSync("./src/manifest.json", "./dist/manifest.json");

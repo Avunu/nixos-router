@@ -12,8 +12,18 @@ import {
   Label,
   Stack,
   StackItem,
+  Tabs,
+  Tab,
+  TabTitleText,
+  Form,
+  FormGroup,
+  Switch,
+  TextArea,
+  ActionGroup,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
+import { readOption, writeOption } from "./nix";
+import { PendingBanner, useLoader, useSaver, SaverStatus, Loading } from "./settings";
 
 const _ = cockpit.gettext;
 const EVE = "/var/log/suricata/eve.json";
@@ -31,7 +41,7 @@ interface Ev {
 const sevColor = (s?: number) =>
   s === 1 ? "red" : s === 2 ? "orange" : "grey";
 
-export const Suricata = () => {
+const SuricataLog = () => {
   const [rows, setRows] = useState<Ev[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -150,6 +160,86 @@ export const Suricata = () => {
             </InnerScrollContainer>
           </OuterScrollContainer>
         )}
+      </StackItem>
+    </Stack>
+  );
+};
+
+interface IPSForm {
+  enable: boolean;
+  extraRules: string;
+}
+
+const SuricataSettings = () => {
+  const { value, setValue, loading, error } = useLoader<IPSForm>(
+    async () => ({
+      enable: !!(await readOption<boolean>("suricata.enable")),
+      extraRules: (await readOption<string>("suricata.extraRules")) || "",
+    }),
+    { enable: false, extraRules: "" },
+  );
+  const { saving, status, run } = useSaver();
+
+  if (loading) return <Loading />;
+  if (error) return <Alert variant="danger" isInline title={_("Could not load settings")}>{error}</Alert>;
+
+  const save = () =>
+    run(async () => {
+      await writeOption("suricata.enable", value.enable);
+      await writeOption("suricata.extraRules", value.extraRules);
+    });
+
+  return (
+    <Stack hasGutter className="ct-router-stack">
+      <StackItem isFilled style={{ overflowY: "auto" }}>
+        <PendingBanner />
+        <Form onSubmit={(e) => e.preventDefault()}>
+          <FormGroup label={_("Enable Suricata IPS")} fieldId="ipsEnable">
+            <Switch
+              id="ipsEnable"
+              isChecked={value.enable}
+              onChange={(_e, c) => setValue((v) => ({ ...v, enable: c }))}
+              aria-label={_("Enable Suricata IPS")}
+            />
+          </FormGroup>
+          <FormGroup
+            label={_("Extra local rules")}
+            fieldId="extraRules"
+            labelHelp={_("Custom Suricata rules, one per line")}
+          >
+            <TextArea
+              id="extraRules"
+              value={value.extraRules}
+              onChange={(_e, v) => setValue((s) => ({ ...s, extraRules: v }))}
+              rows={10}
+              resizeOrientation="vertical"
+              aria-label={_("Extra local rules")}
+            />
+          </FormGroup>
+          <SaverStatus status={status} />
+          <ActionGroup>
+            <Button variant="primary" onClick={save} isLoading={saving} isDisabled={saving}>
+              {_("Save")}
+            </Button>
+          </ActionGroup>
+        </Form>
+      </StackItem>
+    </Stack>
+  );
+};
+
+export const Suricata = () => {
+  const [tab, setTab] = useState<number | string>(0);
+  return (
+    <Stack className="ct-router-stack">
+      <StackItem>
+        <Tabs activeKey={tab} onSelect={(_e, k) => setTab(k)} isBox aria-label={_("IPS")}>
+          <Tab eventKey={0} title={<TabTitleText>{_("Events")}</TabTitleText>} />
+          <Tab eventKey={1} title={<TabTitleText>{_("Settings")}</TabTitleText>} />
+        </Tabs>
+      </StackItem>
+      <StackItem isFilled className="ct-table-scroll">
+        {tab === 0 ? <SuricataLog /> : <SuricataSettings />}
       </StackItem>
     </Stack>
   );

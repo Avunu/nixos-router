@@ -4,6 +4,8 @@ import { Hosts } from "./hosts";
 import { Suricata } from "./suricata";
 import { AdGuard } from "./adguard";
 import { Diagnostics } from "./diagnostics";
+import { Firewall } from "./firewall";
+import { System } from "./system";
 
 // Hide the PatternFly 6 Page sidebar area (the Cockpit shell provides the real
 // nav). <Page> itself supplies the scrollable main area + page padding, which a
@@ -25,6 +27,8 @@ export const views: Record<string, View> = {
   hosts: { node: <Hosts />, fills: true },
   ips: { node: <Suricata />, fills: true },
   dns: { node: <AdGuard />, fills: true },
+  firewall: { node: <Firewall />, fills: true },
+  system: { node: <System />, fills: true },
   diagnostics: { node: <Diagnostics />, fills: false },
 };
 

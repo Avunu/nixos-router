@@ -16,10 +16,20 @@
       "order": 32,
       "path": "dns.html"
     },
+    "firewall": {
+      "label": "Firewall",
+      "order": 33,
+      "path": "firewall.html"
+    },
     "diagnostics": {
       "label": "Diagnostics",
-      "order": 33,
+      "order": 34,
       "path": "diagnostics.html"
+    },
+    "system": {
+      "label": "System",
+      "order": 35,
+      "path": "system.html"
     }
   }
 }
