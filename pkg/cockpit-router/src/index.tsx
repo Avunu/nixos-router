@@ -6,11 +6,12 @@ import "patternfly/patternfly-6-cockpit.scss";
 import "./app.scss";
 
 import { createRoot } from "react-dom/client";
-import { App } from "./app";
+import { App, views } from "./app";
 
 document.addEventListener("DOMContentLoaded", () => {
   const el = document.getElementById("app");
   if (el) {
-    createRoot(el).render(<App />);
+    const view = views[el.dataset.view ?? ""] ?? null;
+    createRoot(el).render(<App view={view} />);
   }
 });

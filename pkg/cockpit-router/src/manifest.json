@@ -1,9 +1,25 @@
 {
   "name": "router",
   "menu": {
-    "index": {
-      "label": "Router",
-      "order": 30
+    "hosts": {
+      "label": "Hosts",
+      "order": 30,
+      "path": "hosts.html"
+    },
+    "ips": {
+      "label": "IPS",
+      "order": 31,
+      "path": "ips.html"
+    },
+    "dns": {
+      "label": "DNS",
+      "order": 32,
+      "path": "dns.html"
+    },
+    "diagnostics": {
+      "label": "Diagnostics",
+      "order": 33,
+      "path": "diagnostics.html"
     }
   }
 }
