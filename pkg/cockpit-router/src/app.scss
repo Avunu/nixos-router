@@ -5,10 +5,22 @@
 // Each table uses PatternFly's dynamic sticky header (<Table isStickyHeaderBase
 // isStickyHeaderStuck={…}>) wrapped in Outer/InnerScrollContainer. The <thead>
 // pins to the top of the InnerScrollContainer (which owns the overflow), and the
-// "stuck" styling is toggled from that container's scroll position. Make each
-// router tab fill the page height so the toolbar / stats card stay fixed above
-// and only the table body scrolls. The min-block-size:0 chain lets each flex
-// child shrink below its content so the inner overflow takes effect.
+// "stuck" styling is toggled from that container's scroll position. The table
+// view must fill the viewport and scroll *inside* that container — if the page
+// itself scrolls, the header unpins. That requires the whole flex chain (page
+// main → section → stack → scroll wrapper) to be height-bounded and able to
+// shrink below its content via the min-block-size:0 chain.
+//
+// <Page isContentFilled> stretches __main-container to the viewport (a definite
+// height to anchor the chain), but PatternFly leaves __main/__main-container at
+// min-block-size:auto, so a tall table's height otherwise propagates up and the
+// page scrolls. Finish the chain here. (Non-fill views — Diagnostics — omit the
+// .ct-router-body class and keep PatternFly's normal page scrolling.)
+.pf-v6-c-page__main-container,
+.pf-v6-c-page__main {
+  min-block-size: 0;
+}
+
 .ct-router-body,
 .ct-router-body > * {
   display: flex;
