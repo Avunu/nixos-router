@@ -2450,12 +2450,38 @@
                 tcpdump
               ]
               ++ [
+                # Update flake inputs and rebuild. Clears any hung rebuild/upgrade
+                # units first (a stuck switch-to-configuration leaves the next
+                # rebuild blocked). Targets the router's configured flake path and
+                # host by default; override as `system-upgrade [FLAKE] [HOST]`.
+                # Also invoked by the Cockpit System page ("Update system").
                 (writeShellScriptBin "system-upgrade" ''
-                  sudo systemctl stop nixos-rebuild-switch-to-configuration.service
-                  sudo systemctl stop nixos-upgrade.service
-                  sudo systemctl daemon-reload
-                  sudo systemctl reset-failed nixos-rebuild-switch-to-configuration.service
-                  sudo sh -c 'cd /etc/nixos && nix flake update && nixos-rebuild switch --impure'
+                  set -euo pipefail
+
+                  FLAKE="''${1:-${cfg.cockpit.flakePath}}"
+                  HOST="''${2:-${cfg.hostName}}"
+
+                  # Run privileged steps via sudo from an admin shell; when already
+                  # root (e.g. invoked from Cockpit) run them directly so there is
+                  # no password prompt.
+                  as_root() {
+                    if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
+                  }
+
+                  echo ":: Clearing any hung rebuild/upgrade units"
+                  for unit in nixos-rebuild-switch-to-configuration.service nixos-upgrade.service; do
+                    as_root systemctl stop "$unit" 2>/dev/null || true
+                    as_root systemctl reset-failed "$unit" 2>/dev/null || true
+                  done
+                  as_root systemctl daemon-reload
+
+                  echo ":: Updating flake inputs in $FLAKE"
+                  as_root nix flake update --flake "$FLAKE"
+
+                  echo ":: Rebuilding and switching to $FLAKE#$HOST"
+                  as_root nixos-rebuild switch --flake "$FLAKE#$HOST" --impure
+
+                  echo ":: system-upgrade complete"
                 '')
               ]
               ++ optional cfg.suricata.enable suricata
