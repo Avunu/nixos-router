@@ -2548,7 +2548,10 @@
             system = {
               autoUpgrade = {
                 enable = mkDefault true;
-                flake = "/etc/nixos/";
+                # Same flake target as the `system-upgrade` script and the Cockpit
+                # System page (router.cockpit.flakePath), so all three rebuild from
+                # one configured location instead of a hardcoded path.
+                flake = "${cfg.cockpit.flakePath}#${cfg.hostName}";
                 allowReboot = mkDefault true;
                 flags = mkDefault [
                   "--refresh"

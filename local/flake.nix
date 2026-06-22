@@ -14,7 +14,6 @@
       nixos-router,
     }:
     let
-      hostName = "948-router";
       system = "x86_64-linux";
     in
     {
