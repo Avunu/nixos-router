@@ -19,8 +19,7 @@ import {
   ActionGroup,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
-import { readOption, writeOption } from "./nix";
-import { PendingBanner, useLoader, useSaver, SaverStatus, Loading, SubNav } from "./settings";
+import { useSettings, Loading, SubNav, SaveBar } from "./settings";
 
 const _ = cockpit.gettext;
 
@@ -354,50 +353,22 @@ const HostsTable = () => {
   );
 };
 
-interface DhcpForm {
-  domain: string;
-  poolOffset: number;
-  poolSize: number;
-  leaseTime: string;
-}
-
 const HostsSettings = () => {
-  const { value, setValue, loading, error } = useLoader<DhcpForm>(async () => {
-    const [domain, dhcp] = await Promise.all([
-      readOption<string>("lan.domain"),
-      readOption<any>("lan.dhcp"),
-    ]);
-    return {
-      domain: domain || "",
-      poolOffset: dhcp?.poolOffset ?? 100,
-      poolSize: dhcp?.poolSize ?? 150,
-      leaseTime: dhcp?.leaseTime || "24h",
-    };
-  }, { domain: "", poolOffset: 100, poolSize: 150, leaseTime: "24h" });
-  const { saving, status, run } = useSaver();
-  const set = (patch: Partial<DhcpForm>) => setValue((v) => ({ ...v, ...patch }));
+  const s = useSettings();
 
-  if (loading) return <Loading />;
-  if (error) return <Alert variant="danger" isInline title={_("Could not load settings")}>{error}</Alert>;
-
-  const save = () =>
-    run(async () => {
-      await writeOption("lan.domain", value.domain);
-      await writeOption("lan.dhcp.poolOffset", value.poolOffset);
-      await writeOption("lan.dhcp.poolSize", value.poolSize);
-      await writeOption("lan.dhcp.leaseTime", value.leaseTime);
-    });
+  if (!s.ready && !s.error) return <Loading />;
+  if (s.error) return <Alert variant="danger" isInline title={_("Could not load settings")}>{s.error}</Alert>;
 
   return (
     <Stack hasGutter className="ct-router-stack">
       <StackItem isFilled style={{ overflowY: "auto" }}>
-        <PendingBanner />
         <Form isHorizontal onSubmit={(e) => e.preventDefault()}>
           <FormGroup label={_("LAN domain")} fieldId="lanDomain">
             <TextInput
               id="lanDomain"
-              value={value.domain}
-              onChange={(_e, v) => set({ domain: v })}
+              value={s.valueOf("lan.domain", "")}
+              isDisabled={s.lockedOf("lan.domain")}
+              onChange={(_e, v) => s.setLeaf("lan.domain", v)}
             />
           </FormGroup>
           <FormGroup
@@ -408,16 +379,18 @@ const HostsSettings = () => {
             <TextInput
               id="poolOffset"
               type="number"
-              value={value.poolOffset}
-              onChange={(_e, v) => set({ poolOffset: Number(v) || 0 })}
+              value={s.valueOf("lan.dhcp.poolOffset", 100)}
+              isDisabled={s.lockedOf("lan.dhcp.poolOffset")}
+              onChange={(_e, v) => s.setLeaf("lan.dhcp.poolOffset", Number(v) || 0)}
             />
           </FormGroup>
           <FormGroup label={_("DHCP pool size")} fieldId="poolSize">
             <TextInput
               id="poolSize"
               type="number"
-              value={value.poolSize}
-              onChange={(_e, v) => set({ poolSize: Number(v) || 0 })}
+              value={s.valueOf("lan.dhcp.poolSize", 150)}
+              isDisabled={s.lockedOf("lan.dhcp.poolSize")}
+              onChange={(_e, v) => s.setLeaf("lan.dhcp.poolSize", Number(v) || 0)}
             />
           </FormGroup>
           <FormGroup
@@ -427,16 +400,12 @@ const HostsSettings = () => {
           >
             <TextInput
               id="leaseTime"
-              value={value.leaseTime}
-              onChange={(_e, v) => set({ leaseTime: v })}
+              value={s.valueOf("lan.dhcp.leaseTime", "24h")}
+              isDisabled={s.lockedOf("lan.dhcp.leaseTime")}
+              onChange={(_e, v) => s.setLeaf("lan.dhcp.leaseTime", v)}
             />
           </FormGroup>
-          <SaverStatus status={status} />
-          <ActionGroup>
-            <Button variant="primary" onClick={save} isLoading={saving} isDisabled={saving}>
-              {_("Save")}
-            </Button>
-          </ActionGroup>
+          <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
         </Form>
       </StackItem>
     </Stack>

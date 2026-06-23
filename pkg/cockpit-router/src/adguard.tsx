@@ -26,8 +26,7 @@ import {
   ActionGroup,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
-import { readOption, writeOption } from "./nix";
-import { PendingBanner, ListEditor, useLoader, useSaver, SaverStatus, Loading, SubNav } from "./settings";
+import { useSettings, ListEditor, Loading, SubNav, SaveBar } from "./settings";
 
 const _ = cockpit.gettext;
 const PORT = (window.cockpitRouterConfig && window.cockpitRouterConfig.adguardPort) || 3000;
@@ -199,84 +198,25 @@ const FILTER_LABELS: Record<string, string> = {
   yoyo_adservers: "Peter Lowe's ad/tracker list",
 };
 
-interface AGForm {
-  safeSearch: boolean;
-  standardFilters: Record<string, boolean>;
-  utCapitoleCategories: string[];
-  allowList: string[];
-  blockList: string[];
-  extraUserRules: string[];
-  webPort: number;
-  listenPort: number;
-  upstreamServers: string[];
-  bootstrapServers: string[];
-}
-
-const EMPTY_AG: AGForm = {
-  safeSearch: false,
-  standardFilters: {},
-  utCapitoleCategories: [],
-  allowList: [],
-  blockList: [],
-  extraUserRules: [],
-  webPort: 3000,
-  listenPort: 53,
-  upstreamServers: [],
-  bootstrapServers: [],
-};
-
 const AdGuardSettings = () => {
-  const { value, setValue, loading, error } = useLoader<AGForm>(async () => {
-    const [ag, up, boot] = await Promise.all([
-      readOption<any>("dns.adguard"),
-      readOption<string[]>("dns.upstreamServers"),
-      readOption<string[]>("dns.bootstrapServers"),
-    ]);
-    return {
-      safeSearch: !!ag.safeSearch,
-      standardFilters: ag.standardFilters || {},
-      utCapitoleCategories: ag.utCapitoleCategories || [],
-      allowList: ag.allowList || [],
-      blockList: ag.blockList || [],
-      extraUserRules: ag.extraUserRules || [],
-      webPort: ag.webPort ?? 3000,
-      listenPort: ag.listenPort ?? 53,
-      upstreamServers: up || [],
-      bootstrapServers: boot || [],
-    };
-  }, EMPTY_AG);
+  const s = useSettings();
+  const filters: Record<string, boolean> = s.valueOf("dns.adguard.standardFilters", {});
+  const filtersLocked = s.lockedOf("dns.adguard.standardFilters");
 
-  const { saving, status, run } = useSaver();
-  const set = (patch: Partial<AGForm>) => setValue((v) => ({ ...v, ...patch }));
-
-  if (loading) return <Loading />;
-  if (error) return <Alert variant="danger" isInline title={_("Could not load settings")}>{error}</Alert>;
-
-  const save = () =>
-    run(async () => {
-      await writeOption("dns.adguard.safeSearch", value.safeSearch);
-      await writeOption("dns.adguard.standardFilters", value.standardFilters);
-      await writeOption("dns.adguard.utCapitoleCategories", value.utCapitoleCategories);
-      await writeOption("dns.adguard.allowList", value.allowList);
-      await writeOption("dns.adguard.blockList", value.blockList);
-      await writeOption("dns.adguard.extraUserRules", value.extraUserRules);
-      await writeOption("dns.adguard.webPort", value.webPort);
-      await writeOption("dns.adguard.listenPort", value.listenPort);
-      await writeOption("dns.upstreamServers", value.upstreamServers);
-      await writeOption("dns.bootstrapServers", value.bootstrapServers);
-    });
+  if (!s.ready && !s.error) return <Loading />;
+  if (s.error) return <Alert variant="danger" isInline title={_("Could not load settings")}>{s.error}</Alert>;
 
   return (
     <Stack hasGutter className="ct-router-stack">
       <StackItem isFilled style={{ overflowY: "auto" }}>
-        <PendingBanner />
         <Form isHorizontal onSubmit={(e) => e.preventDefault()}>
           <FormSection title={_("Protection")} titleElement="h2">
             <FormGroup label={_("Enforce SafeSearch")} fieldId="safeSearch">
               <Switch
                 id="safeSearch"
-                isChecked={value.safeSearch}
-                onChange={(_e, c) => set({ safeSearch: c })}
+                isChecked={!!s.valueOf("dns.adguard.safeSearch", false)}
+                isDisabled={s.lockedOf("dns.adguard.safeSearch")}
+                onChange={(_e, c) => s.setLeaf("dns.adguard.safeSearch", c)}
                 aria-label={_("Enforce SafeSearch")}
               />
             </FormGroup>
@@ -287,9 +227,10 @@ const AdGuardSettings = () => {
               <FormGroup label={_(FILTER_LABELS[key])} fieldId={key} key={key}>
                 <Switch
                   id={key}
-                  isChecked={!!value.standardFilters[key]}
+                  isChecked={!!filters[key]}
+                  isDisabled={filtersLocked}
                   onChange={(_e, c) =>
-                    set({ standardFilters: { ...value.standardFilters, [key]: c } })
+                    s.setLeaf("dns.adguard.standardFilters", { ...filters, [key]: c })
                   }
                   aria-label={_(FILTER_LABELS[key])}
                 />
@@ -304,29 +245,33 @@ const AdGuardSettings = () => {
               labelHelp={_("Category names from dsi.ut-capitole.fr/blacklists")}
             >
               <ListEditor
-                value={value.utCapitoleCategories}
-                onChange={(v) => set({ utCapitoleCategories: v })}
+                value={s.valueOf("dns.adguard.utCapitoleCategories", [])}
+                isDisabled={s.lockedOf("dns.adguard.utCapitoleCategories")}
+                onChange={(v) => s.setLeaf("dns.adguard.utCapitoleCategories", v)}
                 placeholder={_("e.g. gambling")}
               />
             </FormGroup>
             <FormGroup label={_("Allow list (domains)")} fieldId="allow">
               <ListEditor
-                value={value.allowList}
-                onChange={(v) => set({ allowList: v })}
+                value={s.valueOf("dns.adguard.allowList", [])}
+                isDisabled={s.lockedOf("dns.adguard.allowList")}
+                onChange={(v) => s.setLeaf("dns.adguard.allowList", v)}
                 placeholder={_("e.g. example.com")}
               />
             </FormGroup>
             <FormGroup label={_("Block list (domains)")} fieldId="block">
               <ListEditor
-                value={value.blockList}
-                onChange={(v) => set({ blockList: v })}
+                value={s.valueOf("dns.adguard.blockList", [])}
+                isDisabled={s.lockedOf("dns.adguard.blockList")}
+                onChange={(v) => s.setLeaf("dns.adguard.blockList", v)}
                 placeholder={_("e.g. ads.example.com")}
               />
             </FormGroup>
             <FormGroup label={_("Extra user rules")} fieldId="rules">
               <ListEditor
-                value={value.extraUserRules}
-                onChange={(v) => set({ extraUserRules: v })}
+                value={s.valueOf("dns.adguard.extraUserRules", [])}
+                isDisabled={s.lockedOf("dns.adguard.extraUserRules")}
+                onChange={(v) => s.setLeaf("dns.adguard.extraUserRules", v)}
                 placeholder={_("AdGuard rule syntax")}
               />
             </FormGroup>
@@ -335,15 +280,17 @@ const AdGuardSettings = () => {
           <FormSection title={_("Upstream DNS")} titleElement="h2">
             <FormGroup label={_("Upstream servers")} fieldId="upstream">
               <ListEditor
-                value={value.upstreamServers}
-                onChange={(v) => set({ upstreamServers: v })}
+                value={s.valueOf("dns.upstreamServers", [])}
+                isDisabled={s.lockedOf("dns.upstreamServers")}
+                onChange={(v) => s.setLeaf("dns.upstreamServers", v)}
                 placeholder={_("https://dns.example/dns-query")}
               />
             </FormGroup>
             <FormGroup label={_("Bootstrap servers")} fieldId="bootstrap">
               <ListEditor
-                value={value.bootstrapServers}
-                onChange={(v) => set({ bootstrapServers: v })}
+                value={s.valueOf("dns.bootstrapServers", [])}
+                isDisabled={s.lockedOf("dns.bootstrapServers")}
+                onChange={(v) => s.setLeaf("dns.bootstrapServers", v)}
                 placeholder={_("1.1.1.1")}
               />
             </FormGroup>
@@ -354,26 +301,23 @@ const AdGuardSettings = () => {
               <TextInput
                 id="listenPort"
                 type="number"
-                value={value.listenPort}
-                onChange={(_e, v) => set({ listenPort: Number(v) || 0 })}
+                value={s.valueOf("dns.adguard.listenPort", 53)}
+                isDisabled={s.lockedOf("dns.adguard.listenPort")}
+                onChange={(_e, v) => s.setLeaf("dns.adguard.listenPort", Number(v) || 0)}
               />
             </FormGroup>
             <FormGroup label={_("Web UI port")} fieldId="webPort">
               <TextInput
                 id="webPort"
                 type="number"
-                value={value.webPort}
-                onChange={(_e, v) => set({ webPort: Number(v) || 0 })}
+                value={s.valueOf("dns.adguard.webPort", 3000)}
+                isDisabled={s.lockedOf("dns.adguard.webPort")}
+                onChange={(_e, v) => s.setLeaf("dns.adguard.webPort", Number(v) || 0)}
               />
             </FormGroup>
           </FormSection>
 
-          <SaverStatus status={status} />
-          <ActionGroup>
-            <Button variant="primary" onClick={save} isLoading={saving} isDisabled={saving}>
-              {_("Save")}
-            </Button>
-          </ActionGroup>
+          <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
         </Form>
       </StackItem>
     </Stack>

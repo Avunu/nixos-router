@@ -42,13 +42,6 @@
       url = "github:nix-community/disko";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-    # nix-editor: small Rust CLI that reads/writes attribute paths in .nix
-    # files. The Cockpit router plugin spawns it to persist option changes from
-    # the web UI into the host's router settings module.
-    nix-editor = {
-      url = "github:snowfallorg/nix-editor";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs =
@@ -119,9 +112,7 @@
           pkgs = nixpkgs.legacyPackages.${system};
         in
         {
-          cockpit-router = pkgs.callPackage ./pkg/cockpit-router/package.nix {
-            nixEditor = inputs.nix-editor.packages.${system}.default;
-          };
+          cockpit-router = pkgs.callPackage ./pkg/cockpit-router/package.nix { };
         }
       );
 
@@ -206,11 +197,32 @@
           #   in so the plugin can reach the local AGH REST API.
           cockpitRouterPlugin = pkgs.callPackage ./pkg/cockpit-router/package.nix {
             adguardPort = cfg.dns.adguard.webPort;
-            nixEditor = inputs.nix-editor.packages.${pkgs.stdenv.hostPlatform.system}.default;
             hostName = cfg.hostName;
             flakePath = cfg.cockpit.flakePath;
             settingsFile = cfg.cockpit.settingsFile;
           };
+
+          # Keys of the cockpit-managed router config exposed to the web UI as
+          # /etc/router/effective.json. Everything serializable; package-typed
+          # options (extraPackages, cockpit.package/plugins) are intentionally
+          # excluded — those stay in Nix.
+          effectiveKeys = [
+            "hostName"
+            "timeZone"
+            "stateVersion"
+            "diskDevice"
+            "bootMode"
+            "trunkInterfaces"
+            "wan"
+            "lan"
+            "guest"
+            "wireguard"
+            "dns"
+            "suricata"
+            "upnp"
+            "portForwards"
+            "adminUser"
+          ];
 
           # ── Guest network derived values ────────────────────────
           # Mirror of the LAN derived values, for the isolated guest network.
@@ -1377,21 +1389,21 @@
                 default = "/etc/nixos";
                 description = ''
                   Path to the host flake on the deployed router. The Cockpit
-                  router plugin reads effective option values via
-                  `nix eval <flakePath>#nixosConfigurations.<hostName>.config.router.*`
-                  and runs `nixos-rebuild --flake <flakePath>#<hostName>` from the
-                  System page.
+                  router plugin runs `nixos-rebuild --flake <flakePath>#<hostName>`
+                  from the System page (and the changes tray's Apply).
                 '';
               };
 
               settingsFile = mkOption {
                 type = types.str;
-                default = "/etc/nixos/router-settings.nix";
+                default = "/etc/nixos/router-settings.json";
                 description = ''
-                  Path to the editable `router.*` settings module that the Cockpit
-                  plugin writes to (via nix-editor) when settings are changed in the
-                  web UI. Must be a module imported by the host flake so that the
-                  values it sets take effect on the next rebuild.
+                  Path to the editable JSON config the Cockpit plugin reads and
+                  writes. The host flake feeds this same file into the router
+                  module with `router = builtins.fromJSON (builtins.readFile ...)`,
+                  so changes saved from the web UI take effect on the next rebuild.
+                  Only used to tell the plugin where the file lives — the module
+                  itself does not read it.
                 '';
               };
             };
@@ -2160,9 +2172,22 @@
             #
             # A daily timer refreshes ET Open rules via suricata-update
             # with a randomized delay to avoid thundering herd.
-            environment.etc = mkIf cfg.suricata.enable {
-              "suricata/rules/local.rules".text = localSuricataRules;
-            };
+            environment.etc = mkMerge [
+              (mkIf cfg.suricata.enable {
+                "suricata/rules/local.rules".text = localSuricataRules;
+              })
+              # The cockpit-router plugin reads /etc/router/effective.json to show
+              # the *applied* config (defaults + Nix overrides) and to detect which
+              # fields are locked in Nix. Root-only because it includes secrets
+              # (adminUser.initialPassword, ssh keys). The plugin also writes an
+              # "applied" snapshot to /var/lib/cockpit-router for the changes tray.
+              (mkIf cfg.cockpit.enable {
+                "router/effective.json" = {
+                  mode = "0600";
+                  text = builtins.toJSON (genAttrs effectiveKeys (k: cfg.${k}));
+                };
+              })
+            ];
 
             services.suricata = mkIf cfg.suricata.enable {
               enable = true;
@@ -2426,6 +2451,13 @@
                 }
               ];
             };
+
+            # State dir for the cockpit-router plugin's "applied config" snapshot
+            # (written by the web UI after a successful rebuild; drives the
+            # unapplied-changes tray). Root-only — may mirror secrets.
+            systemd.tmpfiles.rules = mkIf cfg.cockpit.enable [
+              "d /var/lib/cockpit-router 0700 root root -"
+            ];
 
             # ── 8. Packages ──────────────────────────────────────
             # Baseline diagnostic tools for router troubleshooting:

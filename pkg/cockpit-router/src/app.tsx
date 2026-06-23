@@ -6,6 +6,7 @@ import { AdGuard } from "./adguard";
 import { Diagnostics } from "./diagnostics";
 import { Firewall } from "./firewall";
 import { System } from "./system";
+import { ChangesTray } from "./changes";
 
 // Hide the PatternFly 6 Page sidebar area (the Cockpit shell provides the real
 // nav). <Page> itself supplies the scrollable main area + page padding, which a
@@ -34,6 +35,9 @@ export const views: Record<string, View> = {
 
 export const App = ({ view }: { view: View | null }) => (
   <Page sidebar={emptySidebar} isContentFilled>
+    <PageSection>
+      <ChangesTray />
+    </PageSection>
     <PageSection isFilled className={view?.fills ? "ct-router-body" : undefined}>
       {view?.node}
     </PageSection>

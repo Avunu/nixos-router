@@ -19,8 +19,7 @@ import {
   ActionGroup,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
-import { readOption, writeOption } from "./nix";
-import { PendingBanner, useLoader, useSaver, SaverStatus, Loading, SubNav } from "./settings";
+import { useSettings, Loading, SubNav, SaveBar } from "./settings";
 
 const _ = cockpit.gettext;
 const EVE = "/var/log/suricata/eve.json";
@@ -162,40 +161,22 @@ const SuricataLog = () => {
   );
 };
 
-interface IPSForm {
-  enable: boolean;
-  extraRules: string;
-}
-
 const SuricataSettings = () => {
-  const { value, setValue, loading, error } = useLoader<IPSForm>(
-    async () => ({
-      enable: !!(await readOption<boolean>("suricata.enable")),
-      extraRules: (await readOption<string>("suricata.extraRules")) || "",
-    }),
-    { enable: false, extraRules: "" },
-  );
-  const { saving, status, run } = useSaver();
+  const s = useSettings();
 
-  if (loading) return <Loading />;
-  if (error) return <Alert variant="danger" isInline title={_("Could not load settings")}>{error}</Alert>;
-
-  const save = () =>
-    run(async () => {
-      await writeOption("suricata.enable", value.enable);
-      await writeOption("suricata.extraRules", value.extraRules);
-    });
+  if (!s.ready && !s.error) return <Loading />;
+  if (s.error) return <Alert variant="danger" isInline title={_("Could not load settings")}>{s.error}</Alert>;
 
   return (
     <Stack hasGutter className="ct-router-stack">
       <StackItem isFilled style={{ overflowY: "auto" }}>
-        <PendingBanner />
         <Form onSubmit={(e) => e.preventDefault()}>
           <FormGroup label={_("Enable Suricata IPS")} fieldId="ipsEnable">
             <Switch
               id="ipsEnable"
-              isChecked={value.enable}
-              onChange={(_e, c) => setValue((v) => ({ ...v, enable: c }))}
+              isChecked={!!s.valueOf("suricata.enable", false)}
+              isDisabled={s.lockedOf("suricata.enable")}
+              onChange={(_e, c) => s.setLeaf("suricata.enable", c)}
               aria-label={_("Enable Suricata IPS")}
             />
           </FormGroup>
@@ -206,19 +187,15 @@ const SuricataSettings = () => {
           >
             <TextArea
               id="extraRules"
-              value={value.extraRules}
-              onChange={(_e, v) => setValue((s) => ({ ...s, extraRules: v }))}
+              value={s.valueOf("suricata.extraRules", "")}
+              isDisabled={s.lockedOf("suricata.extraRules")}
+              onChange={(_e, v) => s.setLeaf("suricata.extraRules", v)}
               rows={10}
               resizeOrientation="vertical"
               aria-label={_("Extra local rules")}
             />
           </FormGroup>
-          <SaverStatus status={status} />
-          <ActionGroup>
-            <Button variant="primary" onClick={save} isLoading={saving} isDisabled={saving}>
-              {_("Save")}
-            </Button>
-          </ActionGroup>
+          <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
         </Form>
       </StackItem>
     </Stack>

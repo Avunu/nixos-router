@@ -17,10 +17,20 @@ header()  { echo -e "\n${BOLD}$*${NC}\n"; }
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 OUTPUT_FLAKE="${SCRIPT_DIR}/flake.nix"
-OUTPUT_SETTINGS="${SCRIPT_DIR}/router-settings.nix"
+OUTPUT_SETTINGS="${SCRIPT_DIR}/router-settings.json"
+
+# Join args into a JSON array: a b c -> ["a", "b", "c"]
+json_array() {
+  local out="" first=1 item
+  for item in "$@"; do
+    if [[ $first -eq 1 ]]; then first=0; else out+=", "; fi
+    out+="\"${item}\""
+  done
+  printf '[%s]' "$out"
+}
 
 header "NixOS Router Configuration Generator"
-echo "Generates local/flake.nix and local/router-settings.nix for your router."
+echo "Generates local/flake.nix and local/router-settings.json for your router."
 echo "Run build-iso.sh afterwards to build the installer ISO."
 echo ""
 
@@ -78,10 +88,7 @@ if [[ -z "$LAN_INTERFACES_RAW" ]]; then
   exit 1
 fi
 
-LAN_IFACES_NIX=""
-for iface in $LAN_INTERFACES_RAW; do
-  LAN_IFACES_NIX+=$'\n'"                    \"${iface}\""
-done
+LAN_IFACES_JSON=$(json_array $LAN_INTERFACES_RAW)
 
 # ── LAN addressing ────────────────────────────────────────────────────────────
 echo ""
@@ -107,15 +114,12 @@ case "${GUEST_CHOICE:-n}" in
   *) ENABLE_GUEST="false" ;;
 esac
 
-GUEST_BLOCK=""
+GUEST_JSON_KV=""
 if [[ "$ENABLE_GUEST" == "true" ]]; then
   echo ""
   info "Guest network configuration:"
   read -rp "Guest interfaces (space-separated): " GUEST_IFACES_RAW
-  GUEST_IFACES_NIX=""
-  for iface in $GUEST_IFACES_RAW; do
-    GUEST_IFACES_NIX+=$'\n'"                    \"${iface}\""
-  done
+  GUEST_IFACES_JSON=$(json_array $GUEST_IFACES_RAW)
 
   read -rp "Guest gateway IP [192.168.20.1]: " GUEST_ADDR
   GUEST_ADDR="${GUEST_ADDR:-192.168.20.1}"
@@ -124,15 +128,14 @@ if [[ "$ENABLE_GUEST" == "true" ]]; then
   read -rp "Guest network address [$DEFAULT_GUEST_NET]: " GUEST_NET
   GUEST_NET="${GUEST_NET:-$DEFAULT_GUEST_NET}"
 
-  GUEST_BLOCK="
-                guest = {
-                  enable = true;
-                  interfaces = [${GUEST_IFACES_NIX}
-                  ];
-                  address = \"${GUEST_ADDR}\";
-                  networkAddress = \"${GUEST_NET}\";
-                };
-"
+  GUEST_JSON_KV="
+  \"guest\": {
+    \"enable\": true,
+    \"interfaces\": ${GUEST_IFACES_JSON},
+    \"address\": \"${GUEST_ADDR}\",
+    \"networkAddress\": \"${GUEST_NET}\",
+    \"prefixLength\": 24
+  },"
 fi
 
 # ── Admin user ────────────────────────────────────────────────────────────────
@@ -153,10 +156,7 @@ while true; do
   SSH_KEYS+=("$key")
 done
 
-SSH_KEYS_NIX=""
-for key in "${SSH_KEYS[@]}"; do
-  SSH_KEYS_NIX+=$'\n'"                    \"${key}\""
-done
+SSH_KEYS_JSON=$(json_array "${SSH_KEYS[@]}")
 
 # ── Optional features ─────────────────────────────────────────────────────────
 echo ""
@@ -202,9 +202,9 @@ if [[ "$CONFIRM" != "yes" ]]; then
   exit 1
 fi
 
-# ── Generate flake.nix (thin importer) ───────────────────────────────────────
-# All router.* options live in router-settings.nix so the Cockpit web UI can
-# edit them in place (via nix-editor); the flake just wires the module in.
+# ── Generate flake.nix ───────────────────────────────────────────────────────
+# Reads router-settings.json and feeds it into the router module. Cockpit-locked
+# / non-serializable settings (cockpit transport, extraPackages) live in Nix here.
 cat > "$OUTPUT_FLAKE" << FLAKE
 {
   inputs = {
@@ -222,104 +222,83 @@ cat > "$OUTPUT_FLAKE" << FLAKE
       nixos-router,
     }:
     let
-      hostName = "${HOSTNAME}";
       system = "x86_64-linux";
+      # The cockpit-managed router config. The web UI reads and writes this same
+      # JSON file (deployed to /etc/nixos/router-settings.json).
+      settings = builtins.fromJSON (builtins.readFile ./router-settings.json);
     in
     {
-      nixosConfigurations = {
-        "\${hostName}" = nixpkgs.lib.nixosSystem {
-          system = system;
-          modules = [
-            { nix.nixPath = [ "nixpkgs=\${self.inputs.nixpkgs}" ]; }
-            nixos-router.nixosModules.router
-            # Editable router settings (also written by the Cockpit web UI).
-            ./router-settings.nix
-          ];
-        };
+      nixosConfigurations.\${settings.hostName} = nixpkgs.lib.nixosSystem {
+        inherit system;
+        modules = [
+          { nix.nixPath = [ "nixpkgs=\${self.inputs.nixpkgs}" ]; }
+          nixos-router.nixosModules.router
+
+          # JSON-managed settings as defaults; anything set normally below
+          # overrides them and shows read-only in the Cockpit UI.
+          { router = nixpkgs.lib.mkDefault settings; }
+
+          # Locked / non-serializable settings (Cockpit cannot change these).
+          {
+            router.cockpit = {
+              enable = ${ENABLE_COCKPIT};
+              port = 9090;
+              allowedOrigins = [ "https://\${settings.hostName}.\${settings.lan.domain or "lan"}:9090" ];
+            };
+            # router.extraPackages = with nixpkgs.legacyPackages.\${system}; [ ];
+          }
+        ];
       };
     };
 }
 FLAKE
 
-# ── Generate router-settings.nix (the editable settings module) ──────────────
+# ── Generate router-settings.json (the editable, Cockpit-managed config) ──────
 cat > "$OUTPUT_SETTINGS" << SETTINGS
-# Router settings — the editable \`router.*\` configuration for this host.
-#
-# This module is imported by flake.nix and is the file the Cockpit "Settings"
-# tabs write to (via nix-editor). Hand-edit it freely; the web UI only touches
-# the options exposed by its forms (filtering, DNS, firewall, UPnP, IPS, DHCP).
 {
-  router = {
-    hostName = "${HOSTNAME}";
-    timeZone = "${TIMEZONE}";
-    stateVersion = "${STATE_VERSION}";
-    diskDevice = "${DISK_DEVICE}";
-    bootMode = "${BOOT_MODE}";
-
-    wan.interface = "${WAN_IFACE}";
-
-    lan = {
-      interfaces = [${LAN_IFACES_NIX}
-      ];
-      address = "${LAN_ADDR}";
-      networkAddress = "${LAN_NET}";
-      prefixLength = ${LAN_PREFIX};
-      domain = "${LAN_DOMAIN}";
-      dhcp = {
-        poolOffset = 100;
-        poolSize = 151;
-        leaseTime = "24h";
-      };
-    };
-${GUEST_BLOCK}
-    dns = {
-      upstreamServers = [
-        "https://dns.cloudflare.com/dns-query"
-        "https://dns.google/dns-query"
-      ];
-      bootstrapServers = [
-        "1.1.1.1"
-        "8.8.8.8"
-      ];
-      adguard = {
-        enable = ${ENABLE_ADGUARD};
-        webPort = 3000;
-        safeSearch = true;
-        utCapitoleCategories = [
-          "malware"
-          "phishing"
-          "cryptojacking"
-          # "porn"
-          # "gambling"
-        ];
-      };
-    };
-
-    suricata.enable = ${ENABLE_SURICATA};
-
-    upnp.enable = false;
-
-    portForwards = [ ];
-
-    cockpit = {
-      enable = ${ENABLE_COCKPIT};
-      port = 9090;
-    };
-
-    adminUser = {
-      name = "${ADMIN_USER}";
-      initialPassword = "${ADMIN_PASSWORD}";
-      sshKeys = [${SSH_KEYS_NIX}
-      ];
-    };
-  };
+  "hostName": "${HOSTNAME}",
+  "timeZone": "${TIMEZONE}",
+  "stateVersion": "${STATE_VERSION}",
+  "diskDevice": "${DISK_DEVICE}",
+  "bootMode": "${BOOT_MODE}",
+  "wan": { "interface": "${WAN_IFACE}" },
+  "lan": {
+    "interfaces": ${LAN_IFACES_JSON},
+    "address": "${LAN_ADDR}",
+    "networkAddress": "${LAN_NET}",
+    "prefixLength": ${LAN_PREFIX},
+    "domain": "${LAN_DOMAIN}",
+    "dhcp": { "poolOffset": 100, "poolSize": 151, "leaseTime": "24h" }
+  },${GUEST_JSON_KV}
+  "dns": {
+    "upstreamServers": ["https://dns.cloudflare.com/dns-query", "https://dns.google/dns-query"],
+    "bootstrapServers": ["1.1.1.1", "8.8.8.8"],
+    "adguard": {
+      "enable": ${ENABLE_ADGUARD},
+      "webPort": 3000,
+      "safeSearch": true,
+      "utCapitoleCategories": ["malware", "phishing", "cryptojacking"]
+    }
+  },
+  "suricata": { "enable": ${ENABLE_SURICATA} },
+  "upnp": { "enable": false },
+  "portForwards": [],
+  "adminUser": {
+    "name": "${ADMIN_USER}",
+    "initialPassword": "${ADMIN_PASSWORD}",
+    "sshKeys": ${SSH_KEYS_JSON}
+  }
 }
 SETTINGS
+
+# Track the settings file if the target is a git repo (flakes only see tracked
+# files); harmless otherwise.
+git -C "$SCRIPT_DIR" add "$OUTPUT_SETTINGS" "$OUTPUT_FLAKE" 2>/dev/null || true
 
 success "Configuration written to:"
 echo "    $OUTPUT_FLAKE"
 echo "    $OUTPUT_SETTINGS"
 echo ""
-echo "  Edit router-settings.nix to customize further, then run:"
+echo "  Edit router-settings.json (or use the Cockpit UI) to customize, then run:"
 echo "    ./build-iso.sh"
 echo ""

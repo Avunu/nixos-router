@@ -1,0 +1,114 @@
+{
+    "adminUser": {
+        "initialPassword": "admin123",
+        "name": "admin",
+        "sshKeys": [
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILtMd4jTM9A36iVI2R6zw8cApkd7HQExr0ayfHcwaOp/",
+            "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOv4SpIhHJqtRaYBRQOin4PTDUxRwo7ozoQHTUFjMGLW"
+        ]
+    },
+    "bootMode": "uefi",
+    "diskDevice": "/dev/sda",
+    "dns": {
+        "adguard": {
+            "allowList": [
+                "supabase.com"
+            ],
+            "blockList": [],
+            "enable": true,
+            "extraFilters": [],
+            "extraUserRules": [],
+            "listenPort": 53,
+            "safeSearch": true,
+            "standardFilters": {
+                "adaway": true,
+                "adguard_ads": true,
+                "adguard_anti_malware": true,
+                "adguard_hacked_sites": true,
+                "adguard_malware": true,
+                "adguard_phishing": true,
+                "phishtank_openphish": true,
+                "steven_black": true,
+                "yoyo_adservers": true
+            },
+            "utCapitoleCategories": [
+                "malware",
+                "phishing",
+                "cryptojacking",
+                "ddos",
+                "porn"
+            ],
+            "webPort": 3000
+        },
+        "bootstrapServers": [
+            "1.1.1.1",
+            "8.8.8.8"
+        ],
+        "upstreamServers": [
+            "https://dns.cloudflare.com/dns-query",
+            "https://dns.google/dns-query"
+        ]
+    },
+    "guest": {
+        "address": "192.168.20.1",
+        "dhcp": {
+            "leaseTime": "1h",
+            "poolOffset": 100,
+            "poolSize": 150
+        },
+        "enable": true,
+        "interfaces": [],
+        "networkAddress": "192.168.20.0",
+        "prefixLength": 24,
+        "taggedInterfaces": [
+            "enp0s20f1",
+            "enp0s20f2",
+            "enp0s20f3",
+            "ens2",
+            "enp4s0",
+            "enp7s0",
+            "enp8s0"
+        ],
+        "vlan": 20
+    },
+    "hostName": "948-router",
+    "lan": {
+        "address": "10.48.4.1",
+        "dhcp": {
+            "leaseTime": "30d",
+            "poolOffset": 100,
+            "poolSize": 150
+        },
+        "domain": "lan",
+        "interfaces": [
+            "enp0s20f1",
+            "enp0s20f2",
+            "enp0s20f3",
+            "ens2",
+            "enp4s0",
+            "enp7s0",
+            "enp8s0"
+        ],
+        "networkAddress": "10.48.4.0",
+        "prefixLength": 24,
+        "taggedInterfaces": [],
+        "vlan": null
+    },
+    "portForwards": [],
+    "stateVersion": "26.11",
+    "suricata": {
+        "enable": true,
+        "extraRules": ""
+    },
+    "timeZone": "America/New_York",
+    "trunkInterfaces": [],
+    "upnp": {
+        "enable": false,
+        "extraConfig": ""
+    },
+    "wan": {
+        "interface": "enp0s20f0",
+        "vlan": null
+    },
+    "wireguard": {}
+}

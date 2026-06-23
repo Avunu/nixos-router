@@ -24,8 +24,7 @@ import {
   SplitItem,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { readOption, writeOption } from "./nix";
-import { PendingBanner, useLoader, useSaver, SaverStatus, Loading, SubNav } from "./settings";
+import { useSettings, Loading, SubNav, SaveBar } from "./settings";
 
 const _ = cockpit.gettext;
 
@@ -47,25 +46,19 @@ const parsePorts = (s: string): number[] =>
     .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
 
 const PortForwards = () => {
-  const { value, setValue, loading, error } = useLoader<PortForward[]>(
-    () => readOption<PortForward[]>("portForwards"),
-    [],
-  );
-  const { saving, status, run } = useSaver();
+  const s = useSettings();
+  const rows: PortForward[] = s.valueOf("portForwards", []);
+  const locked = s.lockedOf("portForwards");
 
   // The row currently being edited/added, plus the raw ports text being typed.
   const [draft, setDraft] = useState<PortForward | null>(null);
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [portsText, setPortsText] = useState("");
 
-  if (loading) return <Loading />;
-  if (error) return <Alert variant="danger" isInline title={_("Could not load port forwards")}>{error}</Alert>;
+  if (!s.ready && !s.error) return <Loading />;
+  if (s.error) return <Alert variant="danger" isInline title={_("Could not load port forwards")}>{s.error}</Alert>;
 
-  const persist = (rows: PortForward[]) =>
-    run(async () => {
-      await writeOption("portForwards", rows);
-      setValue(rows);
-    });
+  const setRows = (r: PortForward[]) => s.setLeaf("portForwards", r);
 
   const beginAdd = () => {
     setDraft({ ...EMPTY_PF });
@@ -73,16 +66,16 @@ const PortForwards = () => {
     setPortsText("");
   };
   const beginEdit = (i: number) => {
-    setDraft({ ...value[i] });
+    setDraft({ ...rows[i] });
     setEditIndex(i);
-    setPortsText(value[i].ports.join(", "));
+    setPortsText(rows[i].ports.join(", "));
   };
   const cancel = () => {
     setDraft(null);
     setEditIndex(null);
     setPortsText("");
   };
-  const remove = (i: number) => persist(value.filter((_r, idx) => idx !== i));
+  const remove = (i: number) => setRows(rows.filter((_r, idx) => idx !== i));
 
   const commit = () => {
     if (!draft) return;
@@ -91,8 +84,7 @@ const PortForwards = () => {
       ports: parsePorts(portsText),
       source: draft.source && draft.source.trim() ? draft.source.trim() : null,
     };
-    const rows = editIndex === null ? [...value, row] : value.map((r, i) => (i === editIndex ? row : r));
-    persist(rows);
+    setRows(editIndex === null ? [...rows, row] : rows.map((r, i) => (i === editIndex ? row : r)));
     cancel();
   };
 
@@ -101,14 +93,17 @@ const PortForwards = () => {
   return (
     <Stack hasGutter className="ct-router-stack">
       <StackItem isFilled style={{ overflowY: "auto" }}>
-        <PendingBanner />
-        <SaverStatus status={status} />
         <Stack hasGutter>
+          {locked && (
+            <StackItem>
+              <Alert variant="info" isInline title={_("Port forwards are locked in the Nix configuration.")} />
+            </StackItem>
+          )}
           <StackItem>
             <Split>
               <SplitItem isFilled />
               <SplitItem>
-                <Button variant="primary" onClick={beginAdd} isDisabled={!!draft}>
+                <Button variant="secondary" onClick={beginAdd} isDisabled={!!draft || locked}>
                   {_("Add port forward")}
                 </Button>
               </SplitItem>
@@ -116,7 +111,7 @@ const PortForwards = () => {
           </StackItem>
 
           <StackItem>
-            {value.length === 0 ? (
+            {rows.length === 0 ? (
               <EmptyState>
                 <EmptyStateBody>{_("No port forwards configured.")}</EmptyStateBody>
               </EmptyState>
@@ -133,7 +128,7 @@ const PortForwards = () => {
                   </Tr>
                 </Thead>
                 <Tbody>
-                  {value.map((r, i) => (
+                  {rows.map((r, i) => (
                     <Tr key={i}>
                       <Td>{r.name || "—"}</Td>
                       <Td>{r.protocol}</Td>
@@ -141,10 +136,10 @@ const PortForwards = () => {
                       <Td>{r.ports.join(", ")}</Td>
                       <Td>{r.source || _("any")}</Td>
                       <Td isActionCell>
-                        <Button variant="link" isInline onClick={() => beginEdit(i)} isDisabled={saving}>
+                        <Button variant="link" isInline onClick={() => beginEdit(i)} isDisabled={locked}>
                           {_("Edit")}
                         </Button>{" "}
-                        <Button variant="link" isInline isDanger onClick={() => remove(i)} isDisabled={saving}>
+                        <Button variant="link" isInline isDanger onClick={() => remove(i)} isDisabled={locked}>
                           {_("Delete")}
                         </Button>
                       </Td>
@@ -203,8 +198,8 @@ const PortForwards = () => {
                       />
                     </FormGroup>
                     <ActionGroup>
-                      <Button variant="primary" onClick={commit} isDisabled={!draftValid || saving} isLoading={saving}>
-                        {_("Save")}
+                      <Button variant="secondary" onClick={commit} isDisabled={!draftValid}>
+                        {editIndex === null ? _("Add") : _("Update")}
                       </Button>
                       <Button variant="link" onClick={cancel}>
                         {_("Cancel")}
@@ -215,6 +210,10 @@ const PortForwards = () => {
               </Card>
             </StackItem>
           )}
+
+          <StackItem>
+            <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
+          </StackItem>
         </Stack>
       </StackItem>
     </Stack>
@@ -222,34 +221,15 @@ const PortForwards = () => {
 };
 
 // ── UPnP-IGD / NAT-PMP (miniupnpd) ──────────────────────────────────────────
-interface UpnpForm {
-  enable: boolean;
-  extraConfig: string;
-}
-
 const UpnpSettings = () => {
-  const { value, setValue, loading, error } = useLoader<UpnpForm>(
-    async () => {
-      const u = await readOption<any>("upnp");
-      return { enable: !!u.enable, extraConfig: u.extraConfig || "" };
-    },
-    { enable: false, extraConfig: "" },
-  );
-  const { saving, status, run } = useSaver();
+  const s = useSettings();
 
-  if (loading) return <Loading />;
-  if (error) return <Alert variant="danger" isInline title={_("Could not load UPnP settings")}>{error}</Alert>;
-
-  const save = () =>
-    run(async () => {
-      await writeOption("upnp.enable", value.enable);
-      await writeOption("upnp.extraConfig", value.extraConfig);
-    });
+  if (!s.ready && !s.error) return <Loading />;
+  if (s.error) return <Alert variant="danger" isInline title={_("Could not load UPnP settings")}>{s.error}</Alert>;
 
   return (
     <Stack hasGutter className="ct-router-stack">
       <StackItem isFilled style={{ overflowY: "auto" }}>
-        <PendingBanner />
         <Alert
           variant="info"
           isInline
@@ -260,8 +240,9 @@ const UpnpSettings = () => {
           <FormGroup label={_("Enable UPnP / NAT-PMP")} fieldId="upnpEnable">
             <Switch
               id="upnpEnable"
-              isChecked={value.enable}
-              onChange={(_e, c) => setValue((v) => ({ ...v, enable: c }))}
+              isChecked={!!s.valueOf("upnp.enable", false)}
+              isDisabled={s.lockedOf("upnp.enable")}
+              onChange={(_e, c) => s.setLeaf("upnp.enable", c)}
               aria-label={_("Enable UPnP / NAT-PMP")}
             />
           </FormGroup>
@@ -272,19 +253,15 @@ const UpnpSettings = () => {
           >
             <TextArea
               id="upnpExtra"
-              value={value.extraConfig}
-              onChange={(_e, v) => setValue((s) => ({ ...s, extraConfig: v }))}
+              value={s.valueOf("upnp.extraConfig", "")}
+              isDisabled={s.lockedOf("upnp.extraConfig")}
+              onChange={(_e, v) => s.setLeaf("upnp.extraConfig", v)}
               rows={6}
               resizeOrientation="vertical"
               aria-label={_("Extra miniupnpd.conf")}
             />
           </FormGroup>
-          <SaverStatus status={status} />
-          <ActionGroup>
-            <Button variant="primary" onClick={save} isLoading={saving} isDisabled={saving}>
-              {_("Save")}
-            </Button>
-          </ActionGroup>
+          <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
         </Form>
       </StackItem>
     </Stack>

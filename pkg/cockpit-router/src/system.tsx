@@ -17,7 +17,7 @@ import {
   EmptyStateBody,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { flakeHostRef, clearPending, isPending } from "./nix";
+import { flakeHostRef, writeApplied, loadState } from "./nix";
 
 const _ = cockpit.gettext;
 
@@ -33,7 +33,6 @@ export const System = () => {
   const [log, setLog] = useState("");
   const [running, setRunning] = useState(""); // label of the in-flight operation
   const [done, setDone] = useState<{ ok: boolean; label: string } | null>(null);
-  const [pending, setPending] = useState(isPending());
   const [gens, setGens] = useState<Generation[]>([]);
   const [gensError, setGensError] = useState("");
   const [gensLoading, setGensLoading] = useState(true);
@@ -94,10 +93,16 @@ export const System = () => {
     if (procRef.current) procRef.current.close("terminated");
   };
 
+  // After a successful switch, snapshot the saved JSON as the applied baseline
+  // so the global changes tray clears, and refresh the generation list.
   const onApplied = () => {
-    clearPending();
-    setPending(false);
-    loadGenerations();
+    loadState()
+      .then((st) => writeApplied(st.desired))
+      .catch(() => {})
+      .finally(() => {
+        window.dispatchEvent(new Event("router:changed"));
+        loadGenerations();
+      });
   };
 
   const apply = () =>
@@ -113,15 +118,6 @@ export const System = () => {
   return (
     <Stack hasGutter className="ct-router-stack">
       <StackItem isFilled style={{ overflowY: "auto" }}>
-        {pending && (
-          <Alert
-            variant="warning"
-            isInline
-            title={_("There are unapplied configuration changes. Apply them to take effect.")}
-            style={{ marginBlockEnd: "1rem" }}
-          />
-        )}
-
         <Card isCompact style={{ marginBlockEnd: "1rem" }}>
           <CardTitle>{_("Configuration")}</CardTitle>
           <CardBody>

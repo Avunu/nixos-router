@@ -6,8 +6,8 @@ interface Window {
   cockpitRouterConfig?: {
     adguardPort: number;
     macPrefixesPath?: string;
-    // Baked in by package.nix so the frontend can build flake references for
-    // nix eval (reads) / nix-editor (writes) and run nixos-rebuild.
+    // Baked in by package.nix: where the editable JSON config lives, the host
+    // name, and the flake path used for nixos-rebuild.
     hostName?: string;
     flakePath?: string;
     settingsFile?: string;
