@@ -46,6 +46,12 @@ buildNpmPackage (finalAttrs: {
   inherit nodejs;
   npmBuildScript = "build";
 
+  # nixpkgs' npmConfigHook unconditionally exports the node-gyp `npm_config_nodedir`
+  # env var, which npm 11 warns is an unknown config. This package builds with
+  # esbuild and has no native modules, so node-gyp/nodedir is unused — quiet npm's
+  # own warnings (esbuild's build output is on stdout and unaffected).
+  npm_config_loglevel = "error";
+
   # Vendor Cockpit's own pkg/lib (matching the deployed cockpit version) so the
   # build resolves `cockpit-dark-theme`, `patternfly/patternfly-6-cockpit.scss`
   # and `page.scss` from it — this is what gives the plugin Cockpit's native
