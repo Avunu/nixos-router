@@ -9,3 +9,6 @@ dist/
 
 # Source maps
 *.map
+
+# Generated Ajv standalone validator (built by build.js)
+src/_generated/*.js

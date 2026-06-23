@@ -24,6 +24,7 @@ import {
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import { flakeHostRef, writeApplied, loadState, errMsg } from "./nix";
+import { validateSettings } from "./schema";
 import { useSettings, SubNav, SaveBar, Loading, ListEditor, hint, TabbedPage } from "./settings";
 
 const _ = cockpit.gettext;
@@ -118,12 +119,22 @@ const SystemOps = () => {
       });
   };
 
-  const apply = () =>
-    run(
-      _("Apply configuration"),
-      ["nixos-rebuild", "switch", "--flake", flakeHostRef(), "--impure"],
-      onApplied,
-    );
+  const apply = () => {
+    // Validate the on-disk config against the schema before rebuilding.
+    void loadState().then((st) => {
+      const errors = validateSettings(st.desired);
+      if (errors.length > 0) {
+        setLog(`Configuration does not match the schema:\n${errors.join("\n")}`);
+        setDone({ ok: false, label: _("Apply configuration") });
+        return;
+      }
+      run(
+        _("Apply configuration"),
+        ["nixos-rebuild", "switch", "--flake", flakeHostRef(), "--impure"],
+        onApplied,
+      );
+    });
+  };
   const check = () =>
     run(_("Check flake"), ["nixos-rebuild", "dry-build", "--flake", flakeHostRef(), "--impure"]);
   const update = () => run(_("Update system"), ["system-upgrade"], onApplied);

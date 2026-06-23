@@ -8,6 +8,7 @@
 //   • /var/lib/cockpit-router/applied.json — snapshot the UI writes after each apply
 // The applied snapshot is what the changes tray diffs against; effective drives
 // Default display and locked-field detection.
+import { validateSettings } from "./schema";
 
 const cfg = (window.cockpitRouterConfig ?? {}) as {
   adguardPort?: number;
@@ -66,6 +67,14 @@ export function loadState(): Promise<SettingsState> {
 }
 
 export function writeDesired(obj: Json): Promise<unknown> {
+  // Validate against the schema before persisting, so an invalid config never
+  // reaches disk (and therefore never reaches `nixos-rebuild`).
+  const errors = validateSettings(obj);
+  if (errors.length > 0) {
+    return Promise.reject(
+      new Error(`Configuration does not match the schema:\n${errors.join("\n")}`),
+    );
+  }
   return cockpit
     .file(SETTINGS_FILE, { superuser: "require" })
     .replace(`${JSON.stringify(obj, null, 2)}\n`)

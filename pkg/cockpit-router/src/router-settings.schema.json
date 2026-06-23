@@ -1,0 +1,201 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Avunu/nixos-router/router-settings.schema.json",
+  "title": "router-settings.json",
+  "description": "Cockpit-managed router configuration, mirroring the serializable router.* options of nixos-router's flake.nix module. Unknown keys are rejected (the module errors on an undefined option); structural/package-typed options (cockpit, extraPackages) live in Nix and are not part of this file.",
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "hostName": { "type": "string" },
+    "timeZone": { "type": "string" },
+    "stateVersion": { "type": "string" },
+    "diskDevice": { "type": "string" },
+    "bootMode": { "enum": ["uefi", "legacy"] },
+    "trunkInterfaces": { "$ref": "#/definitions/stringArray" },
+
+    "wan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "interface": { "type": ["string", "null"] },
+        "vlan": { "$ref": "#/definitions/nullableVlan" }
+      }
+    },
+
+    "lan": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "interfaces": { "$ref": "#/definitions/stringArray" },
+        "vlan": { "$ref": "#/definitions/nullableVlan" },
+        "taggedInterfaces": { "$ref": "#/definitions/stringArray" },
+        "address": { "type": "string" },
+        "networkAddress": { "type": "string" },
+        "prefixLength": { "type": "integer" },
+        "domain": { "type": "string" },
+        "dhcp": { "$ref": "#/definitions/dhcp" }
+      }
+    },
+
+    "guest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enable": { "type": "boolean" },
+        "interfaces": { "$ref": "#/definitions/stringArray" },
+        "vlan": { "$ref": "#/definitions/nullableVlan" },
+        "taggedInterfaces": { "$ref": "#/definitions/stringArray" },
+        "address": { "type": "string" },
+        "networkAddress": { "type": "string" },
+        "prefixLength": { "type": "integer" },
+        "dhcp": { "$ref": "#/definitions/dhcp" }
+      }
+    },
+
+    "wireguard": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/definitions/tunnel" }
+    },
+
+    "dns": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "upstreamServers": { "$ref": "#/definitions/stringArray" },
+        "bootstrapServers": { "$ref": "#/definitions/stringArray" },
+        "adguard": { "$ref": "#/definitions/adguard" }
+      }
+    },
+
+    "suricata": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enable": { "type": "boolean" },
+        "extraRules": { "type": "string" }
+      }
+    },
+
+    "upnp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enable": { "type": "boolean" },
+        "extraConfig": { "type": "string" }
+      }
+    },
+
+    "portForwards": {
+      "type": "array",
+      "items": { "$ref": "#/definitions/portForward" }
+    },
+
+    "adminUser": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "sshKeys": { "$ref": "#/definitions/stringArray" },
+        "initialPassword": { "type": ["string", "null"] }
+      }
+    }
+  },
+
+  "definitions": {
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "port": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 65535
+    },
+    "nullableVlan": {
+      "type": ["integer", "null"],
+      "minimum": 1,
+      "maximum": 4094
+    },
+    "dhcp": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "poolOffset": { "type": "integer" },
+        "poolSize": { "type": "integer" },
+        "leaseTime": { "type": "string" }
+      }
+    },
+    "standardFilters": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "adaway": { "type": "boolean" },
+        "adguard_ads": { "type": "boolean" },
+        "adguard_anti_malware": { "type": "boolean" },
+        "adguard_hacked_sites": { "type": "boolean" },
+        "adguard_malware": { "type": "boolean" },
+        "adguard_phishing": { "type": "boolean" },
+        "phishtank_openphish": { "type": "boolean" },
+        "steven_black": { "type": "boolean" },
+        "yoyo_adservers": { "type": "boolean" }
+      }
+    },
+    "adguard": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enable": { "type": "boolean" },
+        "listenPort": { "$ref": "#/definitions/port" },
+        "webPort": { "$ref": "#/definitions/port" },
+        "safeSearch": { "type": "boolean" },
+        "standardFilters": { "$ref": "#/definitions/standardFilters" },
+        "extraFilters": {
+          "type": "array",
+          "items": { "type": "object" }
+        },
+        "utCapitoleCategories": { "$ref": "#/definitions/stringArray" },
+        "extraUserRules": { "$ref": "#/definitions/stringArray" },
+        "allowList": { "$ref": "#/definitions/stringArray" },
+        "blockList": { "$ref": "#/definitions/stringArray" }
+      }
+    },
+    "peer": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "publicKey": { "type": "string" },
+        "endpoint": { "type": ["string", "null"] },
+        "allowedIPs": { "$ref": "#/definitions/stringArray" },
+        "persistentKeepalive": { "type": "integer" }
+      }
+    },
+    "tunnel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "address": { "type": "string" },
+        "listenPort": { "$ref": "#/definitions/port" },
+        "privateKeyFile": { "type": "string" },
+        "routes": { "$ref": "#/definitions/stringArray" },
+        "peers": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/peer" }
+        }
+      }
+    },
+    "portForward": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string" },
+        "protocol": { "enum": ["tcp", "udp"] },
+        "destination": { "type": "string" },
+        "ports": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/port" }
+        },
+        "source": { "type": ["string", "null"] }
+      }
+    }
+  }
+}

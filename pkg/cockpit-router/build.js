@@ -8,10 +8,29 @@
 import fs from "node:fs";
 import esbuild from "esbuild";
 import { sassPlugin } from "esbuild-sass-plugin";
+import Ajv from "ajv";
+import standaloneCode from "ajv/dist/standalone/index.js";
 
 const dev = process.env.NODE_ENV === "development";
 const nodePaths = ["pkg/lib"];
 const outdir = "dist";
+
+// ── Precompile the JSON Schema validator (Ajv standalone) ───────────────────
+// Cockpit's default CSP (default-src 'self') forbids unsafe-eval, so Ajv's
+// runtime compile() — which builds the validator with `new Function` — is blocked
+// in the browser. Generate a plain-JS validator module from the schema at build
+// time instead (no runtime codegen); src/schema.ts imports it. Regenerated every
+// build, so the validator never drifts from router-settings.schema.json.
+const schema = JSON.parse(fs.readFileSync("./src/router-settings.schema.json", "utf8"));
+const ajv = new Ajv({ code: { source: true, esm: true }, allErrors: true, allowUnionTypes: true });
+ajv.compile(schema); // compiles + registers the schema under its $id
+fs.mkdirSync("./src/_generated", { recursive: true });
+// Named export (import/no-default-export) keyed `validateRouterSettings`; the
+// multi-export form references the schema by its registered $id.
+fs.writeFileSync(
+  "./src/_generated/validate-settings.js",
+  standaloneCode(ajv, { validateRouterSettings: schema.$id }),
+);
 
 fs.rmSync(outdir, { recursive: true, force: true });
 fs.mkdirSync(outdir, { recursive: true });

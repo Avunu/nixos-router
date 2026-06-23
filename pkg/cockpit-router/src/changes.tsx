@@ -18,6 +18,7 @@ import {
   PageSection,
 } from "@patternfly/react-core";
 import { loadState, writeDesired, writeApplied, changedTopKeys, flakeHostRef, errMsg } from "./nix";
+import { validateSettings } from "./schema";
 import type { Json } from "./nix";
 
 const _ = cockpit.gettext;
@@ -80,6 +81,14 @@ export const ChangesTray = () => {
     setDone(null);
     // Snapshot the JSON exactly as applied once the rebuild succeeds.
     void loadState().then((s) => {
+      // Validate the on-disk config against the schema before rebuilding.
+      const errors = validateSettings(s.desired);
+      if (errors.length > 0) {
+        setLog(`Configuration does not match the schema:\n${errors.join("\n")}`);
+        setDone({ ok: false });
+        setRunning(false);
+        return;
+      }
       const proc = cockpit.spawn(
         ["nixos-rebuild", "switch", "--flake", flakeHostRef(), "--impure"],
         { superuser: "require", err: "out" },
