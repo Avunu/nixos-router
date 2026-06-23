@@ -1,0 +1,143 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // All categories enforced at error; "nursery" stays off (unstable rules). Default
+  // stance: fix the code, not the config — opt-outs below carry inline justifications
+  // for cockpit-plugin / React idioms.
+  "categories": {
+    "correctness": "error",
+    "nursery": "off",
+    "pedantic": "error",
+    "perf": "error",
+    "restriction": "error",
+    "style": "error",
+    "suspicious": "error"
+  },
+  "ignorePatterns": ["dist", "node_modules", "pkg/lib", "**/*.map"],
+  "plugins": ["import", "unicorn", "oxc", "typescript", "react"],
+  "overrides": [
+    {
+      // Ambient declaration files are intentionally module-less.
+      "files": ["**/*.d.ts"],
+      "rules": {
+        "import/unambiguous": "off"
+      }
+    },
+    {
+      // build.js is a Node build script run by esbuild; node: imports and console are its job.
+      "files": ["build.js"],
+      "rules": {
+        "import/no-nodejs-modules": "off",
+        "no-console": "off"
+      }
+    }
+  ],
+  "rules": {
+    // ─── Configured ───────────────────────────────────────────────────────────
+    // `== null` is the deliberate null-or-undefined check; everything else strict.
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    // Intentional no-op catches are allowed (best-effort cockpit.file/localStorage).
+    "eslint/no-empty": ["error", { "allowEmptyCatch": true }],
+    "eslint/no-empty-function": ["error", { "allow": ["arrowFunctions"] }],
+    "eslint/no-plusplus": ["error", { "allowForLoopAfterthoughts": true }],
+    // `void promise;` is the explicit fire-and-forget marker (satisfies no-floating-promises).
+    "eslint/no-void": ["error", { "allowAsStatement": true }],
+    // Function decls hoist; module-level consts referenced from closures init before use.
+    "eslint/no-use-before-define": ["error", { "functions": false, "variables": false }],
+
+    // ─── Off: redundant with the TypeScript compiler ──────────────────────────
+    // tsc (strict) owns undefined-identifier checking; the global `cockpit` is ambient.
+    "eslint/no-undef": "off",
+    // Inference-first UI code; tsc strict validates every boundary.
+    "typescript/explicit-function-return-type": "off",
+    "typescript/explicit-module-boundary-types": "off",
+    // We need BOTH forms: `interface Window` for declaration merging (config.js
+    // global) and `type` aliases (PortForward/Tunnel/Json) so concrete types are
+    // assignable to the structural `Json` index signature — a single preference
+    // cannot satisfy both.
+    "typescript/consistent-type-definitions": "off",
+    // Catch params are named `e` to avoid shadowing the component `error` state
+    // (eslint/no-shadow, kept on); the unicorn name preference conflicts with that.
+    "unicorn/catch-error-name": "off",
+    // Off: it can't tell prose from identifiers/paths and would force e.g.
+    // `pkg/systemd/…` or `wg0` to be capitalized in comments.
+    "eslint/capitalized-comments": "off",
+
+    // ─── Off: TypeScript idiom ────────────────────────────────────────────────
+    // `!` asserts cockpit-config invariants (window.cockpitRouterConfig!) at known-safe sites.
+    "typescript/no-non-null-assertion": "off",
+    // null is a first-class JSON value here (router-settings.json: wan.interface, source, vlan…).
+    "unicorn/no-null": "off",
+
+    // ─── Off: React rules that fight the modern automatic JSX runtime / PatternFly ─
+    // react-jsx automatic runtime: React need not be imported into scope.
+    "react/react-in-jsx-scope": "off",
+    // PatternFly components accept className/style; we use them for layout.
+    "react/forbid-component-props": "off",
+    // Deep composition is normal with PatternFly Stack/Form/Card nesting.
+    "react/jsx-max-depth": "off",
+    // We pass store actions directly (onSave={s.save}); the handle*-prefix rule is noise.
+    "react/jsx-handler-names": "off",
+    // Dynamic form rows (peers, validation errors) have no stable id; index keys are acceptable.
+    "react/no-array-index-key": "off",
+    // Each page co-locates its tabs/sub-components in one file by design.
+    "react/no-multi-comp": "off",
+    // Pages export their view component plus helpers (views map, hooks); no fast-refresh here.
+    "react/only-export-components": "off",
+    // JSX lives in .tsx files by design; this rule misfires on the TypeScript-JSX extension.
+    "react/jsx-filename-extension": "off",
+
+    // ─── Off: contradicts an enabled rule or the formatter ────────────────────
+    "eslint/no-eq-null": "off",
+    "import/prefer-default-export": "off",
+    "import/no-named-export": "off",
+    "no-duplicate-imports": "off",
+    "unicorn/number-literal-case": "off",
+
+    // ─── Off: deliberate architecture / framework ─────────────────────────────
+    // Side-effect imports register the cockpit theme + PatternFly styles (index.tsx).
+    "import/no-unassigned-import": "off",
+    // Relative "./x" imports are the only module layout in this small plugin.
+    "import/no-relative-parent-imports": "off",
+    // Sequential awaits in save/apply pipelines are ordered on purpose.
+    "no-await-in-loop": "off",
+    "eslint/require-await": "off",
+    // React event handlers and module-scope helpers both used by role.
+    "unicorn/consistent-function-scoping": "off",
+    // The plugin targets the browser; window/document are intentional.
+    "unicorn/prefer-global-this": "off",
+    // Common cockpit pattern: `cockpit.spawn(...).then(...)` after a fire-and-forget; allowed.
+    "no-undefined": "off",
+
+    // ─── Off: style preferences that would force churn without correctness value ─
+    "func-style": "off",
+    "id-length": "off",
+    "complexity": "off",
+    "max-depth": "off",
+    "max-lines": "off",
+    "max-lines-per-function": "off",
+    "max-params": "off",
+    "max-statements": "off",
+    "no-magic-numbers": "off",
+    "no-continue": "off",
+    "no-inline-comments": "off",
+    "no-negated-condition": "off",
+    "unicorn/no-negated-condition": "off",
+    "no-nested-ternary": "off",
+    "unicorn/no-nested-ternary": "off",
+    "no-ternary": "off",
+    "init-declarations": "off",
+    "sort-keys": "off",
+    "sort-imports": "off",
+    "import/exports-last": "off",
+    "import/group-exports": "off",
+    "import/max-dependencies": "off",
+    "unicorn/import-style": "off",
+    "eslint/prefer-named-capture-group": "off",
+    "eslint/require-unicode-regexp": "off",
+
+    // ─── Off: ES-downlevel restrictions (modern target) ───────────────────────
+    "oxc/no-async-await": "off",
+    "oxc/no-optional-chaining": "off",
+    "oxc/no-rest-spread-properties": "off"
+  }
+}

@@ -14,10 +14,28 @@ import {
   Nav,
   NavList,
   NavItem,
+  Popover,
 } from "@patternfly/react-core";
-import { loadState, writeDesired, getPath, setPath, isLocked, type SettingsState, type Json } from "./nix";
+import { HelpIcon } from "@patternfly/react-icons";
+import { loadState, writeDesired, getPath, setPath, isLocked, errMsg } from "./nix";
+import type { SettingsState, Json } from "./nix";
 
 const _ = cockpit.gettext;
+
+// PatternFly's FormGroup `labelHelp` expects a ReactElement (a popover trigger);
+// wrap a help string into one.
+export const hint = (body: string) => (
+  <Popover bodyContent={body}>
+    <button
+      type="button"
+      aria-label={_("More information")}
+      onClick={(e) => e.preventDefault()}
+      className="pf-v6-c-form__group-label-help"
+    >
+      <HelpIcon />
+    </button>
+  </Popover>
+);
 
 // Horizontal sub-navigation matching Cockpit's own page pattern (see
 // pkg/systemd/service-tabs.tsx): a `Nav variant="horizontal-subnav"` of link
@@ -73,24 +91,27 @@ export function useSettings() {
         setState(s);
         setDesired(s.desired || {});
       })
-      .catch((e: any) => setError(e.message || String(e)));
+      .catch((e: unknown) => setError(errMsg(e)));
   }, []);
   useEffect(() => {
     reload();
   }, [reload]);
 
-  const setLeaf = useCallback((path: string, val: any) => {
+  const setLeaf = useCallback((path: string, val: Json) => {
     setDesired((d) => setPath(d, path, val));
   }, []);
 
   // Form value: the working desired value, falling back to the effective value
-  // (defaults / Nix-locked) when the JSON doesn't set this path.
+  // (defaults / Nix-locked) when the JSON doesn't set this path. The fallback's
+  // type drives T; the JSON store is the (unavoidable) dynamic boundary.
   const valueOf = useCallback(
-    (path: string, fallback?: any) => {
+    <T,>(path: string, fallback: T): T => {
       const v = getPath(desired, path);
-      if (v !== undefined) return v;
+      if (v !== undefined) {
+        return v as unknown as T;
+      }
       const e = state ? getPath(state.effective, path) : undefined;
-      return e !== undefined ? e : fallback;
+      return (e !== undefined ? e : fallback) as unknown as T;
     },
     [desired, state],
   );
@@ -103,17 +124,22 @@ export function useSettings() {
       setStatus(null);
       return writeDesired(desired)
         .then(() => {
-          setStatus({ ok: true, msg: apply ? _("Saved — applying…") : _("Saved. Apply to take effect.") });
-          if (apply) window.dispatchEvent(new Event("router:apply"));
+          setStatus({
+            ok: true,
+            msg: apply ? _("Saved — applying…") : _("Saved. Apply to take effect."),
+          });
+          if (apply) {
+            window.dispatchEvent(new Event("router:apply"));
+          }
         })
-        .catch((e: any) => setStatus({ ok: false, msg: e.message || String(e) }))
+        .catch((e: unknown) => setStatus({ ok: false, msg: errMsg(e) }))
         .finally(() => setSaving(false));
     },
     [desired],
   );
 
   return {
-    ready: !!state,
+    ready: Boolean(state),
     error,
     desired,
     effective: state?.effective ?? {},
@@ -175,7 +201,9 @@ export const ListEditor = ({
   const [draft, setDraft] = useState("");
   const add = () => {
     const v = draft.trim();
-    if (v && !value.includes(v)) onChange([...value, v]);
+    if (v && !value.includes(v)) {
+      onChange([...value, v]);
+    }
     setDraft("");
   };
   return (
@@ -184,7 +212,10 @@ export const ListEditor = ({
         {value.length > 0 && (
           <LabelGroup numLabels={20} isEditable={false} style={{ marginBlockEnd: "0.5rem" }}>
             {value.map((item) => (
-              <Label key={item} onClose={isDisabled ? undefined : () => onChange(value.filter((x) => x !== item))}>
+              <Label
+                key={item}
+                onClose={isDisabled ? undefined : () => onChange(value.filter((x) => x !== item))}
+              >
                 {item}
               </Label>
             ))}

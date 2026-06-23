@@ -1,6 +1,47 @@
-// Ambient declarations: `cockpit` is provided at runtime by ../base1/cockpit.js,
-// and the build derivation writes config.js which sets window.cockpitRouterConfig.
-declare const cockpit: any;
+// Ambient declarations for the `cockpit` global (provided at runtime by
+// ../base1/cockpit.js) and the window config the Nix build writes into config.js.
+
+interface CockpitSpawnOptions {
+  superuser?: "require" | "try";
+  err?: "message" | "out" | "ignore";
+  pty?: boolean;
+  directory?: string;
+}
+
+// A spawned process resolves to its stdout; `.stream` delivers incremental
+// output and `.close` terminates it.
+interface CockpitProcess extends Promise<string> {
+  stream: (callback: (data: string) => void) => CockpitProcess;
+  close: (problem?: string) => void;
+}
+
+interface CockpitFileOptions {
+  superuser?: "require" | "try";
+}
+
+interface CockpitFile {
+  read: () => Promise<string | null>;
+  replace: (content: string) => Promise<unknown>;
+}
+
+interface CockpitHttpOptions {
+  address: string;
+  port: number;
+}
+
+interface CockpitHttp {
+  get: (path: string, params?: Record<string, unknown>) => Promise<string>;
+}
+
+interface Cockpit {
+  gettext: (message: string) => string;
+  format: (template: string, ...args: unknown[]) => string;
+  spawn: (args: string[], options?: CockpitSpawnOptions) => CockpitProcess;
+  file: (path: string, options?: CockpitFileOptions) => CockpitFile;
+  http: (options: CockpitHttpOptions) => CockpitHttp;
+}
+
+declare const cockpit: Cockpit;
 
 interface Window {
   cockpitRouterConfig?: {

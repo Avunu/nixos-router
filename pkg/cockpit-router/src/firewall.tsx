@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { errMsg } from "./nix";
 import {
   Button,
   Alert,
@@ -24,30 +25,36 @@ import {
   SplitItem,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { useSettings, Loading, SubNav, SaveBar } from "./settings";
+import { useSettings, Loading, SubNav, SaveBar, hint } from "./settings";
 
 const _ = cockpit.gettext;
 
 // ── Static port forwards (DNAT) ─────────────────────────────────────────────
-interface PortForward {
+type PortForward = {
   name: string;
   protocol: "tcp" | "udp";
   destination: string;
   ports: number[];
   source: string | null;
-}
+};
 
-const EMPTY_PF: PortForward = { name: "", protocol: "tcp", destination: "", ports: [], source: null };
+const EMPTY_PF: PortForward = {
+  name: "",
+  protocol: "tcp",
+  destination: "",
+  ports: [],
+  source: null,
+};
 
 const parsePorts = (s: string): number[] =>
   s
     .split(/[\s,]+/)
     .map((p) => Number(p.trim()))
-    .filter((n) => Number.isInteger(n) && n > 0 && n <= 65535);
+    .filter((n) => Number.isInteger(n) && n > 0 && n <= 65_535);
 
 const PortForwards = () => {
   const s = useSettings();
-  const rows: PortForward[] = s.valueOf("portForwards", []);
+  const rows: PortForward[] = s.valueOf<PortForward[]>("portForwards", []);
   const locked = s.lockedOf("portForwards");
 
   // The row currently being edited/added, plus the raw ports text being typed.
@@ -55,8 +62,16 @@ const PortForwards = () => {
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [portsText, setPortsText] = useState("");
 
-  if (!s.ready && !s.error) return <Loading />;
-  if (s.error) return <Alert variant="danger" isInline title={_("Could not load port forwards")}>{s.error}</Alert>;
+  if (!s.ready && !s.error) {
+    return <Loading />;
+  }
+  if (s.error) {
+    return (
+      <Alert variant="danger" isInline title={_("Could not load port forwards")}>
+        {s.error}
+      </Alert>
+    );
+  }
 
   const setRows = (r: PortForward[]) => s.setLeaf("portForwards", r);
 
@@ -66,9 +81,13 @@ const PortForwards = () => {
     setPortsText("");
   };
   const beginEdit = (i: number) => {
-    setDraft({ ...rows[i] });
+    const r = rows[i];
+    if (!r) {
+      return;
+    }
+    setDraft({ ...r });
     setEditIndex(i);
-    setPortsText(rows[i].ports.join(", "));
+    setPortsText(r.ports.join(", "));
   };
   const cancel = () => {
     setDraft(null);
@@ -78,7 +97,9 @@ const PortForwards = () => {
   const remove = (i: number) => setRows(rows.filter((_r, idx) => idx !== i));
 
   const commit = () => {
-    if (!draft) return;
+    if (!draft) {
+      return;
+    }
     const row: PortForward = {
       ...draft,
       ports: parsePorts(portsText),
@@ -96,14 +117,22 @@ const PortForwards = () => {
         <Stack hasGutter>
           {locked && (
             <StackItem>
-              <Alert variant="info" isInline title={_("Port forwards are locked in the Nix configuration.")} />
+              <Alert
+                variant="info"
+                isInline
+                title={_("Port forwards are locked in the Nix configuration.")}
+              />
             </StackItem>
           )}
           <StackItem>
             <Split>
               <SplitItem isFilled />
               <SplitItem>
-                <Button variant="secondary" onClick={beginAdd} isDisabled={!!draft || locked}>
+                <Button
+                  variant="secondary"
+                  onClick={beginAdd}
+                  isDisabled={Boolean(draft) || locked}
+                >
                   {_("Add port forward")}
                 </Button>
               </SplitItem>
@@ -136,10 +165,21 @@ const PortForwards = () => {
                       <Td>{r.ports.join(", ")}</Td>
                       <Td>{r.source || _("any")}</Td>
                       <Td isActionCell>
-                        <Button variant="link" isInline onClick={() => beginEdit(i)} isDisabled={locked}>
+                        <Button
+                          variant="link"
+                          isInline
+                          onClick={() => beginEdit(i)}
+                          isDisabled={locked}
+                        >
                           {_("Edit")}
                         </Button>{" "}
-                        <Button variant="link" isInline isDanger onClick={() => remove(i)} isDisabled={locked}>
+                        <Button
+                          variant="link"
+                          isInline
+                          isDanger
+                          onClick={() => remove(i)}
+                          isDisabled={locked}
+                        >
                           {_("Delete")}
                         </Button>
                       </Td>
@@ -153,7 +193,9 @@ const PortForwards = () => {
           {draft && (
             <StackItem>
               <Card isCompact>
-                <CardTitle>{editIndex === null ? _("Add port forward") : _("Edit port forward")}</CardTitle>
+                <CardTitle>
+                  {editIndex === null ? _("Add port forward") : _("Edit port forward")}
+                </CardTitle>
                 <CardBody>
                   <Form isHorizontal onSubmit={(e) => e.preventDefault()}>
                     <FormGroup label={_("Name")} fieldId="pfName">
@@ -181,7 +223,12 @@ const PortForwards = () => {
                         onChange={(_e, v) => setDraft({ ...draft, destination: v })}
                       />
                     </FormGroup>
-                    <FormGroup label={_("Ports")} fieldId="pfPorts" isRequired labelHelp={_("Comma or space separated")}>
+                    <FormGroup
+                      label={_("Ports")}
+                      fieldId="pfPorts"
+                      isRequired
+                      labelHelp={hint(_("Comma or space separated"))}
+                    >
                       <TextInput
                         id="pfPorts"
                         value={portsText}
@@ -189,7 +236,11 @@ const PortForwards = () => {
                         onChange={(_e, v) => setPortsText(v)}
                       />
                     </FormGroup>
-                    <FormGroup label={_("Source prefix (optional)")} fieldId="pfSrc" labelHelp={_("Restrict to a WAN source, e.g. 203.0.113.0/24")}>
+                    <FormGroup
+                      label={_("Source prefix (optional)")}
+                      fieldId="pfSrc"
+                      labelHelp={hint(_("Restrict to a WAN source, e.g. 203.0.113.0/24"))}
+                    >
                       <TextInput
                         id="pfSrc"
                         value={draft.source || ""}
@@ -212,7 +263,12 @@ const PortForwards = () => {
           )}
 
           <StackItem>
-            <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
+            <SaveBar
+              saving={s.saving}
+              status={s.status}
+              onSave={s.save}
+              onSaveApply={s.saveAndApply}
+            />
           </StackItem>
         </Stack>
       </StackItem>
@@ -224,8 +280,16 @@ const PortForwards = () => {
 const UpnpSettings = () => {
   const s = useSettings();
 
-  if (!s.ready && !s.error) return <Loading />;
-  if (s.error) return <Alert variant="danger" isInline title={_("Could not load UPnP settings")}>{s.error}</Alert>;
+  if (!s.ready && !s.error) {
+    return <Loading />;
+  }
+  if (s.error) {
+    return (
+      <Alert variant="danger" isInline title={_("Could not load UPnP settings")}>
+        {s.error}
+      </Alert>
+    );
+  }
 
   return (
     <Stack hasGutter className="ct-router-stack">
@@ -233,14 +297,16 @@ const UpnpSettings = () => {
         <Alert
           variant="info"
           isInline
-          title={_("UPnP lets LAN devices open inbound ports automatically, with no authentication. Enable only when needed; it is never offered to the guest network.")}
+          title={_(
+            "UPnP lets LAN devices open inbound ports automatically, with no authentication. Enable only when needed; it is never offered to the guest network.",
+          )}
           style={{ marginBlockEnd: "1rem" }}
         />
         <Form onSubmit={(e) => e.preventDefault()}>
           <FormGroup label={_("Enable UPnP / NAT-PMP")} fieldId="upnpEnable">
             <Switch
               id="upnpEnable"
-              isChecked={!!s.valueOf("upnp.enable", false)}
+              isChecked={Boolean(s.valueOf("upnp.enable", false))}
               isDisabled={s.lockedOf("upnp.enable")}
               onChange={(_e, c) => s.setLeaf("upnp.enable", c)}
               aria-label={_("Enable UPnP / NAT-PMP")}
@@ -249,7 +315,7 @@ const UpnpSettings = () => {
           <FormGroup
             label={_("Extra miniupnpd.conf")}
             fieldId="upnpExtra"
-            labelHelp={_("Appended after the hardened defaults")}
+            labelHelp={hint(_("Appended after the hardened defaults"))}
           >
             <TextArea
               id="upnpExtra"
@@ -261,7 +327,12 @@ const UpnpSettings = () => {
               aria-label={_("Extra miniupnpd.conf")}
             />
           </FormGroup>
-          <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
+          <SaveBar
+            saving={s.saving}
+            status={s.status}
+            onSave={s.save}
+            onSaveApply={s.saveAndApply}
+          />
         </Form>
       </StackItem>
     </Stack>
@@ -283,8 +354,8 @@ const ActiveRules = () => {
         setText(out || "");
         setLoading(false);
       })
-      .catch((e: any) => {
-        setError(e.message || String(e));
+      .catch((e: unknown) => {
+        setError(errMsg(e));
         setLoading(false);
       });
   }, []);
@@ -307,7 +378,9 @@ const ActiveRules = () => {
       </StackItem>
       {error && (
         <StackItem>
-          <Alert variant="danger" isInline title={_("Could not read the ruleset")}>{error}</Alert>
+          <Alert variant="danger" isInline title={_("Could not read the ruleset")}>
+            {error}
+          </Alert>
         </StackItem>
       )}
       <StackItem isFilled style={{ overflow: "auto", minBlockSize: 0 }}>

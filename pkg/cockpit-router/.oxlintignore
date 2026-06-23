@@ -1,0 +1,11 @@
+# Dependencies
+node_modules/
+
+# Vendored Cockpit pkg/lib (provided by the Nix build)
+pkg/lib/
+
+# Build output
+dist/
+
+# Source maps
+*.map

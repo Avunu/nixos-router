@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { errMsg } from "./nix";
 import {
   Toolbar,
   ToolbarContent,
@@ -26,8 +27,17 @@ import {
   Switch,
   TextInput,
 } from "@patternfly/react-core";
-import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
-import { useSettings, ListEditor, Loading, SubNav, SaveBar } from "./settings";
+import {
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  OuterScrollContainer,
+  InnerScrollContainer,
+} from "@patternfly/react-table";
+import { useSettings, ListEditor, Loading, SubNav, SaveBar, hint } from "./settings";
 
 const _ = cockpit.gettext;
 const PORT = (window.cockpitRouterConfig && window.cockpitRouterConfig.adguardPort) || 3000;
@@ -68,12 +78,12 @@ const AdGuardLog = () => {
       api().get("/control/stats"),
     ])
       .then(([ql, st]: [string, string]) => {
-        setRows((JSON.parse(ql).data as Entry[]) || []);
+        setRows((JSON.parse(ql) as { data?: Entry[] }).data ?? []);
         setStats(JSON.parse(st) as Stats);
         setLoading(false);
       })
-      .catch((e: any) => {
-        setError(e.message || String(e));
+      .catch((e: unknown) => {
+        setError(errMsg(e));
         setLoading(false);
       });
   }, [filter]);
@@ -82,7 +92,9 @@ const AdGuardLog = () => {
     load();
   }, [load]);
 
-  if (loading) return <Spinner />;
+  if (loading) {
+    return <Spinner />;
+  }
 
   return (
     <Stack hasGutter className="ct-router-stack">
@@ -92,15 +104,21 @@ const AdGuardLog = () => {
             <DescriptionList isHorizontal isCompact isFluid>
               <DescriptionListGroup>
                 <DescriptionListTerm>{_("Queries")}</DescriptionListTerm>
-                <DescriptionListDescription>{stats.num_dns_queries ?? "—"}</DescriptionListDescription>
+                <DescriptionListDescription>
+                  {stats.num_dns_queries ?? "—"}
+                </DescriptionListDescription>
               </DescriptionListGroup>
               <DescriptionListGroup>
                 <DescriptionListTerm>{_("Blocked")}</DescriptionListTerm>
-                <DescriptionListDescription>{stats.num_blocked_filtering ?? "—"}</DescriptionListDescription>
+                <DescriptionListDescription>
+                  {stats.num_blocked_filtering ?? "—"}
+                </DescriptionListDescription>
               </DescriptionListGroup>
               <DescriptionListGroup>
                 <DescriptionListTerm>{_("Safe browsing")}</DescriptionListTerm>
-                <DescriptionListDescription>{stats.num_replaced_safebrowsing ?? "—"}</DescriptionListDescription>
+                <DescriptionListDescription>
+                  {stats.num_replaced_safebrowsing ?? "—"}
+                </DescriptionListDescription>
               </DescriptionListGroup>
               <DescriptionListGroup>
                 <DescriptionListTerm>{_("Avg. processing")}</DescriptionListTerm>
@@ -138,7 +156,9 @@ const AdGuardLog = () => {
       </StackItem>
       {error && (
         <StackItem>
-          <Alert variant="danger" title={_("Could not reach AdGuard Home")} isInline>{error}</Alert>
+          <Alert variant="danger" title={_("Could not reach AdGuard Home")} isInline>
+            {error}
+          </Alert>
         </StackItem>
       )}
       <StackItem isFilled className="ct-table-scroll">
@@ -200,18 +220,21 @@ const FILTER_LABELS: Record<string, string> = {
 };
 
 // Editor for custom AdGuard filter-list objects ({ enabled, name, url, id }).
+type Filter = { enabled?: boolean; name?: string; url?: string; id?: number };
+
 const ExtraFiltersEditor = ({
   value,
   onChange,
   isDisabled,
 }: {
-  value: any[];
-  onChange: (v: any[]) => void;
+  value: Filter[];
+  onChange: (v: Filter[]) => void;
   isDisabled?: boolean;
 }) => {
-  const set = (i: number, patch: any) => onChange(value.map((f, j) => (j === i ? { ...f, ...patch } : f)));
+  const set = (i: number, patch: Partial<Filter>) =>
+    onChange(value.map((f, j) => (j === i ? { ...f, ...patch } : f)));
   const add = () => {
-    const nextId = value.reduce((m, f) => Math.max(m, Number(f.id) || 0), 100) + 1;
+    const nextId = Math.max(100, ...value.map((f) => Number(f.id) || 0)) + 1;
     onChange([...value, { enabled: true, name: "", url: "", id: nextId }]);
   };
   const remove = (i: number) => onChange(value.filter((_f, j) => j !== i));
@@ -220,16 +243,39 @@ const ExtraFiltersEditor = ({
       {value.map((f, i) => (
         <Split hasGutter key={i} style={{ marginBlockEnd: "0.5rem", alignItems: "center" }}>
           <SplitItem>
-            <Switch aria-label={_("Enabled")} isChecked={!!f.enabled} isDisabled={isDisabled} onChange={(_e, c) => set(i, { enabled: c })} />
+            <Switch
+              aria-label={_("Enabled")}
+              isChecked={Boolean(f.enabled)}
+              isDisabled={isDisabled}
+              onChange={(_e, c) => set(i, { enabled: c })}
+            />
           </SplitItem>
           <SplitItem>
-            <TextInput aria-label={_("Name")} placeholder={_("Name")} value={f.name || ""} isDisabled={isDisabled} onChange={(_e, v) => set(i, { name: v })} />
+            <TextInput
+              aria-label={_("Name")}
+              placeholder={_("Name")}
+              value={f.name || ""}
+              isDisabled={isDisabled}
+              onChange={(_e, v) => set(i, { name: v })}
+            />
           </SplitItem>
           <SplitItem isFilled>
-            <TextInput aria-label={_("URL")} placeholder="https://…" value={f.url || ""} isDisabled={isDisabled} onChange={(_e, v) => set(i, { url: v })} />
+            <TextInput
+              aria-label={_("URL")}
+              placeholder="https://…"
+              value={f.url || ""}
+              isDisabled={isDisabled}
+              onChange={(_e, v) => set(i, { url: v })}
+            />
           </SplitItem>
           <SplitItem>
-            <Button variant="link" isDanger isInline isDisabled={isDisabled} onClick={() => remove(i)}>
+            <Button
+              variant="link"
+              isDanger
+              isInline
+              isDisabled={isDisabled}
+              onClick={() => remove(i)}
+            >
               {_("Remove")}
             </Button>
           </SplitItem>
@@ -247,8 +293,16 @@ const AdGuardSettings = () => {
   const filters: Record<string, boolean> = s.valueOf("dns.adguard.standardFilters", {});
   const filtersLocked = s.lockedOf("dns.adguard.standardFilters");
 
-  if (!s.ready && !s.error) return <Loading />;
-  if (s.error) return <Alert variant="danger" isInline title={_("Could not load settings")}>{s.error}</Alert>;
+  if (!s.ready && !s.error) {
+    return <Loading />;
+  }
+  if (s.error) {
+    return (
+      <Alert variant="danger" isInline title={_("Could not load settings")}>
+        {s.error}
+      </Alert>
+    );
+  }
 
   return (
     <Stack hasGutter className="ct-router-stack">
@@ -258,7 +312,7 @@ const AdGuardSettings = () => {
             <FormGroup label={_("Enforce SafeSearch")} fieldId="safeSearch">
               <Switch
                 id="safeSearch"
-                isChecked={!!s.valueOf("dns.adguard.safeSearch", false)}
+                isChecked={Boolean(s.valueOf("dns.adguard.safeSearch", false))}
                 isDisabled={s.lockedOf("dns.adguard.safeSearch")}
                 onChange={(_e, c) => s.setLeaf("dns.adguard.safeSearch", c)}
                 aria-label={_("Enforce SafeSearch")}
@@ -268,15 +322,15 @@ const AdGuardSettings = () => {
 
           <FormSection title={_("Standard filter lists")} titleElement="h2">
             {Object.keys(FILTER_LABELS).map((key) => (
-              <FormGroup label={_(FILTER_LABELS[key])} fieldId={key} key={key}>
+              <FormGroup label={_(FILTER_LABELS[key] ?? key)} fieldId={key} key={key}>
                 <Switch
                   id={key}
-                  isChecked={!!filters[key]}
+                  isChecked={Boolean(filters[key])}
                   isDisabled={filtersLocked}
                   onChange={(_e, c) =>
                     s.setLeaf("dns.adguard.standardFilters", { ...filters, [key]: c })
                   }
-                  aria-label={_(FILTER_LABELS[key])}
+                  aria-label={_(FILTER_LABELS[key] ?? key)}
                 />
               </FormGroup>
             ))}
@@ -286,7 +340,7 @@ const AdGuardSettings = () => {
             <FormGroup
               label={_("UT Capitole categories")}
               fieldId="utc"
-              labelHelp={_("Category names from dsi.ut-capitole.fr/blacklists")}
+              labelHelp={hint(_("Category names from dsi.ut-capitole.fr/blacklists"))}
             >
               <ListEditor
                 value={s.valueOf("dns.adguard.utCapitoleCategories", [])}
@@ -369,7 +423,12 @@ const AdGuardSettings = () => {
             </FormGroup>
           </FormSection>
 
-          <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
+          <SaveBar
+            saving={s.saving}
+            status={s.status}
+            onSave={s.save}
+            onSaveApply={s.saveAndApply}
+          />
         </Form>
       </StackItem>
     </Stack>

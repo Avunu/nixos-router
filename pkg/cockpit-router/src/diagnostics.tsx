@@ -1,4 +1,5 @@
 import { useRef, useState } from "react";
+import { errMsg } from "./nix";
 import {
   Form,
   FormGroup,
@@ -26,26 +27,30 @@ export const Diagnostics = () => {
   const [target, setTarget] = useState("1.1.1.1");
   const [out, setOut] = useState("");
   const [running, setRunning] = useState(false);
-  const procRef = useRef<any>(null);
+  const procRef = useRef<CockpitProcess | null>(null);
 
   const run = () => {
-    if (!target.trim()) return;
+    if (!target.trim()) {
+      return;
+    }
     setOut("");
     setRunning(true);
-    const argv = [...TOOLS[tool], target.trim()];
+    const argv = [...(TOOLS[tool] ?? []), target.trim()];
     const proc = cockpit.spawn(argv, { err: "out", pty: false });
     procRef.current = proc;
-    proc.stream((data: string) => setOut((o) => o + data));
+    void proc.stream((data: string) => setOut((o) => o + data));
     proc
       .then(() => setRunning(false))
-      .catch((e: any) => {
-        setOut((o) => o + "\n" + (e.message || String(e)));
+      .catch((e: unknown) => {
+        setOut((o) => `${o}\n${errMsg(e)}`);
         setRunning(false);
       });
   };
 
   const cancel = () => {
-    if (procRef.current) procRef.current.close("cancelled");
+    if (procRef.current) {
+      procRef.current.close("cancelled");
+    }
     setRunning(false);
   };
 

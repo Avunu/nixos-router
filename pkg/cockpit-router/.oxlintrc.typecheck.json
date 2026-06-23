@@ -1,0 +1,28 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // Type-aware ("strict") lint pass — run via `npm run lint:typecheck`
+  // (`oxlint --type-aware -c .oxlintrc.typecheck.json src`). Kept separate from
+  // .oxlintrc.json: --type-aware turns on every type-aware rule in an enabled
+  // category, so here every category is off and we opt IN to exactly the
+  // promise-soundness + no-unsafe-`any` set (the typed cockpit.d.ts facade keeps
+  // these green).
+  "categories": {
+    "correctness": "off",
+    "nursery": "off",
+    "pedantic": "off",
+    "perf": "off",
+    "restriction": "off",
+    "style": "off",
+    "suspicious": "off"
+  },
+  "ignorePatterns": ["dist", "node_modules", "pkg/lib", "**/*.map"],
+  "plugins": ["typescript"],
+  "rules": {
+    "typescript/no-floating-promises": "error",
+    "typescript/await-thenable": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-argument": "error"
+  }
+}

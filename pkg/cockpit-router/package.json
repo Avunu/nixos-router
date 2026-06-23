@@ -8,6 +8,13 @@
   "scripts": {
     "build": "node build.js",
     "watch": "NODE_ENV=development node build.js",
+    "format": "oxfmt src build.js",
+    "format:check": "oxfmt --check src build.js",
+    "lint": "oxlint src",
+    "lint:fix": "oxlint --fix src",
+    "lint:typecheck": "oxlint --type-aware -c .oxlintrc.typecheck.json src",
+    "typecheck": "tsc",
+    "check": "npm run format:check && npm run lint && npm run lint:typecheck && npm run typecheck",
     "upgrade": "npx npm-check-updates -u && npm install"
   },
   "dependencies": {
@@ -23,6 +30,9 @@
     "@types/react-dom": "^19.2.3",
     "esbuild": "^0.28.1",
     "esbuild-sass-plugin": "^3.3.1",
+    "oxfmt": "0.56.0",
+    "oxlint": "1.71.0",
+    "oxlint-tsgolint": "0.23.0",
     "sass": "^1.83.0",
     "typescript": "^6.0.3"
   }

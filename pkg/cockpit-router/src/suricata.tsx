@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { errMsg } from "./nix";
 import {
   Toolbar,
   ToolbarContent,
@@ -16,14 +17,22 @@ import {
   FormGroup,
   Switch,
   TextArea,
-  ActionGroup,
 } from "@patternfly/react-core";
-import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
-import { useSettings, Loading, SubNav, SaveBar } from "./settings";
+import {
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  OuterScrollContainer,
+  InnerScrollContainer,
+} from "@patternfly/react-table";
+import { useSettings, Loading, SubNav, SaveBar, hint } from "./settings";
 
 const _ = cockpit.gettext;
 const EVE = "/var/log/suricata/eve.json";
-const SCAN = 1000; // lines to tail
+const SCAN = 1000; // Lines to tail
 
 interface Ev {
   timestamp: string;
@@ -34,8 +43,7 @@ interface Ev {
   alert?: { signature?: string; severity?: number; category?: string };
 }
 
-const sevColor = (s?: number) =>
-  s === 1 ? "red" : s === 2 ? "orange" : "grey";
+const sevColor = (s?: number) => (s === 1 ? "red" : s === 2 ? "orange" : "grey");
 
 const SuricataLog = () => {
   const [rows, setRows] = useState<Ev[]>([]);
@@ -54,19 +62,23 @@ const SuricataLog = () => {
       .then((out: string) => {
         const evs: Ev[] = [];
         for (const line of (out || "").split("\n")) {
-          if (!line.trim()) continue;
+          if (!line.trim()) {
+            continue;
+          }
           try {
-            const o = JSON.parse(line);
-            if (o.event_type === "alert" || o.event_type === "drop") evs.push(o);
+            const o = JSON.parse(line) as Ev;
+            if (o.event_type === "alert" || o.event_type === "drop") {
+              evs.push(o);
+            }
           } catch {
-            /* skip partial/non-JSON lines */
+            /* Skip partial/non-JSON lines */
           }
         }
-        setRows(evs.reverse()); // newest first
+        setRows(evs.toReversed()); // Newest first
         setLoading(false);
       })
-      .catch((e: any) => {
-        setError(e.message || String(e));
+      .catch((e: unknown) => {
+        setError(errMsg(e));
         setLoading(false);
       });
   }, []);
@@ -84,7 +96,9 @@ const SuricataLog = () => {
         .includes(filter.toLowerCase()),
   );
 
-  if (loading) return <Spinner />;
+  if (loading) {
+    return <Spinner />;
+  }
 
   return (
     <Stack hasGutter className="ct-router-stack">
@@ -109,7 +123,9 @@ const SuricataLog = () => {
       </StackItem>
       {error && (
         <StackItem>
-          <Alert variant="danger" title={_("Could not read Suricata events")} isInline>{error}</Alert>
+          <Alert variant="danger" title={_("Could not read Suricata events")} isInline>
+            {error}
+          </Alert>
         </StackItem>
       )}
       <StackItem isFilled className="ct-table-scroll">
@@ -141,7 +157,10 @@ const SuricataLog = () => {
                     <Tr key={i}>
                       <Td>{r.timestamp}</Td>
                       <Td>
-                        <Label color={r.event_type === "drop" ? "red" : sevColor(r.alert?.severity)} isCompact>
+                        <Label
+                          color={r.event_type === "drop" ? "red" : sevColor(r.alert?.severity)}
+                          isCompact
+                        >
                           {r.event_type}
                         </Label>
                       </Td>
@@ -164,8 +183,16 @@ const SuricataLog = () => {
 const SuricataSettings = () => {
   const s = useSettings();
 
-  if (!s.ready && !s.error) return <Loading />;
-  if (s.error) return <Alert variant="danger" isInline title={_("Could not load settings")}>{s.error}</Alert>;
+  if (!s.ready && !s.error) {
+    return <Loading />;
+  }
+  if (s.error) {
+    return (
+      <Alert variant="danger" isInline title={_("Could not load settings")}>
+        {s.error}
+      </Alert>
+    );
+  }
 
   return (
     <Stack hasGutter className="ct-router-stack">
@@ -174,7 +201,7 @@ const SuricataSettings = () => {
           <FormGroup label={_("Enable Suricata IPS")} fieldId="ipsEnable">
             <Switch
               id="ipsEnable"
-              isChecked={!!s.valueOf("suricata.enable", false)}
+              isChecked={Boolean(s.valueOf("suricata.enable", false))}
               isDisabled={s.lockedOf("suricata.enable")}
               onChange={(_e, c) => s.setLeaf("suricata.enable", c)}
               aria-label={_("Enable Suricata IPS")}
@@ -183,7 +210,7 @@ const SuricataSettings = () => {
           <FormGroup
             label={_("Extra local rules")}
             fieldId="extraRules"
-            labelHelp={_("Custom Suricata rules, one per line")}
+            labelHelp={hint(_("Custom Suricata rules, one per line"))}
           >
             <TextArea
               id="extraRules"
@@ -195,7 +222,12 @@ const SuricataSettings = () => {
               aria-label={_("Extra local rules")}
             />
           </FormGroup>
-          <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
+          <SaveBar
+            saving={s.saving}
+            status={s.status}
+            onSave={s.save}
+            onSaveApply={s.saveAndApply}
+          />
         </Form>
       </StackItem>
     </Stack>

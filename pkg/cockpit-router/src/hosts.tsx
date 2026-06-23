@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
+import { errMsg } from "./nix";
 import {
   Toolbar,
   ToolbarContent,
@@ -14,7 +15,16 @@ import {
   Stack,
   StackItem,
 } from "@patternfly/react-core";
-import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
+import {
+  Table,
+  Thead,
+  Tbody,
+  Tr,
+  Th,
+  Td,
+  OuterScrollContainer,
+  InnerScrollContainer,
+} from "@patternfly/react-table";
 
 const _ = cockpit.gettext;
 
@@ -39,14 +49,18 @@ const isIPv4 = (ip: string) => /^\d{1,3}(\.\d{1,3}){3}$/.test(ip);
 // IPv4 before IPv6, numeric within each family.
 const ipCompare = (a: string, b: string) => {
   const av = isIPv4(a);
-  if (av !== isIPv4(b)) return av ? -1 : 1;
+  if (av !== isIPv4(b)) {
+    return av ? -1 : 1;
+  }
   return a.localeCompare(b, undefined, { numeric: true });
 };
 
 // ── MAC vendor lookup (nmap's OUI prefix database, read once) ───────────────
 let ouiMapPromise: Promise<Map<string, string>> | null = null;
 function loadOuiMap(): Promise<Map<string, string>> {
-  if (ouiMapPromise) return ouiMapPromise;
+  if (ouiMapPromise) {
+    return ouiMapPromise;
+  }
   const path = window.cockpitRouterConfig?.macPrefixesPath;
   if (!path) {
     ouiMapPromise = Promise.resolve(new Map());
@@ -55,12 +69,16 @@ function loadOuiMap(): Promise<Map<string, string>> {
   ouiMapPromise = cockpit
     .file(path)
     .read()
-    .then((data: string) => {
+    .then((data: string | null) => {
       const m = new Map<string, string>();
       for (const line of (data || "").split("\n")) {
-        if (!line || line[0] === "#") continue;
+        if (!line || line[0] === "#") {
+          continue;
+        }
         const sp = line.indexOf(" ");
-        if (sp !== 6) continue; // "<6 hex> <vendor>"
+        if (sp !== 6) {
+          continue;
+        } // "<6 hex> <vendor>"
         m.set(line.slice(0, 6).toUpperCase(), line.slice(7).trim());
       }
       return m;
@@ -70,21 +88,23 @@ function loadOuiMap(): Promise<Map<string, string>> {
 }
 
 const vendorFor = (mac: string | undefined, oui: Map<string, string>) => {
-  if (!mac) return "";
-  const hex = mac.replace(/:/g, "").toUpperCase();
+  if (!mac) {
+    return "";
+  }
+  const hex = mac.replaceAll(":", "").toUpperCase();
   return hex.length >= 6 ? oui.get(hex.slice(0, 6)) || "" : "";
 };
 
 // ── Hostname resolution via Avahi/mDNS (one batch call) ─────────────────────
 function resolveNames(ips: string[]): Promise<Record<string, string>> {
   return new Promise((resolve) => {
-    if (!ips.length) {
+    if (ips.length === 0) {
       resolve({});
       return;
     }
     let out = "";
     const proc = cockpit.spawn(["avahi-resolve", "-a", ...ips], { err: "ignore" });
-    proc.stream((d: string) => {
+    void proc.stream((d: string) => {
       out += d;
     });
     const done = () => {
@@ -93,8 +113,13 @@ function resolveNames(ips: string[]): Promise<Record<string, string>> {
         const tab = line.indexOf("\t");
         if (tab > 0) {
           const ip = line.slice(0, tab).trim();
-          const name = line.slice(tab + 1).trim().replace(/\.$/, "");
-          if (ip && name) map[ip] = name;
+          const name = line
+            .slice(tab + 1)
+            .trim()
+            .replace(/\.$/, "");
+          if (ip && name) {
+            map[ip] = name;
+          }
         }
       }
       resolve(map);
@@ -114,10 +139,10 @@ export const Hosts = () => {
   const [scanning, setScanning] = useState(false);
   const [scanError, setScanError] = useState("");
   const [isStuck, setIsStuck] = useState(false);
-  const scanProc = useRef<any>(null);
+  const scanProc = useRef<CockpitProcess | null>(null);
 
   useEffect(() => {
-    loadOuiMap().then(setOui);
+    void loadOuiMap().then(setOui);
   }, []);
 
   const load = useCallback(() => {
@@ -125,33 +150,33 @@ export const Hosts = () => {
     cockpit
       .spawn(["ip", "-j", "neigh"], { err: "message" })
       .then((out: string) => {
-        const parsed: Neigh[] = JSON.parse(out || "[]");
-        const hosts = parsed.filter(
-          (n) => n.lladdr && !(n.state || []).includes("FAILED"),
-        );
+        const parsed = JSON.parse(out || "[]") as Neigh[];
+        const hosts = parsed.filter((n) => n.lladdr && !(n.state || []).includes("FAILED"));
         hosts.sort((a, b) => a.dst.localeCompare(b.dst, undefined, { numeric: true }));
         setRows(hosts);
         setLoading(false);
         // Enrich with hostnames asynchronously (don't block the table).
-        resolveNames(hosts.map((h) => h.dst)).then((m) =>
+        void resolveNames(hosts.map((h) => h.dst)).then((m) =>
           setNames((prev) => ({ ...prev, ...m })),
         );
       })
-      .catch((e: any) => {
-        setError(e.message || String(e));
+      .catch((e: unknown) => {
+        setError(errMsg(e));
         setLoading(false);
       });
   }, []);
 
   useEffect(() => {
     load();
-    const timer = setInterval(load, 15000);
+    const timer = setInterval(load, 15_000);
     return () => clearInterval(timer);
   }, [load]);
 
   const scanPorts = useCallback(() => {
-    const targets = rows.map((r) => r.dst).filter(isIPv4);
-    if (!targets.length) return;
+    const targets = rows.map((r) => r.dst).filter((ip) => isIPv4(ip));
+    if (targets.length === 0) {
+      return;
+    }
     setScanError("");
     setScanning(true);
     let buf = "";
@@ -160,50 +185,67 @@ export const Hosts = () => {
       { superuser: "require", err: "message" },
     );
     scanProc.current = proc;
-    proc.stream((chunk: string) => {
-      buf += chunk;
-      const lines = buf.split("\n");
-      buf = lines.pop() || "";
-      const updates: Record<string, number[]> = {};
-      for (const line of lines) {
-        const m = line.match(/^Host:\s+(\d{1,3}(?:\.\d{1,3}){3})\b.*?\bPorts:\s+([^\t]+)/);
-        if (m) {
-          updates[m[1]] = m[2]
-            .split(", ")
-            .map((p) => p.split("/"))
-            .filter((f) => f[1] === "open")
-            .map((f) => Number(f[0]))
-            .filter((n) => !Number.isNaN(n));
+    proc
+      .stream((chunk: string) => {
+        buf += chunk;
+        const lines = buf.split("\n");
+        buf = lines.pop() || "";
+        const updates: Record<string, number[]> = {};
+        for (const line of lines) {
+          const m = line.match(/^Host:\s+(\d{1,3}(?:\.\d{1,3}){3})\b.*?\bPorts:\s+([^\t]+)/);
+          if (m) {
+            const ip = m[1] ?? "";
+            const spec = m[2] ?? "";
+            updates[ip] = spec
+              .split(", ")
+              .map((p) => p.split("/"))
+              .filter((f) => f[1] === "open")
+              .map((f) => Number(f[0]))
+              .filter((n) => !Number.isNaN(n));
+          }
         }
-      }
-      if (Object.keys(updates).length) setPorts((prev) => ({ ...prev, ...updates }));
-    })
+        if (Object.keys(updates).length > 0) {
+          setPorts((prev) => ({ ...prev, ...updates }));
+        }
+      })
       .then(() => setScanning(false))
-      .catch((e: any) => {
-        setScanError(e.message || String(e));
+      .catch((e: unknown) => {
+        setScanError(errMsg(e));
         setScanning(false);
       });
   }, [rows]);
 
   // Collapse the neighbor entries into one row per MAC. Grouping is keyed by the
-  // upper-cased MAC, but the first-seen casing is kept for display.
+  // Upper-cased MAC, but the first-seen casing is kept for display.
   const nodes: HostNode[] = useMemo(() => {
     const byMac = new Map<string, HostNode>();
     for (const r of rows) {
-      if (!r.lladdr) continue;
+      if (!r.lladdr) {
+        continue;
+      }
       const key = r.lladdr.toUpperCase();
       let node = byMac.get(key);
       if (!node) {
         node = { mac: r.lladdr, ips: [], devs: [], states: [] };
         byMac.set(key, node);
       }
-      if (!node.ips.includes(r.dst)) node.ips.push(r.dst);
-      if (r.dev && !node.devs.includes(r.dev)) node.devs.push(r.dev);
-      for (const s of r.state || []) if (!node.states.includes(s)) node.states.push(s);
+      if (!node.ips.includes(r.dst)) {
+        node.ips.push(r.dst);
+      }
+      if (r.dev && !node.devs.includes(r.dev)) {
+        node.devs.push(r.dev);
+      }
+      for (const s of r.state || []) {
+        if (!node.states.includes(s)) {
+          node.states.push(s);
+        }
+      }
     }
     const list = [...byMac.values()];
-    for (const n of list) n.ips.sort(ipCompare);
-    list.sort((a, b) => ipCompare(a.ips[0], b.ips[0]));
+    for (const n of list) {
+      n.ips.sort(ipCompare);
+    }
+    list.sort((a, b) => ipCompare(a.ips[0] ?? "", b.ips[0] ?? ""));
     return list;
   }, [rows]);
 
@@ -212,7 +254,7 @@ export const Hosts = () => {
     [...new Set(n.ips.map((ip) => names[ip]).filter(Boolean))].join(", ");
 
   // Open ports are scanned per IP; report the union, distinguishing "scanned,
-  // none open" (empty array) from "not scanned yet" (undefined).
+  // None open" (empty array) from "not scanned yet" (undefined).
   const nodePorts = (n: HostNode): number[] | undefined => {
     const set = new Set<number>();
     let scanned = false;
@@ -220,10 +262,12 @@ export const Hosts = () => {
       const p = ports[ip];
       if (p) {
         scanned = true;
-        for (const x of p) set.add(x);
+        for (const x of p) {
+          set.add(x);
+        }
       }
     }
-    return scanned ? [...set].sort((a, b) => a - b) : undefined;
+    return scanned ? [...set].toSorted((a, b) => a - b) : undefined;
   };
 
   const shown = nodes.filter(
@@ -235,7 +279,9 @@ export const Hosts = () => {
         .includes(filter.toLowerCase()),
   );
 
-  if (loading) return <Spinner />;
+  if (loading) {
+    return <Spinner />;
+  }
 
   return (
     <Stack hasGutter className="ct-router-stack">
@@ -347,4 +393,3 @@ export const Hosts = () => {
     </Stack>
   );
 };
-
