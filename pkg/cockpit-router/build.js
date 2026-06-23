@@ -22,6 +22,11 @@ const outdir = "dist";
 // time instead (no runtime codegen); src/schema.ts imports it. Regenerated every
 // build, so the validator never drifts from router-settings.schema.json.
 const schema = JSON.parse(fs.readFileSync("./src/router-settings.schema.json", "utf8"));
+// Single source: the UT Capitole category set lives in ut-capitole.json (shared
+// with the Cockpit UI). Inject its ids as the schema enum so an unknown category
+// is rejected at validation time — without duplicating the list.
+const utCapitole = JSON.parse(fs.readFileSync("./src/ut-capitole.json", "utf8"));
+schema.definitions.utCapitoleCategory.enum = utCapitole.map((c) => c.id);
 const ajv = new Ajv({ code: { source: true, esm: true }, allErrors: true, allowUnionTypes: true });
 ajv.compile(schema); // compiles + registers the schema under its $id
 fs.mkdirSync("./src/_generated", { recursive: true });

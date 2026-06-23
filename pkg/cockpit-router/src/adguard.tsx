@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { errMsg } from "./nix";
+import utCapitoleCategories from "./ut-capitole.json";
 import {
   Toolbar,
   ToolbarContent,
@@ -21,6 +22,7 @@ import {
   StackItem,
   Split,
   SplitItem,
+  Gallery,
   Form,
   FormGroup,
   FormSection,
@@ -288,6 +290,42 @@ const ExtraFiltersEditor = ({
   );
 };
 
+// Toggle-switch selector for UT Capitole blacklist categories. The list (id +
+// official description) lives in ut-capitole.json — the single source also used at
+// build time to inject the schema's allowed-values enum.
+const UtCapitoleSelector = ({
+  value,
+  onChange,
+  isDisabled,
+}: {
+  value: string[];
+  onChange: (v: string[]) => void;
+  isDisabled?: boolean;
+}) => {
+  const selected = new Set(value);
+  return (
+    <Gallery hasGutter minWidths={{ default: "320px" }}>
+      {utCapitoleCategories.map((c) => (
+        <div key={c.id}>
+          <Switch
+            id={`utc-${c.id}`}
+            label={c.id}
+            isChecked={selected.has(c.id)}
+            isDisabled={isDisabled}
+            onChange={(_e, on) => onChange(on ? [...value, c.id] : value.filter((x) => x !== c.id))}
+          />
+          <div
+            className="pf-v6-u-color-200"
+            style={{ fontSize: "0.85rem", marginBlockStart: "0.125rem" }}
+          >
+            {c.description}
+          </div>
+        </div>
+      ))}
+    </Gallery>
+  );
+};
+
 const AdGuardSettings = () => {
   const s = useSettings();
   const filters: Record<string, boolean> = s.valueOf("dns.adguard.standardFilters", {});
@@ -342,11 +380,10 @@ const AdGuardSettings = () => {
               fieldId="utc"
               labelHelp={hint(_("Category names from dsi.ut-capitole.fr/blacklists"))}
             >
-              <ListEditor
+              <UtCapitoleSelector
                 value={s.valueOf("dns.adguard.utCapitoleCategories", [])}
                 isDisabled={s.lockedOf("dns.adguard.utCapitoleCategories")}
                 onChange={(v) => s.setLeaf("dns.adguard.utCapitoleCategories", v)}
-                placeholder={_("e.g. gambling")}
               />
             </FormGroup>
             <FormGroup label={_("Allow list (domains)")} fieldId="allow">

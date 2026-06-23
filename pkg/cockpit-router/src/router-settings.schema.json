@@ -106,6 +106,10 @@
       "type": "array",
       "items": { "type": "string" }
     },
+    "utCapitoleCategory": {
+      "description": "A UT Capitole blacklist category. The allowed enum is injected at build time from ut-capitole.json (the single source shared with the Cockpit UI).",
+      "type": "string"
+    },
     "port": {
       "type": "integer",
       "minimum": 0,
@@ -153,7 +157,10 @@
           "type": "array",
           "items": { "type": "object" }
         },
-        "utCapitoleCategories": { "$ref": "#/definitions/stringArray" },
+        "utCapitoleCategories": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/utCapitoleCategory" }
+        },
         "extraUserRules": { "$ref": "#/definitions/stringArray" },
         "allowList": { "$ref": "#/definitions/stringArray" },
         "blockList": { "$ref": "#/definitions/stringArray" }

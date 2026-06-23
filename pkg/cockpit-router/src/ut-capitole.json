@@ -1,0 +1,87 @@
+[
+  { "id": "adult", "description": "Some adult site from erotic to hard pornography." },
+  { "id": "agressif", "description": "Some aggressive sites." },
+  { "id": "ai", "description": "Site which provides artificial intelligence" },
+  {
+    "id": "arjel",
+    "description": "ARJEL which is a french certification authority for gambling sites"
+  },
+  { "id": "associations_religieuses", "description": "Religious associations." },
+  { "id": "astrology", "description": "Astrology" },
+  { "id": "audio-video", "description": "Some audio and video sites." },
+  { "id": "bank", "description": "Online bank" },
+  { "id": "bitcoin", "description": "Sites for bitcoin mining" },
+  { "id": "blog", "description": "Some blogs sites." },
+  { "id": "celebrity", "description": "Famous people, actors, and magazine which talk about them" },
+  { "id": "chat", "description": "Chat site" },
+  { "id": "child", "description": "Any website allowed to child (less than 10 years old)" },
+  { "id": "cleaning", "description": "Sites to disinfect, update and protect computers." },
+  { "id": "cooking", "description": "Sites for cooking" },
+  { "id": "cryptojacking", "description": "Mining site by hijacking" },
+  {
+    "id": "dangerous_material",
+    "description": "Sites which describe how to make bomb and some dangerous material."
+  },
+  { "id": "dating", "description": "Dating, matching site for single person" },
+  { "id": "ddos", "description": "DDoS or Stresser Sites" },
+  { "id": "dialer", "description": "Dialer Sites" },
+  { "id": "doh", "description": "Site which provides DNS over HTTP service" },
+  { "id": "download", "description": "Sites which propose to download software" },
+  { "id": "drogue", "description": "Sites relative to drugs." },
+  { "id": "dynamic-dns", "description": "Site which provides dynamic-dns" },
+  { "id": "educational_games", "description": "Educational games sites (flash and online games)" },
+  { "id": "fakenews", "description": "Site which provides fakenews" },
+  { "id": "filehosting", "description": "Websites which host files (pictures, video, ...)" },
+  { "id": "financial", "description": "Sites relative financial information." },
+  { "id": "forums", "description": "Forums site." },
+  { "id": "gambling", "description": "Gambling and games sites, casino, etc." },
+  { "id": "games", "description": "Games sites (flash and online games)" },
+  { "id": "hacking", "description": "Hacking sites." },
+  { "id": "jobsearch", "description": "Site to looking for job" },
+  { "id": "lingerie", "description": "Sites for lingerie" },
+  {
+    "id": "liste_bu",
+    "description": "A french list for educational sites. VERY locally oriented. may help libraries."
+  },
+  { "id": "malware", "description": "Any website which deliver malware" },
+  { "id": "manga", "description": "Any website related to manga, and cartoons" },
+  { "id": "marketingware", "description": "Very special marketing sites" },
+  { "id": "mixed_adult", "description": "Websites which contains adult sections unstructured" },
+  { "id": "mobile-phone", "description": "Sites for mobile phone (rings, etc)." },
+  { "id": "phishing", "description": "Phishing sites (same as malware category)" },
+  { "id": "press", "description": "Any press (informational) site" },
+  { "id": "publicite", "description": "Advertisement." },
+  { "id": "radio", "description": "Internet radio sites" },
+  { "id": "reaffected", "description": "Websites which have been reaffected" },
+  {
+    "id": "redirector",
+    "description": "Some redirector sites, which are used to circumvent filtering."
+  },
+  { "id": "remote-control", "description": "Site which allows remote control of a user's desktop" },
+  { "id": "residential-proxies", "description": "Site which provides residential-proxies" },
+  { "id": "sect", "description": "Sect" },
+  {
+    "id": "sexual_education",
+    "description": "Website which talk about sexual education, and can be misdetected as porn"
+  },
+  { "id": "shopping", "description": "Any shopping, selling center" },
+  { "id": "shortener", "description": "URLs shortening sites" },
+  { "id": "social_networks", "description": "All social networks sites" },
+  { "id": "sports", "description": "Sports" },
+  { "id": "stalkerware", "description": "Site which sells spying software for everybody" },
+  {
+    "id": "strict_redirector",
+    "description": "Same as redirector, but with google, yahoo, and other cache/images search robots."
+  },
+  {
+    "id": "strong_redirector",
+    "description": "Same as strict_redirector, but, for google, yahoo, we are only blocking some terms."
+  },
+  { "id": "translation", "description": "Sites for translation" },
+  { "id": "tricheur", "description": "Sites which are designed to explain cheating on exams." },
+  { "id": "update", "description": "Update sites for software or OS" },
+  { "id": "vpn", "description": "VPN site" },
+  { "id": "warez", "description": "Warez sites." },
+  { "id": "webhosting", "description": "Site which provides webhosting" },
+  { "id": "webmail", "description": "Webmail sites (hotmail like...)" }
+]
