@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { errMsg } from "./nix";
+import { TabbedPage } from "./settings";
 import {
   Form,
   FormGroup,
@@ -55,7 +56,7 @@ export const Diagnostics = () => {
   };
 
   return (
-    <>
+    <TabbedPage fills={false}>
       <Form
         isHorizontal
         onSubmit={(e) => {
@@ -104,6 +105,6 @@ export const Diagnostics = () => {
           <CodeBlockCode>{out}</CodeBlockCode>
         </CodeBlock>
       )}
-    </>
+    </TabbedPage>
   );
 };

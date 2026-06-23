@@ -24,7 +24,7 @@ import {
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import { flakeHostRef, writeApplied, loadState, errMsg } from "./nix";
-import { useSettings, SubNav, SaveBar, Loading, ListEditor, hint } from "./settings";
+import { useSettings, SubNav, SaveBar, Loading, ListEditor, hint, TabbedPage } from "./settings";
 
 const _ = cockpit.gettext;
 
@@ -395,8 +395,8 @@ const SystemSettings = () => {
 export const System = () => {
   const [tab, setTab] = useState("operations");
   return (
-    <Stack className="ct-router-stack">
-      <StackItem>
+    <TabbedPage
+      subnav={
         <SubNav
           active={tab}
           onSelect={setTab}
@@ -405,10 +405,9 @@ export const System = () => {
             { id: "settings", label: _("Settings") },
           ]}
         />
-      </StackItem>
-      <StackItem isFilled className="ct-table-scroll">
-        {tab === "operations" ? <SystemOps /> : <SystemSettings />}
-      </StackItem>
-    </Stack>
+      }
+    >
+      {tab === "operations" ? <SystemOps /> : <SystemSettings />}
+    </TabbedPage>
   );
 };

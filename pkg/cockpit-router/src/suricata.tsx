@@ -28,7 +28,7 @@ import {
   OuterScrollContainer,
   InnerScrollContainer,
 } from "@patternfly/react-table";
-import { useSettings, Loading, SubNav, SaveBar, hint } from "./settings";
+import { useSettings, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
 
 const _ = cockpit.gettext;
 const EVE = "/var/log/suricata/eve.json";
@@ -237,8 +237,8 @@ const SuricataSettings = () => {
 export const Suricata = () => {
   const [tab, setTab] = useState("events");
   return (
-    <Stack className="ct-router-stack">
-      <StackItem>
+    <TabbedPage
+      subnav={
         <SubNav
           active={tab}
           onSelect={setTab}
@@ -247,10 +247,9 @@ export const Suricata = () => {
             { id: "settings", label: _("Settings") },
           ]}
         />
-      </StackItem>
-      <StackItem isFilled className="ct-table-scroll">
-        {tab === "events" ? <SuricataLog /> : <SuricataSettings />}
-      </StackItem>
-    </Stack>
+      }
+    >
+      {tab === "events" ? <SuricataLog /> : <SuricataSettings />}
+    </TabbedPage>
   );
 };

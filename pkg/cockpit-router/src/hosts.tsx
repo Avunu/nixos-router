@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { errMsg } from "./nix";
+import { TabbedPage } from "./settings";
 import {
   Toolbar,
   ToolbarContent,
@@ -284,112 +285,114 @@ export const Hosts = () => {
   }
 
   return (
-    <Stack hasGutter className="ct-router-stack">
-      <StackItem>
-        <Toolbar>
-          <ToolbarContent>
-            <ToolbarItem>
-              <SearchInput
-                placeholder={_("Filter by IP, host, MAC, vendor")}
-                value={filter}
-                onChange={(_e, v) => setFilter(v)}
-                onClear={() => setFilter("")}
-              />
-            </ToolbarItem>
-            <ToolbarItem>
-              <Button variant="secondary" onClick={load} isDisabled={scanning}>
-                {_("Refresh")}
-              </Button>
-            </ToolbarItem>
-            <ToolbarItem>
-              <Button
-                variant="secondary"
-                onClick={scanPorts}
-                isDisabled={scanning}
-                icon={scanning ? <Spinner size="sm" /> : undefined}
-              >
-                {scanning ? _("Scanning ports…") : _("Scan ports")}
-              </Button>
-            </ToolbarItem>
-          </ToolbarContent>
-        </Toolbar>
-      </StackItem>
-      {error && (
+    <TabbedPage>
+      <Stack hasGutter className="ct-router-stack">
         <StackItem>
-          <Alert variant="danger" title={error} isInline />
+          <Toolbar>
+            <ToolbarContent>
+              <ToolbarItem>
+                <SearchInput
+                  placeholder={_("Filter by IP, host, MAC, vendor")}
+                  value={filter}
+                  onChange={(_e, v) => setFilter(v)}
+                  onClear={() => setFilter("")}
+                />
+              </ToolbarItem>
+              <ToolbarItem>
+                <Button variant="secondary" onClick={load} isDisabled={scanning}>
+                  {_("Refresh")}
+                </Button>
+              </ToolbarItem>
+              <ToolbarItem>
+                <Button
+                  variant="secondary"
+                  onClick={scanPorts}
+                  isDisabled={scanning}
+                  icon={scanning ? <Spinner size="sm" /> : undefined}
+                >
+                  {scanning ? _("Scanning ports…") : _("Scan ports")}
+                </Button>
+              </ToolbarItem>
+            </ToolbarContent>
+          </Toolbar>
         </StackItem>
-      )}
-      {scanError && (
-        <StackItem>
-          <Alert variant="warning" title={_("Port scan failed")} isInline>
-            {scanError}
-          </Alert>
-        </StackItem>
-      )}
-      <StackItem isFilled className="ct-table-scroll">
-        {shown.length === 0 ? (
-          <EmptyState>
-            <EmptyStateBody>{_("No connected hosts found.")}</EmptyStateBody>
-          </EmptyState>
-        ) : (
-          <OuterScrollContainer>
-            <InnerScrollContainer onScroll={(e) => setIsStuck(e.currentTarget.scrollTop > 0)}>
-              <Table
-                variant="compact"
-                aria-label={_("Connected hosts")}
-                isStickyHeaderBase
-                isStickyHeaderStuck={isStuck}
-              >
-                <Thead>
-                  <Tr>
-                    <Th>{_("IP address")}</Th>
-                    <Th>{_("Hostname")}</Th>
-                    <Th>{_("Vendor")}</Th>
-                    <Th>{_("MAC address")}</Th>
-                    <Th>{_("Interface")}</Th>
-                    <Th>{_("State")}</Th>
-                    <Th>{_("Open ports")}</Th>
-                  </Tr>
-                </Thead>
-                <Tbody>
-                  {shown.map((n) => {
-                    const open = nodePorts(n);
-                    return (
-                      <Tr key={n.mac}>
-                        <Td>
-                          {n.ips.map((ip) => (
-                            <div key={ip}>{ip}</div>
-                          ))}
-                        </Td>
-                        <Td>{nodeName(n) || "—"}</Td>
-                        <Td>{vendorFor(n.mac, oui) || "—"}</Td>
-                        <Td>{n.mac}</Td>
-                        <Td>{n.devs.join(", ")}</Td>
-                        <Td>{n.states.join(", ")}</Td>
-                        <Td>
-                          {open && open.length > 0 ? (
-                            <LabelGroup numLabels={8}>
-                              {open.map((p) => (
-                                <Label key={p} isCompact color="blue">
-                                  {p}
-                                </Label>
-                              ))}
-                            </LabelGroup>
-                          ) : open ? (
-                            _("none")
-                          ) : (
-                            "—"
-                          )}
-                        </Td>
-                      </Tr>
-                    );
-                  })}
-                </Tbody>
-              </Table>
-            </InnerScrollContainer>
-          </OuterScrollContainer>
+        {error && (
+          <StackItem>
+            <Alert variant="danger" title={error} isInline />
+          </StackItem>
         )}
-      </StackItem>
-    </Stack>
+        {scanError && (
+          <StackItem>
+            <Alert variant="warning" title={_("Port scan failed")} isInline>
+              {scanError}
+            </Alert>
+          </StackItem>
+        )}
+        <StackItem isFilled className="ct-table-scroll">
+          {shown.length === 0 ? (
+            <EmptyState>
+              <EmptyStateBody>{_("No connected hosts found.")}</EmptyStateBody>
+            </EmptyState>
+          ) : (
+            <OuterScrollContainer>
+              <InnerScrollContainer onScroll={(e) => setIsStuck(e.currentTarget.scrollTop > 0)}>
+                <Table
+                  variant="compact"
+                  aria-label={_("Connected hosts")}
+                  isStickyHeaderBase
+                  isStickyHeaderStuck={isStuck}
+                >
+                  <Thead>
+                    <Tr>
+                      <Th>{_("IP address")}</Th>
+                      <Th>{_("Hostname")}</Th>
+                      <Th>{_("Vendor")}</Th>
+                      <Th>{_("MAC address")}</Th>
+                      <Th>{_("Interface")}</Th>
+                      <Th>{_("State")}</Th>
+                      <Th>{_("Open ports")}</Th>
+                    </Tr>
+                  </Thead>
+                  <Tbody>
+                    {shown.map((n) => {
+                      const open = nodePorts(n);
+                      return (
+                        <Tr key={n.mac}>
+                          <Td>
+                            {n.ips.map((ip) => (
+                              <div key={ip}>{ip}</div>
+                            ))}
+                          </Td>
+                          <Td>{nodeName(n) || "—"}</Td>
+                          <Td>{vendorFor(n.mac, oui) || "—"}</Td>
+                          <Td>{n.mac}</Td>
+                          <Td>{n.devs.join(", ")}</Td>
+                          <Td>{n.states.join(", ")}</Td>
+                          <Td>
+                            {open && open.length > 0 ? (
+                              <LabelGroup numLabels={8}>
+                                {open.map((p) => (
+                                  <Label key={p} isCompact color="blue">
+                                    {p}
+                                  </Label>
+                                ))}
+                              </LabelGroup>
+                            ) : open ? (
+                              _("none")
+                            ) : (
+                              "—"
+                            )}
+                          </Td>
+                        </Tr>
+                      );
+                    })}
+                  </Tbody>
+                </Table>
+              </InnerScrollContainer>
+            </OuterScrollContainer>
+          )}
+        </StackItem>
+      </Stack>
+    </TabbedPage>
   );
 };

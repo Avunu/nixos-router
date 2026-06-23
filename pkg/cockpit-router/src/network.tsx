@@ -25,7 +25,7 @@ import {
   FormSection,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { useSettings, Loading, SubNav, SaveBar, ListEditor, hint } from "./settings";
+import { useSettings, Loading, SubNav, SaveBar, ListEditor, hint, TabbedPage } from "./settings";
 import { useInterfaces, validateNetwork } from "./interfaces";
 import type { Nic, NetView } from "./interfaces";
 
@@ -809,8 +809,8 @@ export const Network = () => {
   const errors = validateNetwork(net);
 
   return (
-    <Stack className="ct-router-stack">
-      <StackItem>
+    <TabbedPage
+      subnav={
         <SubNav
           active={tab}
           onSelect={setTab}
@@ -822,37 +822,40 @@ export const Network = () => {
             { id: "wireguard", label: _("WireGuard") },
           ]}
         />
-      </StackItem>
-      <StackItem isFilled style={{ overflowY: "auto" }}>
-        {tab === "interfaces" && <InterfacesTab s={s} nics={nics} net={net} />}
-        {tab === "wan" && <WanTab s={s} net={net} />}
-        {tab === "lan" && <LanTab s={s} nics={nics} net={net} />}
-        {tab === "guest" && <GuestTab s={s} nics={nics} net={net} />}
-        {tab === "wireguard" && <WireGuardTab s={s} />}
-      </StackItem>
-      <StackItem>
-        {errors.length > 0 && (
-          <Alert
-            variant="danger"
-            isInline
-            title={_("Network configuration is invalid")}
-            style={{ marginBlockEnd: "0.5rem" }}
-          >
-            <ul>
-              {errors.map((e, i) => (
-                <li key={i}>{e}</li>
-              ))}
-            </ul>
-          </Alert>
-        )}
-        <SaveBar
-          saving={s.saving}
-          status={s.status}
-          onSave={s.save}
-          onSaveApply={s.saveAndApply}
-          applyDisabled={errors.length > 0}
-        />
-      </StackItem>
-    </Stack>
+      }
+    >
+      <Stack className="ct-router-stack">
+        <StackItem isFilled style={{ overflowY: "auto" }}>
+          {tab === "interfaces" && <InterfacesTab s={s} nics={nics} net={net} />}
+          {tab === "wan" && <WanTab s={s} net={net} />}
+          {tab === "lan" && <LanTab s={s} nics={nics} net={net} />}
+          {tab === "guest" && <GuestTab s={s} nics={nics} net={net} />}
+          {tab === "wireguard" && <WireGuardTab s={s} />}
+        </StackItem>
+        <StackItem>
+          {errors.length > 0 && (
+            <Alert
+              variant="danger"
+              isInline
+              title={_("Network configuration is invalid")}
+              style={{ marginBlockEnd: "0.5rem" }}
+            >
+              <ul>
+                {errors.map((e, i) => (
+                  <li key={i}>{e}</li>
+                ))}
+              </ul>
+            </Alert>
+          )}
+          <SaveBar
+            saving={s.saving}
+            status={s.status}
+            onSave={s.save}
+            onSaveApply={s.saveAndApply}
+            applyDisabled={errors.length > 0}
+          />
+        </StackItem>
+      </Stack>
+    </TabbedPage>
   );
 };

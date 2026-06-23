@@ -25,7 +25,7 @@ import {
   SplitItem,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { useSettings, Loading, SubNav, SaveBar, hint } from "./settings";
+import { useSettings, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
 
 const _ = cockpit.gettext;
 
@@ -399,8 +399,8 @@ const ActiveRules = () => {
 export const Firewall = () => {
   const [tab, setTab] = useState("forwards");
   return (
-    <Stack className="ct-router-stack">
-      <StackItem>
+    <TabbedPage
+      subnav={
         <SubNav
           active={tab}
           onSelect={setTab}
@@ -410,12 +410,11 @@ export const Firewall = () => {
             { id: "rules", label: _("Active rules") },
           ]}
         />
-      </StackItem>
-      <StackItem isFilled className="ct-table-scroll">
-        {tab === "forwards" && <PortForwards />}
-        {tab === "upnp" && <UpnpSettings />}
-        {tab === "rules" && <ActiveRules />}
-      </StackItem>
-    </Stack>
+      }
+    >
+      {tab === "forwards" && <PortForwards />}
+      {tab === "upnp" && <UpnpSettings />}
+      {tab === "rules" && <ActiveRules />}
+    </TabbedPage>
   );
 };

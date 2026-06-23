@@ -15,6 +15,7 @@ import {
   CodeBlockCode,
   Split,
   SplitItem,
+  PageSection,
 } from "@patternfly/react-core";
 import { loadState, writeDesired, writeApplied, changedTopKeys, flakeHostRef, errMsg } from "./nix";
 import type { Json } from "./nix";
@@ -119,7 +120,7 @@ export const ChangesTray = () => {
   }
 
   return (
-    <div style={{ marginBlockEnd: "0.5rem" }}>
+    <PageSection hasBodyWrapper={false} className="ct-router-changes">
       {changed.length > 0 && !running && (
         <Alert
           variant="warning"
@@ -167,6 +168,6 @@ export const ChangesTray = () => {
           </CardBody>
         </Card>
       )}
-    </div>
+    </PageSection>
   );
 };

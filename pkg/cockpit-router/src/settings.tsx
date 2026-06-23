@@ -2,6 +2,7 @@
 // Cockpit sub-nav, a string-list editor, save-status, and the `useSettings` hook
 // that loads the JSON config and tracks a working copy for the forms.
 import { useState, useEffect, useCallback } from "react";
+import type { ReactNode } from "react";
 import {
   Alert,
   Button,
@@ -15,6 +16,7 @@ import {
   NavList,
   NavItem,
   Popover,
+  PageSection,
 } from "@patternfly/react-core";
 import { HelpIcon } from "@patternfly/react-icons";
 import { loadState, writeDesired, getPath, setPath, isLocked, errMsg } from "./nix";
@@ -60,6 +62,31 @@ export const SubNav = ({
       ))}
     </NavList>
   </Nav>
+);
+
+// Page layout mirroring Cockpit's native subnav pattern (see pkg/systemd/
+// services.jsx): the SubNav sits in its own hasBodyWrapper={false} section
+// (minimal space above the tabs), and the content sits in a separate filled
+// section below — the gap between tabs and content is that section's padding.
+export const TabbedPage = ({
+  subnav,
+  fills = true,
+  children,
+}: {
+  subnav?: ReactNode;
+  fills?: boolean;
+  children: ReactNode;
+}) => (
+  <>
+    {subnav ? (
+      <PageSection hasBodyWrapper={false} className="ct-router-subnav">
+        {subnav}
+      </PageSection>
+    ) : null}
+    <PageSection isFilled={fills} className={fills ? "ct-router-body" : undefined}>
+      {children}
+    </PageSection>
+  </>
 );
 
 export const Loading = () => <Spinner />;

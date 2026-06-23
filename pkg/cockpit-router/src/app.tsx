@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Page, PageSidebar, PageSection } from "@patternfly/react-core";
+import { Page, PageSidebar } from "@patternfly/react-core";
 import { Hosts } from "./hosts";
 import { Suricata } from "./suricata";
 import { AdGuard } from "./adguard";
@@ -14,34 +14,23 @@ import { ChangesTray } from "./changes";
 // bare layout lacks; the empty sidebar removes the otherwise-reserved gutter.
 const emptySidebar = <PageSidebar isSidebarOpen={false} />;
 
-interface View {
-  node: ReactNode;
-  // Fill views own an internal scroll region (their sticky-header table scrolls
-  // inside an InnerScrollContainer), so the page section must be bounded to the
-  // viewport and never scroll itself. Non-fill views (Diagnostics) hold
-  // free-flowing content and scroll the page section normally.
-  fills: boolean;
-}
-
 // Each Cockpit menu entry (see manifest.json) is its own top-level page that
-// renders one of these views. The host HTML picks the view via `data-view`.
-export const views: Record<string, View> = {
-  network: { node: <Network />, fills: true },
-  hosts: { node: <Hosts />, fills: true },
-  ips: { node: <Suricata />, fills: true },
-  dns: { node: <AdGuard />, fills: true },
-  firewall: { node: <Firewall />, fills: true },
-  system: { node: <System />, fills: true },
-  diagnostics: { node: <Diagnostics />, fills: false },
+// renders one of these views. The host HTML picks the view via `data-view`. Each
+// view supplies its own PageSection(s) via TabbedPage, mirroring Cockpit's native
+// pages (subnav section + content section as siblings under <Page>).
+export const views: Record<string, ReactNode> = {
+  network: <Network />,
+  hosts: <Hosts />,
+  ips: <Suricata />,
+  dns: <AdGuard />,
+  firewall: <Firewall />,
+  system: <System />,
+  diagnostics: <Diagnostics />,
 };
 
-export const App = ({ view }: { view: View | null }) => (
+export const App = ({ view }: { view: ReactNode }) => (
   <Page sidebar={emptySidebar} isContentFilled>
-    <PageSection>
-      <ChangesTray />
-    </PageSection>
-    <PageSection isFilled className={view?.fills ? "ct-router-body" : undefined}>
-      {view?.node}
-    </PageSection>
+    <ChangesTray />
+    {view}
   </Page>
 );

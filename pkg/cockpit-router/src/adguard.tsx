@@ -37,7 +37,7 @@ import {
   OuterScrollContainer,
   InnerScrollContainer,
 } from "@patternfly/react-table";
-import { useSettings, ListEditor, Loading, SubNav, SaveBar, hint } from "./settings";
+import { useSettings, ListEditor, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
 
 const _ = cockpit.gettext;
 const PORT = (window.cockpitRouterConfig && window.cockpitRouterConfig.adguardPort) || 3000;
@@ -438,8 +438,8 @@ const AdGuardSettings = () => {
 export const AdGuard = () => {
   const [tab, setTab] = useState("log");
   return (
-    <Stack className="ct-router-stack">
-      <StackItem>
+    <TabbedPage
+      subnav={
         <SubNav
           active={tab}
           onSelect={setTab}
@@ -448,10 +448,9 @@ export const AdGuard = () => {
             { id: "settings", label: _("Settings") },
           ]}
         />
-      </StackItem>
-      <StackItem isFilled className="ct-table-scroll">
-        {tab === "log" ? <AdGuardLog /> : <AdGuardSettings />}
-      </StackItem>
-    </Stack>
+      }
+    >
+      {tab === "log" ? <AdGuardLog /> : <AdGuardSettings />}
+    </TabbedPage>
   );
 };
