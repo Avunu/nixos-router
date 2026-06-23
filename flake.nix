@@ -2376,8 +2376,15 @@
                 };
 
                 # Reload Suricata after rule updates (uses + prefix for
-                # root privileges since suricata-update runs as limited user)
-                suricata-update.serviceConfig.ExecStartPost = "+${pkgs.systemd}/bin/systemctl try-reload-or-restart suricata.service";
+                # root privileges since suricata-update runs as limited user).
+                # --no-block is essential: this runs while suricata is ordered
+                # after suricata-update, so during a rebuild suricata is often
+                # still activating (its ~2 min `-T` rule check) or failing. A
+                # *blocking* reload would enqueue a job that waits indefinitely
+                # for suricata to become active, wedging `switch-to-configuration`
+                # (the reload job never times out). Fire-and-forget instead;
+                # try-reload-or-restart is already a no-op when suricata is inactive.
+                suricata-update.serviceConfig.ExecStartPost = "+${pkgs.systemd}/bin/systemctl --no-block try-reload-or-restart suricata.service";
               })
               # miniupnpd: start after the firewall is up (so its
               # `inet miniupnpd` table exists) and follow firewall restarts.
