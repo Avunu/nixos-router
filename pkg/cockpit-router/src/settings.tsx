@@ -134,11 +134,13 @@ export const SaveBar = ({
   status,
   onSave,
   onSaveApply,
+  applyDisabled,
 }: {
   saving: boolean;
   status: { ok: boolean; msg: string } | null;
   onSave: () => void;
   onSaveApply: () => void;
+  applyDisabled?: boolean;
 }) => (
   <>
     <SaverStatus status={status} />
@@ -149,7 +151,7 @@ export const SaveBar = ({
         </Button>
       </SplitItem>
       <SplitItem>
-        <Button variant="primary" onClick={onSaveApply} isDisabled={saving}>
+        <Button variant="primary" onClick={onSaveApply} isDisabled={saving || applyDisabled}>
           {_("Save & apply")}
         </Button>
       </SplitItem>

@@ -1,6 +1,11 @@
 {
   "name": "router",
   "menu": {
+    "network": {
+      "label": "Network",
+      "order": 29,
+      "path": "network.html"
+    },
     "hosts": {
       "label": "Hosts",
       "order": 30,

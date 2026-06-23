@@ -40,6 +40,7 @@ await esbuild.build({
         // One HTML page per Cockpit menu entry (see src/manifest.json); each
         // loads the shared index.js bundle and selects its view via data-view.
         const htmlPages = [
+          "network.html",
           "hosts.html",
           "ips.html",
           "dns.html",

@@ -12,6 +12,7 @@
   systemd,
   avahi,
   nmap,
+  wireguard-tools,
   # The AdGuard Home web/API port the plugin talks to on localhost. Baked into
   # config.js at install time so the frontend knows where to reach it.
   adguardPort ? 3000,
@@ -77,6 +78,7 @@ buildNpmPackage (finalAttrs: {
     systemd
     avahi
     nmap
+    wireguard-tools # `wg genkey`/`wg pubkey` for the Network → WireGuard keypair helper
   ];
 
   meta = {

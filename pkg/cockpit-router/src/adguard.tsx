@@ -18,12 +18,13 @@ import {
   Label,
   Stack,
   StackItem,
+  Split,
+  SplitItem,
   Form,
   FormGroup,
   FormSection,
   Switch,
   TextInput,
-  ActionGroup,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
 import { useSettings, ListEditor, Loading, SubNav, SaveBar } from "./settings";
@@ -198,6 +199,49 @@ const FILTER_LABELS: Record<string, string> = {
   yoyo_adservers: "Peter Lowe's ad/tracker list",
 };
 
+// Editor for custom AdGuard filter-list objects ({ enabled, name, url, id }).
+const ExtraFiltersEditor = ({
+  value,
+  onChange,
+  isDisabled,
+}: {
+  value: any[];
+  onChange: (v: any[]) => void;
+  isDisabled?: boolean;
+}) => {
+  const set = (i: number, patch: any) => onChange(value.map((f, j) => (j === i ? { ...f, ...patch } : f)));
+  const add = () => {
+    const nextId = value.reduce((m, f) => Math.max(m, Number(f.id) || 0), 100) + 1;
+    onChange([...value, { enabled: true, name: "", url: "", id: nextId }]);
+  };
+  const remove = (i: number) => onChange(value.filter((_f, j) => j !== i));
+  return (
+    <>
+      {value.map((f, i) => (
+        <Split hasGutter key={i} style={{ marginBlockEnd: "0.5rem", alignItems: "center" }}>
+          <SplitItem>
+            <Switch aria-label={_("Enabled")} isChecked={!!f.enabled} isDisabled={isDisabled} onChange={(_e, c) => set(i, { enabled: c })} />
+          </SplitItem>
+          <SplitItem>
+            <TextInput aria-label={_("Name")} placeholder={_("Name")} value={f.name || ""} isDisabled={isDisabled} onChange={(_e, v) => set(i, { name: v })} />
+          </SplitItem>
+          <SplitItem isFilled>
+            <TextInput aria-label={_("URL")} placeholder="https://…" value={f.url || ""} isDisabled={isDisabled} onChange={(_e, v) => set(i, { url: v })} />
+          </SplitItem>
+          <SplitItem>
+            <Button variant="link" isDanger isInline isDisabled={isDisabled} onClick={() => remove(i)}>
+              {_("Remove")}
+            </Button>
+          </SplitItem>
+        </Split>
+      ))}
+      <Button variant="secondary" onClick={add} isDisabled={isDisabled}>
+        {_("Add filter list")}
+      </Button>
+    </>
+  );
+};
+
 const AdGuardSettings = () => {
   const s = useSettings();
   const filters: Record<string, boolean> = s.valueOf("dns.adguard.standardFilters", {});
@@ -275,6 +319,14 @@ const AdGuardSettings = () => {
                 placeholder={_("AdGuard rule syntax")}
               />
             </FormGroup>
+          </FormSection>
+
+          <FormSection title={_("Custom filter lists")} titleElement="h2">
+            <ExtraFiltersEditor
+              value={s.valueOf("dns.adguard.extraFilters", [])}
+              isDisabled={s.lockedOf("dns.adguard.extraFilters")}
+              onChange={(v) => s.setLeaf("dns.adguard.extraFilters", v)}
+            />
           </FormSection>
 
           <FormSection title={_("Upstream DNS")} titleElement="h2">

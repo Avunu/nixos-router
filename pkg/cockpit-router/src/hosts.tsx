@@ -13,13 +13,8 @@ import {
   LabelGroup,
   Stack,
   StackItem,
-  Form,
-  FormGroup,
-  TextInput,
-  ActionGroup,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td, OuterScrollContainer, InnerScrollContainer } from "@patternfly/react-table";
-import { useSettings, Loading, SubNav, SaveBar } from "./settings";
 
 const _ = cockpit.gettext;
 
@@ -108,7 +103,7 @@ function resolveNames(ips: string[]): Promise<Record<string, string>> {
   });
 }
 
-const HostsTable = () => {
+export const Hosts = () => {
   const [rows, setRows] = useState<Neigh[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
   const [oui, setOui] = useState<Map<string, string>>(new Map());
@@ -353,82 +348,3 @@ const HostsTable = () => {
   );
 };
 
-const HostsSettings = () => {
-  const s = useSettings();
-
-  if (!s.ready && !s.error) return <Loading />;
-  if (s.error) return <Alert variant="danger" isInline title={_("Could not load settings")}>{s.error}</Alert>;
-
-  return (
-    <Stack hasGutter className="ct-router-stack">
-      <StackItem isFilled style={{ overflowY: "auto" }}>
-        <Form isHorizontal onSubmit={(e) => e.preventDefault()}>
-          <FormGroup label={_("LAN domain")} fieldId="lanDomain">
-            <TextInput
-              id="lanDomain"
-              value={s.valueOf("lan.domain", "")}
-              isDisabled={s.lockedOf("lan.domain")}
-              onChange={(_e, v) => s.setLeaf("lan.domain", v)}
-            />
-          </FormGroup>
-          <FormGroup
-            label={_("DHCP pool offset")}
-            fieldId="poolOffset"
-            labelHelp={_("First host address in the DHCP pool, counted from the network address")}
-          >
-            <TextInput
-              id="poolOffset"
-              type="number"
-              value={s.valueOf("lan.dhcp.poolOffset", 100)}
-              isDisabled={s.lockedOf("lan.dhcp.poolOffset")}
-              onChange={(_e, v) => s.setLeaf("lan.dhcp.poolOffset", Number(v) || 0)}
-            />
-          </FormGroup>
-          <FormGroup label={_("DHCP pool size")} fieldId="poolSize">
-            <TextInput
-              id="poolSize"
-              type="number"
-              value={s.valueOf("lan.dhcp.poolSize", 150)}
-              isDisabled={s.lockedOf("lan.dhcp.poolSize")}
-              onChange={(_e, v) => s.setLeaf("lan.dhcp.poolSize", Number(v) || 0)}
-            />
-          </FormGroup>
-          <FormGroup
-            label={_("DHCP lease time")}
-            fieldId="leaseTime"
-            labelHelp={_("e.g. 12h, 30d")}
-          >
-            <TextInput
-              id="leaseTime"
-              value={s.valueOf("lan.dhcp.leaseTime", "24h")}
-              isDisabled={s.lockedOf("lan.dhcp.leaseTime")}
-              onChange={(_e, v) => s.setLeaf("lan.dhcp.leaseTime", v)}
-            />
-          </FormGroup>
-          <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
-        </Form>
-      </StackItem>
-    </Stack>
-  );
-};
-
-export const Hosts = () => {
-  const [tab, setTab] = useState("hosts");
-  return (
-    <Stack className="ct-router-stack">
-      <StackItem>
-        <SubNav
-          active={tab}
-          onSelect={setTab}
-          items={[
-            { id: "hosts", label: _("Connected hosts") },
-            { id: "settings", label: _("DHCP settings") },
-          ]}
-        />
-      </StackItem>
-      <StackItem isFilled className="ct-table-scroll">
-        {tab === "hosts" ? <HostsTable /> : <HostsSettings />}
-      </StackItem>
-    </Stack>
-  );
-};

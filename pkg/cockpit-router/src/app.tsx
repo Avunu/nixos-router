@@ -6,6 +6,7 @@ import { AdGuard } from "./adguard";
 import { Diagnostics } from "./diagnostics";
 import { Firewall } from "./firewall";
 import { System } from "./system";
+import { Network } from "./network";
 import { ChangesTray } from "./changes";
 
 // Hide the PatternFly 6 Page sidebar area (the Cockpit shell provides the real
@@ -25,6 +26,7 @@ interface View {
 // Each Cockpit menu entry (see manifest.json) is its own top-level page that
 // renders one of these views. The host HTML picks the view via `data-view`.
 export const views: Record<string, View> = {
+  network: { node: <Network />, fills: true },
   hosts: { node: <Hosts />, fills: true },
   ips: { node: <Suricata />, fills: true },
   dns: { node: <AdGuard />, fills: true },

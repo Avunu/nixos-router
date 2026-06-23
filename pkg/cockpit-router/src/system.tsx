@@ -15,9 +15,16 @@ import {
   Label,
   EmptyState,
   EmptyStateBody,
+  Form,
+  FormGroup,
+  FormSection,
+  FormSelect,
+  FormSelectOption,
+  TextInput,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import { flakeHostRef, writeApplied, loadState } from "./nix";
+import { useSettings, SubNav, SaveBar, Loading, ListEditor } from "./settings";
 
 const _ = cockpit.gettext;
 
@@ -29,7 +36,7 @@ interface Generation {
   current?: boolean;
 }
 
-export const System = () => {
+const SystemOps = () => {
   const [log, setLog] = useState("");
   const [running, setRunning] = useState(""); // label of the in-flight operation
   const [done, setDone] = useState<{ ok: boolean; label: string } | null>(null);
@@ -228,6 +235,84 @@ export const System = () => {
             )}
           </CardBody>
         </Card>
+      </StackItem>
+    </Stack>
+  );
+};
+
+// ── Settings: system identity + admin user ──────────────────────────────────
+const SystemSettings = () => {
+  const s = useSettings();
+
+  if (!s.ready && !s.error) return <Loading />;
+  if (s.error) return <Alert variant="danger" isInline title={_("Could not load settings")}>{s.error}</Alert>;
+
+  return (
+    <Stack hasGutter className="ct-router-stack">
+      <StackItem isFilled style={{ overflowY: "auto" }}>
+        <Form isHorizontal onSubmit={(e) => e.preventDefault()}>
+          <FormSection title={_("Identity")} titleElement="h2">
+            <FormGroup label={_("Time zone")} fieldId="tz" labelHelp={_("e.g. America/New_York, Europe/Berlin")}>
+              <TextInput id="tz" value={s.valueOf("timeZone", "")} isDisabled={s.lockedOf("timeZone")} onChange={(_e, v) => s.setLeaf("timeZone", v)} />
+            </FormGroup>
+            <FormGroup label={_("Host name")} fieldId="hn">
+              <TextInput id="hn" value={s.valueOf("hostName", "")} isDisabled={s.lockedOf("hostName")} onChange={(_e, v) => s.setLeaf("hostName", v)} />
+              <Alert variant="warning" isInline isPlain title={_("Changing the host name renames the flake configuration; the rebuild target will not match until the system is redeployed.")} />
+            </FormGroup>
+          </FormSection>
+
+          <FormSection title={_("Admin user")} titleElement="h2">
+            <FormGroup label={_("User name")} fieldId="adminName">
+              <TextInput id="adminName" value={s.valueOf("adminUser.name", "admin")} isDisabled={s.lockedOf("adminUser.name")} onChange={(_e, v) => s.setLeaf("adminUser.name", v)} />
+            </FormGroup>
+            <FormGroup label={_("SSH public keys")} fieldId="adminKeys">
+              <ListEditor value={s.valueOf("adminUser.sshKeys", [])} isDisabled={s.lockedOf("adminUser.sshKeys")} onChange={(v) => s.setLeaf("adminUser.sshKeys", v)} placeholder={_("ssh-ed25519 AAAA…")} />
+            </FormGroup>
+            <FormGroup label={_("Initial password")} fieldId="adminPw">
+              <TextInput id="adminPw" type="password" value={s.valueOf("adminUser.initialPassword", "") ?? ""} isDisabled={s.lockedOf("adminUser.initialPassword")} onChange={(_e, v) => s.setLeaf("adminUser.initialPassword", v)} />
+              <Alert variant="warning" isInline isPlain title={_("Only sets the password when the account is first created. Change an existing password with `passwd` over SSH instead.")} />
+            </FormGroup>
+          </FormSection>
+
+          <FormSection title={_("Advanced / install-time")} titleElement="h2">
+            <Alert variant="warning" isInline title={_("These apply at install time. Changing them on a running router has no effect (or, for the disk, is dangerous).")} style={{ marginBlockEnd: "1rem" }} />
+            <FormGroup label={_("State version")} fieldId="sv">
+              <TextInput id="sv" value={s.valueOf("stateVersion", "")} isDisabled={s.lockedOf("stateVersion")} onChange={(_e, v) => s.setLeaf("stateVersion", v)} />
+            </FormGroup>
+            <FormGroup label={_("Disk device")} fieldId="disk">
+              <TextInput id="disk" value={s.valueOf("diskDevice", "")} isDisabled={s.lockedOf("diskDevice")} placeholder="/dev/sda" onChange={(_e, v) => s.setLeaf("diskDevice", v)} />
+            </FormGroup>
+            <FormGroup label={_("Boot mode")} fieldId="boot">
+              <FormSelect id="boot" value={s.valueOf("bootMode", "uefi")} isDisabled={s.lockedOf("bootMode")} onChange={(_e, v) => s.setLeaf("bootMode", v)}>
+                <FormSelectOption value="uefi" label="uefi" />
+                <FormSelectOption value="legacy" label="legacy" />
+              </FormSelect>
+            </FormGroup>
+          </FormSection>
+
+          <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
+        </Form>
+      </StackItem>
+    </Stack>
+  );
+};
+
+export const System = () => {
+  const [tab, setTab] = useState("operations");
+  return (
+    <Stack className="ct-router-stack">
+      <StackItem>
+        <SubNav
+          active={tab}
+          onSelect={setTab}
+          items={[
+            { id: "operations", label: _("Operations") },
+            { id: "settings", label: _("Settings") },
+          ]}
+        />
+      </StackItem>
+      <StackItem isFilled className="ct-table-scroll">
+        {tab === "operations" ? <SystemOps /> : <SystemSettings />}
       </StackItem>
     </Stack>
   );
