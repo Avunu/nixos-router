@@ -2515,6 +2515,11 @@
 
                   echo ":: system-upgrade complete"
                 '')
+                # migrate script to convert legacy router configs to the new flake-based format
+                (writeShellScriptBin "migrate-router-config" ''
+                  set -euo pipefail
+                  nix eval --impure --json --expr '(removeAttrs (import /etc/nixos/router-settings.nix).router [ "extraPackages" "cockpit" ])' | jq . > /etc/nixos/router-settings.json
+                '')
               ]
               ++ optional cfg.suricata.enable suricata
               ++ optional (cfg.wireguard != { }) wireguard-tools
