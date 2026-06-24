@@ -65,11 +65,9 @@ await esbuild.build({
         // loads the shared index.js bundle and selects its view via data-view.
         const htmlPages = [
           "network.html",
-          "hosts.html",
-          "ips.html",
-          "dns.html",
+          "threat-protection.html",
+          "access-protection.html",
           "firewall.html",
-          "diagnostics.html",
           "system.html",
         ];
         build.onEnd((result) => {

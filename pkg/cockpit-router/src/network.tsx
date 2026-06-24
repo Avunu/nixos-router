@@ -28,6 +28,8 @@ import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import { useSettings, Loading, SubNav, SaveBar, ListEditor, hint, TabbedPage } from "./settings";
 import { useInterfaces, validateNetwork } from "./interfaces";
 import type { Nic, NetView } from "./interfaces";
+import { Hosts } from "./hosts";
+import { Diagnostics } from "./diagnostics";
 
 const _ = cockpit.gettext;
 
@@ -807,6 +809,9 @@ export const Network = () => {
 
   const net = netView(s);
   const errors = validateNetwork(net);
+  // Hosts and Diagnostics are read-only monitoring views with no settings, so
+  // they don't get the Save bar or the network-validation banner.
+  const isMonitorTab = tab === "hosts" || tab === "diagnostics";
 
   return (
     <TabbedPage
@@ -820,6 +825,8 @@ export const Network = () => {
             { id: "lan", label: _("LAN") },
             { id: "guest", label: _("Guest") },
             { id: "wireguard", label: _("WireGuard") },
+            { id: "hosts", label: _("Hosts") },
+            { id: "diagnostics", label: _("Diagnostics") },
           ]}
         />
       }
@@ -831,30 +838,34 @@ export const Network = () => {
           {tab === "lan" && <LanTab s={s} nics={nics} net={net} />}
           {tab === "guest" && <GuestTab s={s} nics={nics} net={net} />}
           {tab === "wireguard" && <WireGuardTab s={s} />}
+          {tab === "hosts" && <Hosts />}
+          {tab === "diagnostics" && <Diagnostics />}
         </StackItem>
-        <StackItem>
-          {errors.length > 0 && (
-            <Alert
-              variant="danger"
-              isInline
-              title={_("Network configuration is invalid")}
-              style={{ marginBlockEnd: "0.5rem" }}
-            >
-              <ul>
-                {errors.map((e, i) => (
-                  <li key={i}>{e}</li>
-                ))}
-              </ul>
-            </Alert>
-          )}
-          <SaveBar
-            saving={s.saving}
-            status={s.status}
-            onSave={s.save}
-            onSaveApply={s.saveAndApply}
-            applyDisabled={errors.length > 0}
-          />
-        </StackItem>
+        {!isMonitorTab && (
+          <StackItem>
+            {errors.length > 0 && (
+              <Alert
+                variant="danger"
+                isInline
+                title={_("Network configuration is invalid")}
+                style={{ marginBlockEnd: "0.5rem" }}
+              >
+                <ul>
+                  {errors.map((e, i) => (
+                    <li key={i}>{e}</li>
+                  ))}
+                </ul>
+              </Alert>
+            )}
+            <SaveBar
+              saving={s.saving}
+              status={s.status}
+              onSave={s.save}
+              onSaveApply={s.saveAndApply}
+              applyDisabled={errors.length > 0}
+            />
+          </StackItem>
+        )}
       </Stack>
     </TabbedPage>
   );

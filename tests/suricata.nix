@@ -122,11 +122,12 @@ pkgs.testers.runNixOSTest {
         assert any(p["sid"] == 2013028 and p["action"] == "drop" for p in s["policies"]), s
         assert any(p["sid"] == 2100498 for p in s["suppressions"]), s
 
-    with subtest("cockpit IPS plugin is installed"):
+    with subtest("cockpit router plugin is installed"):
         # NixOS exposes cockpit plugins under /etc/cockpit/share/cockpit/.
         manifest = "/etc/cockpit/share/cockpit/router/manifest.json"
         router.succeed(f"test -f {manifest}")
-        router.succeed(f"grep -q ips {manifest}")
+        # The Suricata/IPS views live on the "threat-protection" menu page.
+        router.succeed(f"grep -q threat-protection {manifest}")
 
     with subtest("LAN bridge is up"):
         router.wait_until_succeeds("ip -4 addr show br-lan | grep -qw 10.48.4.1", timeout=60)

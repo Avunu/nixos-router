@@ -1,9 +1,7 @@
 import type { ReactNode } from "react";
 import { Page, PageSidebar } from "@patternfly/react-core";
-import { Hosts } from "./hosts";
 import { Suricata } from "./suricata";
 import { AdGuard } from "./adguard";
-import { Diagnostics } from "./diagnostics";
 import { Firewall } from "./firewall";
 import { System } from "./system";
 import { Network } from "./network";
@@ -20,12 +18,10 @@ const emptySidebar = <PageSidebar isSidebarOpen={false} />;
 // pages (subnav section + content section as siblings under <Page>).
 export const views: Record<string, ReactNode> = {
   network: <Network />,
-  hosts: <Hosts />,
-  ips: <Suricata />,
-  dns: <AdGuard />,
+  "threat-protection": <Suricata />,
+  "access-protection": <AdGuard />,
   firewall: <Firewall />,
   system: <System />,
-  diagnostics: <Diagnostics />,
 };
 
 export const App = ({ view }: { view: ReactNode }) => (

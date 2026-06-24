@@ -6,34 +6,24 @@
       "order": 29,
       "path": "network.html"
     },
-    "hosts": {
-      "label": "Hosts",
+    "threat-protection": {
+      "label": "Threat Protection",
       "order": 30,
-      "path": "hosts.html"
+      "path": "threat-protection.html"
     },
-    "ips": {
-      "label": "IPS",
+    "access-protection": {
+      "label": "Access Protection",
       "order": 31,
-      "path": "ips.html"
-    },
-    "dns": {
-      "label": "DNS",
-      "order": 32,
-      "path": "dns.html"
+      "path": "access-protection.html"
     },
     "firewall": {
       "label": "Firewall",
-      "order": 33,
+      "order": 32,
       "path": "firewall.html"
-    },
-    "diagnostics": {
-      "label": "Diagnostics",
-      "order": 34,
-      "path": "diagnostics.html"
     },
     "system": {
       "label": "System",
-      "order": 35,
+      "order": 33,
       "path": "system.html"
     }
   }
