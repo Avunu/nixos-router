@@ -6,6 +6,10 @@ interface CockpitSpawnOptions {
   err?: "message" | "out" | "ignore";
   pty?: boolean;
   directory?: string;
+  // Stream batching (bytes per chunk / max latency ms), as used by Cockpit's
+  // own journal helper for efficient `journalctl --follow` streaming.
+  batch?: number;
+  latency?: number;
 }
 
 // A spawned process resolves to its stdout; `.stream` delivers incremental
@@ -60,3 +64,27 @@ declare module "cockpit-dark-theme";
 declare module "patternfly/*";
 declare module "*.scss";
 declare module "*.css";
+
+// Cockpit's journal helper (pkg/lib/journal.js), vendored into the build by
+// package.nix and resolved by esbuild's nodePaths. We reuse only `build_cmd`,
+// which turns match strings + an options object into a journalctl argv (the IPS
+// views splice `--namespace suricata` into the result and spawn it themselves).
+declare module "journal" {
+  interface JournalOptions {
+    count?: number | null;
+    follow?: boolean;
+    since?: string;
+    until?: string;
+    directory?: string;
+    boot?: string | null;
+    cursor?: string;
+    after?: string;
+    priority?: string;
+    grep?: string;
+    reverse?: boolean;
+    output?: string;
+  }
+  export const journal: {
+    build_cmd: (...args: (string | string[] | JournalOptions)[]) => string[];
+  };
+}

@@ -2,11 +2,17 @@
 //
 // The suricata service runs with LogNamespace=suricata (see flake.nix), so its
 // output — including the EVE "alert" stream it writes via syslog — lands in a
-// dedicated journal queried with `journalctl --namespace suricata`. We read it
-// with cockpit.spawn (Cockpit's journal.journalctl helper can't target a
-// namespace) and parse each entry's MESSAGE back into `Ev`.
+// dedicated journal queried with `journalctl --namespace suricata`.
+//
+// Cockpit's journal helper (pkg/lib/journal.js) has no --namespace support, so
+// rather than hand-assemble argv we reuse its `build_cmd` (the
+// since/until/count/follow → flag translation) and splice in --namespace, then
+// run it ourselves — mirroring journal.journalctl's streaming and its "exit
+// status 1 means no entries" handling. Each entry's MESSAGE is the raw EVE
+// record, parsed back into `Ev`.
 //   • followEvents() — preload recent + live-tail (the Events tab)
 //   • fetchEvents()  — windowed history for Overview/Statistics aggregation
+import { journal } from "journal";
 import { errMsg } from "./nix";
 
 export interface Ev {
@@ -31,12 +37,34 @@ export interface Ev {
   };
 }
 
-// journalctl args common to every query: the suricata namespace, JSON output.
-const BASE = ["journalctl", "--namespace", "suricata", "-o", "json"];
+const NAMESPACE = "suricata";
 
 // Default cap for a windowed history query — mirrors Cockpit's own Logs page
 // (QUERY_COUNT = 5000) so a wide "All" range can't blow up the browser.
 export const DEFAULT_CAP = 5000;
+
+// Reuse Cockpit's build_cmd for the journalctl argv, then splice --namespace
+// (which build_cmd doesn't support) ahead of its `--` match separator.
+function buildCmd(opts: {
+  follow?: boolean;
+  count?: number;
+  since?: string;
+  until?: string;
+}): string[] {
+  const cmd = journal.build_cmd(opts);
+  const sep = cmd.indexOf("--");
+  cmd.splice(sep === -1 ? cmd.length : sep, 0, "--namespace", NAMESPACE);
+  return cmd;
+}
+
+// journalctl exits 1 when the namespace journal has no matching entries (or
+// doesn't exist yet — e.g. suricata disabled); cockpit.spawn rejects, but that's
+// an empty result, not an error. "cancelled" is our own stop()/close(). This
+// mirrors how journal.journalctl swallows these.
+function isEmptyResult(e: unknown): boolean {
+  const ex = e as { exit_status?: number; problem?: string };
+  return ex.exit_status === 1 || ex.problem === "cancelled";
+}
 
 // Parse one EVE JSON record into an alert/drop event (or null). Defensive
 // against any syslog framing by seeking the first '{'.
@@ -71,6 +99,17 @@ function parseLine(line: string): Ev | null {
   }
 }
 
+function parseAll(out: string): Ev[] {
+  const events: Ev[] = [];
+  for (const line of out.split("\n")) {
+    const ev = parseLine(line);
+    if (ev) {
+      events.push(ev);
+    }
+  }
+  return events;
+}
+
 export interface FollowHandle {
   stop: () => void;
 }
@@ -84,9 +123,11 @@ export function followEvents(
   onError?: (msg: string) => void,
 ): FollowHandle {
   let buf = "";
-  const proc = cockpit.spawn([...BASE, "-n", String(count), "-f"], {
+  const proc = cockpit.spawn(buildCmd({ follow: true, count }), {
     superuser: "try",
     err: "message",
+    batch: 8192,
+    latency: 300,
   });
   void proc.stream((data: string) => {
     buf += data;
@@ -104,10 +145,8 @@ export function followEvents(
     }
   });
   proc.catch((e: unknown) => {
-    const msg = errMsg(e);
-    // close() rejects the promise with "cancelled" — that's our own stop().
-    if (onError && !/cancelled/i.test(msg)) {
-      onError(msg);
+    if (onError && !isEmptyResult(e)) {
+      onError(errMsg(e));
     }
   });
   return { stop: () => proc.close() };
@@ -127,26 +166,20 @@ export function fetchEvents(opts: {
   cap?: number;
 }): Promise<FetchResult> {
   const cap = opts.cap ?? DEFAULT_CAP;
-  const args = [...BASE, "--no-pager", "-n", String(cap)];
-  if (opts.since) {
-    args.push("--since", opts.since);
-  }
-  if (opts.until) {
-    args.push("--until", opts.until);
-  }
   return cockpit
-    .spawn(args, { superuser: "try", err: "message" })
+    .spawn(buildCmd({ follow: false, count: cap, since: opts.since, until: opts.until }), {
+      superuser: "try",
+      err: "message",
+    })
     .then((out: string) => {
-      const events: Ev[] = [];
-      for (const line of out.split("\n")) {
-        const ev = parseLine(line);
-        if (ev) {
-          events.push(ev);
-        }
-      }
+      const events = parseAll(out);
       return { events, capped: events.length >= cap };
     })
     .catch((e: unknown): FetchResult => {
+      // An empty / not-yet-created namespace journal is "no events", not a failure.
+      if (isEmptyResult(e)) {
+        return { events: [], capped: false };
+      }
       throw new Error(errMsg(e));
     });
 }
