@@ -1,0 +1,132 @@
+[
+  {
+    "id": "emerging-attack_response.rules",
+    "label": "Attack responses",
+    "description": "Post-compromise indicators — responses seen after a successful exploit (e.g. command shells, downloads)."
+  },
+  {
+    "id": "emerging-malware.rules",
+    "label": "Malware",
+    "description": "Known malware command-and-control, droppers, and beaconing traffic."
+  },
+  {
+    "id": "emerging-trojan.rules",
+    "label": "Trojans",
+    "description": "Trojan / backdoor activity and check-ins."
+  },
+  {
+    "id": "emerging-mobile_malware.rules",
+    "label": "Mobile malware",
+    "description": "Malware targeting mobile (Android/iOS) devices."
+  },
+  {
+    "id": "emerging-exploit.rules",
+    "label": "Exploits",
+    "description": "Generic exploitation attempts against known vulnerabilities."
+  },
+  {
+    "id": "emerging-exploit_kit.rules",
+    "label": "Exploit kits",
+    "description": "Traffic to/from browser exploit kit landing and delivery pages."
+  },
+  {
+    "id": "emerging-phishing.rules",
+    "label": "Phishing",
+    "description": "Credential-phishing pages and lures."
+  },
+  {
+    "id": "emerging-coinminer.rules",
+    "label": "Coin miners",
+    "description": "Cryptocurrency mining pools and in-browser miners."
+  },
+  {
+    "id": "emerging-worm.rules",
+    "label": "Worms",
+    "description": "Self-propagating worm traffic."
+  },
+  {
+    "id": "emerging-current_events.rules",
+    "label": "Current events",
+    "description": "Time-sensitive rules for active, in-the-wild campaigns."
+  },
+  {
+    "id": "emerging-web_client.rules",
+    "label": "Web client",
+    "description": "Attacks against web browsers and client-side components."
+  },
+  {
+    "id": "emerging-web_server.rules",
+    "label": "Web server",
+    "description": "Attacks against web servers (path traversal, injection, etc.)."
+  },
+  {
+    "id": "emerging-web_specific_apps.rules",
+    "label": "Web apps",
+    "description": "Vulnerabilities in specific web applications."
+  },
+  {
+    "id": "emerging-sql.rules",
+    "label": "SQL",
+    "description": "SQL injection and database attack patterns."
+  },
+  {
+    "id": "emerging-shellcode.rules",
+    "label": "Shellcode",
+    "description": "Shellcode and memory-corruption payloads."
+  },
+  {
+    "id": "emerging-scan.rules",
+    "label": "Scans",
+    "description": "Port scans and reconnaissance activity."
+  },
+  {
+    "id": "emerging-dos.rules",
+    "label": "Denial of service",
+    "description": "Denial-of-service and amplification traffic."
+  },
+  {
+    "id": "emerging-dns.rules",
+    "label": "DNS",
+    "description": "Suspicious or malicious DNS activity."
+  },
+  {
+    "id": "emerging-tor.rules",
+    "label": "Tor",
+    "description": "Traffic to/from known Tor nodes."
+  },
+  {
+    "id": "emerging-user_agents.rules",
+    "label": "User agents",
+    "description": "Suspicious HTTP User-Agent strings."
+  },
+  {
+    "id": "emerging-policy.rules",
+    "label": "Policy",
+    "description": "Acceptable-use / policy events (often noisy, informational)."
+  },
+  {
+    "id": "emerging-info.rules",
+    "label": "Informational",
+    "description": "Low-severity informational signatures."
+  },
+  {
+    "id": "emerging-scada.rules",
+    "label": "SCADA / ICS",
+    "description": "Industrial control system and SCADA protocol attacks."
+  },
+  {
+    "id": "emerging-p2p.rules",
+    "label": "Peer-to-peer",
+    "description": "Peer-to-peer / file-sharing protocols."
+  },
+  {
+    "id": "emerging-chat.rules",
+    "label": "Chat",
+    "description": "Instant-messaging and chat protocols."
+  },
+  {
+    "id": "emerging-games.rules",
+    "label": "Games",
+    "description": "Online game client traffic."
+  }
+]

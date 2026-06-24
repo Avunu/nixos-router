@@ -97,7 +97,7 @@ const vendorFor = (mac: string | undefined, oui: Map<string, string>) => {
 };
 
 // ── Hostname resolution via Avahi/mDNS (one batch call) ─────────────────────
-function resolveNames(ips: string[]): Promise<Record<string, string>> {
+export function resolveNames(ips: string[]): Promise<Record<string, string>> {
   return new Promise((resolve) => {
     if (ips.length === 0) {
       resolve({});

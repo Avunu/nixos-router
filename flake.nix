@@ -549,6 +549,74 @@
           ''
           + cfg.suricata.extraRules;
 
+          # ── Suricata policy files (suricata-update + threshold) ──
+          # The Cockpit "Policies" tab edits router.suricata.{categories,
+          # policies,suppressions}; here we render them into the files
+          # suricata-update and Suricata consume. Categories key on the
+          # suricata-update rule *group* (source rule-file name); policies and
+          # suppressions key on the signature id (gid 1).
+          suricataCats =
+            action: filter (n: cfg.suricata.categories.${n} == action) (attrNames cfg.suricata.categories);
+          suricataPolicySids =
+            action: map (p: toString p.sid) (filter (p: p.action == action) cfg.suricata.policies);
+
+          # disable.conf — rules removed before load. Carries over the upstream
+          # module's services.suricata.disabledRules (its default disables the
+          # dnp3 signatures, whose app-layer parser is off), then layers the
+          # category + per-signature disables from the router config.
+          suricataDisableConf = pkgs.writeText "suricata-disable.conf" (
+            concatStringsSep "\n" (
+              [ "# from services.suricata.disabledRules (module default: dnp3 rules)" ]
+              ++ config.services.suricata.disabledRules
+              ++ [ "# category disables (router.suricata.categories = \"disabled\")" ]
+              ++ map (n: "group:${n}") (suricataCats "disabled")
+              ++ [ "# per-signature disables (router.suricata.policies)" ]
+              ++ suricataPolicySids "disable"
+            )
+            + "\n"
+          );
+
+          # drop.conf — matching rules have their action rewritten to `drop`.
+          # Empty in IDS mode, so enabling/disabling drop is a single mode flip.
+          suricataDropConf = pkgs.writeText "suricata-drop.conf" (
+            concatStringsSep "\n" (
+              optionals (cfg.suricata.mode == "ips") (
+                map (n: "group:${n}") (suricataCats "drop") ++ suricataPolicySids "drop"
+              )
+            )
+            + "\n"
+          );
+
+          # threshold.config — per-host suppressions ("do nothing for this host").
+          suricataThreshold = pkgs.writeText "suricata-threshold.config" (
+            concatStringsSep "\n" (
+              map (
+                s: "suppress gen_id 1, sig_id ${toString s.sid}, track ${s.track}, ip ${s.ip}"
+              ) cfg.suricata.suppressions
+            )
+            + "\n"
+          );
+
+          # suricata-update invocation, overriding the upstream module's script so
+          # we can also pass --drop-conf (the module only wires --disable-conf).
+          # Reproduces the module's enable-source / update-sources preamble.
+          suricataUpdateScript =
+            let
+              python = pkgs.python3.withPackages (ps: with ps; [ pyyaml ]);
+              pkg = config.services.suricata.package;
+              enableSources = concatMapStringsSep "\n" (
+                src: "${python.interpreter} ${pkg}/bin/suricata-update enable-source ${src}"
+              ) config.services.suricata.enabledSources;
+            in
+            ''
+              ${enableSources}
+              ${python.interpreter} ${pkg}/bin/suricata-update update-sources
+              ${python.interpreter} ${pkg}/bin/suricata-update update \
+                --suricata-conf ${config.services.suricata.configFile} --no-test \
+                --disable-conf ${suricataDisableConf} \
+                --drop-conf ${suricataDropConf}
+            '';
+
           # ── nftables ruleset generation ─────────────────────────
           # The firewall ruleset is generated as a Nix multi-line string
           # and passed to `networking.nftables.ruleset`. It's built from
@@ -1231,6 +1299,119 @@
             #   • Logs are rotated daily, kept for 14 days.
             suricata = {
               enable = mkEnableOption "Suricata IPS inline inspection";
+
+              mode = mkOption {
+                type = types.enum [
+                  "ids"
+                  "ips"
+                ];
+                default = "ids";
+                description = ''
+                  Detection mode. `ids` = alert only, never drop (Synology
+                  "detect"). `ips` = honor the drop actions configured per
+                  category/signature below (Synology "drop high-risk packets
+                  automatically"). NFQUEUE already enforces `drop` verdicts; this
+                  gates whether any `drop` conversions are emitted to
+                  suricata-update at all.
+                '';
+              };
+
+              categories = mkOption {
+                type = types.attrsOf (
+                  types.enum [
+                    "enabled"
+                    "disabled"
+                    "drop"
+                  ]
+                );
+                default = { };
+                example = {
+                  "emerging-malware.rules" = "drop";
+                  "emerging-pop3.rules" = "disabled";
+                };
+                description = ''
+                  Per-category action overrides, keyed by suricata-update rule
+                  group (the source rule-file name, e.g. `emerging-malware.rules`).
+                  `disabled` adds a `group:` line to the suricata-update disable
+                  list; `drop` adds one to the drop list (only effective in
+                  `ips` mode); `enabled` keeps the ruleset default. Categories
+                  absent here are unchanged. Edited from the Cockpit IPS
+                  "Policies" tab.
+                '';
+              };
+
+              policies = mkOption {
+                type = types.listOf (
+                  types.submodule {
+                    options = {
+                      sid = mkOption {
+                        type = types.int;
+                        description = "Signature ID (gid 1).";
+                      };
+                      action = mkOption {
+                        type = types.enum [
+                          "alert"
+                          "drop"
+                          "disable"
+                        ];
+                        default = "alert";
+                        description = ''
+                          `alert` (default, no change), `drop` (convert to drop —
+                          `ips` mode only), or `disable` (remove the rule).
+                        '';
+                      };
+                      comment = mkOption {
+                        type = types.str;
+                        default = "";
+                        description = "Free-text note shown in the UI.";
+                      };
+                    };
+                  }
+                );
+                default = [ ];
+                description = ''
+                  Per-signature action overrides ("self-defined policy"). Built
+                  from the Cockpit IPS "Policies" tab, typically by editing the
+                  action of a signature seen in the Events list.
+                '';
+              };
+
+              suppressions = mkOption {
+                type = types.listOf (
+                  types.submodule {
+                    options = {
+                      sid = mkOption {
+                        type = types.int;
+                        description = "Signature ID (gid 1) to suppress.";
+                      };
+                      track = mkOption {
+                        type = types.enum [
+                          "by_src"
+                          "by_dst"
+                          "by_either"
+                        ];
+                        default = "by_src";
+                        description = "Which side of the flow the IP matches.";
+                      };
+                      ip = mkOption {
+                        type = types.str;
+                        description = "Host or subnet exempted from this signature.";
+                      };
+                      comment = mkOption {
+                        type = types.str;
+                        default = "";
+                        description = "Free-text note shown in the UI.";
+                      };
+                    };
+                  }
+                );
+                default = [ ];
+                description = ''
+                  Per-host signature suppressions, rendered into Suricata's
+                  threshold.config as `suppress` lines ("do nothing for this host
+                  on this signature").
+                '';
+              };
 
               extraRules = mkOption {
                 type = types.lines;
@@ -2262,6 +2443,26 @@
                     };
                   }
                   {
+                    # Second EVE stream → syslog → journald, limited to the
+                    # security events the Cockpit IPS page surfaces (alert + drop).
+                    # The Cockpit views read these via journalctl
+                    # (SYSLOG_IDENTIFIER=suricata); keeping dns/tls/http/flow out of
+                    # this stream means the journal isn't flooded — those stay in
+                    # the regular eve.json file above for forensics.
+                    eve-log = {
+                      enabled = true;
+                      filetype = "syslog";
+                      identity = "suricata";
+                      facility = "local5";
+                      level = "Info";
+                      community-id = true;
+                      types = [
+                        "alert"
+                        { drop.alerts = true; }
+                      ];
+                    };
+                  }
+                  {
                     fast = {
                       enabled = true;
                       filename = "fast.log";
@@ -2308,6 +2509,11 @@
                   "suricata.rules"
                   "/etc/suricata/rules/local.rules"
                 ];
+
+                # Per-host suppressions from router.suricata.suppressions
+                # (Cockpit "Policies" tab). A store path is fine — read-only and
+                # world-readable under the service's ProtectSystem=strict sandbox.
+                threshold-file = toString suricataThreshold;
 
                 detect = {
                   profile = "medium";
@@ -2385,6 +2591,11 @@
                 # (the reload job never times out). Fire-and-forget instead;
                 # try-reload-or-restart is already a no-op when suricata is inactive.
                 suricata-update.serviceConfig.ExecStartPost = "+${pkgs.systemd}/bin/systemctl --no-block try-reload-or-restart suricata.service";
+
+                # Override the module's update script so it also passes
+                # --drop-conf (the module only wires --disable-conf). Renders the
+                # category/signature/suppression policies from the router config.
+                suricata-update.script = mkForce suricataUpdateScript;
               })
               # miniupnpd: start after the firewall is up (so its
               # `inet miniupnpd` table exists) and follow firewall restarts.

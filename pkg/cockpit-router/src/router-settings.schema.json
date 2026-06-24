@@ -72,7 +72,20 @@
       "additionalProperties": false,
       "properties": {
         "enable": { "type": "boolean" },
-        "extraRules": { "type": "string" }
+        "mode": { "enum": ["ids", "ips"] },
+        "extraRules": { "type": "string" },
+        "categories": {
+          "type": "object",
+          "additionalProperties": { "enum": ["enabled", "disabled", "drop"] }
+        },
+        "policies": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/suricataPolicy" }
+        },
+        "suppressions": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/suricataSuppression" }
+        }
       }
     },
 
@@ -114,6 +127,27 @@
       "type": "integer",
       "minimum": 0,
       "maximum": 65535
+    },
+    "suricataPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sid"],
+      "properties": {
+        "sid": { "type": "integer" },
+        "action": { "enum": ["alert", "drop", "disable"] },
+        "comment": { "type": "string" }
+      }
+    },
+    "suricataSuppression": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["sid", "ip"],
+      "properties": {
+        "sid": { "type": "integer" },
+        "track": { "enum": ["by_src", "by_dst", "by_either"] },
+        "ip": { "type": "string" },
+        "comment": { "type": "string" }
+      }
     },
     "nullableVlan": {
       "type": ["integer", "null"],
