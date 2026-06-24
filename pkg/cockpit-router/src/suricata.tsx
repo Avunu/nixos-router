@@ -67,6 +67,7 @@ import {
   InnerScrollContainer,
 } from "@patternfly/react-table";
 import { useSettings, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
+import { RankCard } from "./widgets";
 
 const _ = cockpit.gettext;
 
@@ -100,51 +101,6 @@ function topN(items: Ev[], key: (e: Ev) => string | undefined, n: number): [stri
   }
   return [...m.entries()].toSorted((a, b) => b[1] - a[1]).slice(0, n);
 }
-
-// Horizontal ranking-bar list (used by Overview + Statistics). Pure CSS bars to
-// avoid pulling in a charting dependency.
-const RankCard = ({ title, rows }: { title: string; rows: [string, number][] }) => {
-  const max = Math.max(0, ...rows.map((r) => r[1])) || 1;
-  return (
-    <Card isCompact>
-      <CardTitle>{title}</CardTitle>
-      <CardBody>
-        {rows.length === 0 ? (
-          <div className="pf-v6-u-color-200">{_("No data in range.")}</div>
-        ) : (
-          rows.map(([k, count]) => (
-            <div key={k} style={{ marginBlockEnd: "0.5rem" }}>
-              <Split>
-                <SplitItem
-                  isFilled
-                  style={{
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                    whiteSpace: "nowrap",
-                    fontSize: "0.85rem",
-                  }}
-                >
-                  {k}
-                </SplitItem>
-                <SplitItem style={{ paddingInlineStart: "0.5rem", fontWeight: 600 }}>
-                  {count}
-                </SplitItem>
-              </Split>
-              <div
-                style={{
-                  height: "4px",
-                  borderRadius: "2px",
-                  background: "#0066cc",
-                  inlineSize: `${Math.max(2, (count / max) * 100)}%`,
-                }}
-              />
-            </div>
-          ))
-        )}
-      </CardBody>
-    </Card>
-  );
-};
 
 // ── Overview tab ────────────────────────────────────────────────────────────
 interface DayBucket {

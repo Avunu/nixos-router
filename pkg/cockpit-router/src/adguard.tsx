@@ -40,6 +40,7 @@ import {
   InnerScrollContainer,
 } from "@patternfly/react-table";
 import { useSettings, ListEditor, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
+import { AdGuardOverview } from "./adguard-overview";
 
 const _ = cockpit.gettext;
 const PORT = (window.cockpitRouterConfig && window.cockpitRouterConfig.adguardPort) || 3000;
@@ -473,7 +474,7 @@ const AdGuardSettings = () => {
 };
 
 export const AdGuard = () => {
-  const [tab, setTab] = useState("log");
+  const [tab, setTab] = useState("overview");
   return (
     <TabbedPage
       subnav={
@@ -481,13 +482,20 @@ export const AdGuard = () => {
           active={tab}
           onSelect={setTab}
           items={[
+            { id: "overview", label: _("Overview") },
             { id: "log", label: _("Query log") },
             { id: "settings", label: _("Settings") },
           ]}
         />
       }
     >
-      {tab === "log" ? <AdGuardLog /> : <AdGuardSettings />}
+      {tab === "overview" ? (
+        <AdGuardOverview />
+      ) : tab === "log" ? (
+        <AdGuardLog />
+      ) : (
+        <AdGuardSettings />
+      )}
     </TabbedPage>
   );
 };
