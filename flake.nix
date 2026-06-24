@@ -62,6 +62,15 @@
       # nixfmt:        auto-formats .nix files on commit
       # flake-checker: runs `nix flake check` to catch evaluation errors
       checks = forAllSystems (system: {
+        # NixOS VM test: boots the router with Suricata and checks the IPS
+        # integration end-to-end. Build/run with:
+        #   nix build .#checks.<system>.suricata-vm
+        suricata-vm = import ./tests/suricata.nix {
+          pkgs = nixpkgs.legacyPackages.${system};
+          routerModule = self.nixosModules.router;
+          baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+        };
+
         pre-commit = inputs.git-hooks.lib.${system}.run {
           src = ./.;
           hooks = {
@@ -2443,12 +2452,20 @@
                     };
                   }
                   {
-                    # Second EVE stream → syslog → journald, limited to the
-                    # security events the Cockpit IPS page surfaces (alert + drop).
-                    # The Cockpit views read these via journalctl
-                    # (SYSLOG_IDENTIFIER=suricata); keeping dns/tls/http/flow out of
-                    # this stream means the journal isn't flooded — those stay in
-                    # the regular eve.json file above for forensics.
+                    # Second EVE stream → syslog → journald, limited to the alert
+                    # events the Cockpit IPS page surfaces. journald captures these
+                    # under SYSLOG_IDENTIFIER=suricata, which the Cockpit views read
+                    # via journalctl. The service runs with PrivateDevices=true,
+                    # whose private /dev omits the /dev/log socket; the service
+                    # override below bind-mounts journald's socket back to /dev/log
+                    # so syslog() reaches the journal (otherwise libc's LOG_CONS
+                    # fallback would send these to the console, unstored). Keeping
+                    # dns/tls/http/flow out of this stream means the journal isn't
+                    # flooded — those stay in the regular eve.json file above for
+                    # forensics. Only `alert` (not `drop`): Suricata permits a
+                    # single `drop` logger and the file output above owns it;
+                    # blocked packets still appear here as alert events with
+                    # alert.action = "blocked".
                     eve-log = {
                       enabled = true;
                       filetype = "syslog";
@@ -2458,7 +2475,6 @@
                       community-id = true;
                       types = [
                         "alert"
-                        { drop.alerts = true; }
                       ];
                     };
                   }
@@ -2579,6 +2595,16 @@
                   # The -T config test in ExecStartPre loads all rules (~56MB)
                   # which takes ~2 min on low-power hardware; default 90s is insufficient.
                   TimeoutStartSec = 300;
+                  # Route this service's logs (stdout/stderr + the EVE syslog
+                  # output) into a dedicated journald namespace. This is what makes
+                  # the EVE syslog stream reach the journal at all: the upstream
+                  # module's PrivateDevices=true gives the service a private /dev
+                  # with no /dev/log, and LogNamespace re-provides a working
+                  # /dev/log wired to the namespace's journald (plain syslog would
+                  # otherwise fall back to the console, unstored). It also isolates
+                  # the IPS event volume from the main system journal — the Cockpit
+                  # views read it with `journalctl --namespace suricata`.
+                  LogNamespace = "suricata";
                 };
 
                 # Reload Suricata after rule updates (uses + prefix for

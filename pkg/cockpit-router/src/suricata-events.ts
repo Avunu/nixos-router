@@ -1,15 +1,12 @@
-// Suricata event source backed by the systemd journal.
+// Suricata event source backed by a dedicated systemd-journald namespace.
 //
-// Suricata's second EVE output (configured in flake.nix) writes alert + drop
-// events to syslog under SYSLOG_IDENTIFIER=suricata, which journald captures.
-// The full eve.json file (with dns/tls/http/flow) stays on disk for forensics;
-// only these security events flow through the journal so it isn't flooded.
-//
-// We read them with Cockpit's vendored journal helper (pkg/lib/journal.js):
+// The suricata service runs with LogNamespace=suricata (see flake.nix), so its
+// output — including the EVE "alert" stream it writes via syslog — lands in a
+// dedicated journal queried with `journalctl --namespace suricata`. We read it
+// with cockpit.spawn (Cockpit's journal.journalctl helper can't target a
+// namespace) and parse each entry's MESSAGE back into `Ev`.
 //   • followEvents() — preload recent + live-tail (the Events tab)
 //   • fetchEvents()  — windowed history for Overview/Statistics aggregation
-// Each journal entry's MESSAGE is the raw EVE JSON, parsed back into `Ev`.
-import { journal } from "journal";
 import { errMsg } from "./nix";
 
 export interface Ev {
@@ -34,18 +31,16 @@ export interface Ev {
   };
 }
 
-const MATCH = "SYSLOG_IDENTIFIER=suricata";
+// journalctl args common to every query: the suricata namespace, JSON output.
+const BASE = ["journalctl", "--namespace", "suricata", "-o", "json"];
 
 // Default cap for a windowed history query — mirrors Cockpit's own Logs page
 // (QUERY_COUNT = 5000) so a wide "All" range can't blow up the browser.
 export const DEFAULT_CAP = 5000;
 
-// Parse a journal MESSAGE (the raw EVE JSON line) into an alert/drop event.
-// Defensive against any syslog framing by seeking the first '{'.
-function parseMessage(msg: unknown): Ev | null {
-  if (typeof msg !== "string") {
-    return null;
-  }
+// Parse one EVE JSON record into an alert/drop event (or null). Defensive
+// against any syslog framing by seeking the first '{'.
+function parseEve(msg: string): Ev | null {
   const start = msg.indexOf("{");
   if (start === -1) {
     return null;
@@ -61,12 +56,18 @@ function parseMessage(msg: unknown): Ev | null {
   }
 }
 
-function collect(entries: { MESSAGE?: string }[], into: Ev[]): void {
-  for (const e of entries) {
-    const ev = parseMessage(e.MESSAGE);
-    if (ev) {
-      into.push(ev);
-    }
+// Parse one `journalctl -o json` line: take its MESSAGE (the raw EVE record).
+// Non-JSON suricata log lines in the same namespace parse to null and are
+// skipped.
+function parseLine(line: string): Ev | null {
+  if (!line.trim()) {
+    return null;
+  }
+  try {
+    const rec = JSON.parse(line) as { MESSAGE?: unknown };
+    return typeof rec.MESSAGE === "string" ? parseEve(rec.MESSAGE) : null;
+  } catch {
+    return null;
   }
 }
 
@@ -75,27 +76,41 @@ export interface FollowHandle {
 }
 
 // Preload the most recent `count` events, then live-tail new ones. `onBatch`
-// fires with each batch of newly parsed events (newest appended); callers
-// typically prepend them to their list.
+// fires with each batch of newly parsed events (oldest-first within the batch);
+// callers typically prepend them to their list.
 export function followEvents(
   count: number,
   onBatch: (evs: Ev[]) => void,
   onError?: (msg: string) => void,
 ): FollowHandle {
-  const p = journal.journalctl(MATCH, { count, follow: true });
-  p.stream((entries) => {
+  let buf = "";
+  const proc = cockpit.spawn([...BASE, "-n", String(count), "-f"], {
+    superuser: "try",
+    err: "message",
+  });
+  void proc.stream((data: string) => {
+    buf += data;
+    const lines = buf.split("\n");
+    buf = lines.pop() ?? "";
     const evs: Ev[] = [];
-    collect(entries, evs);
+    for (const line of lines) {
+      const ev = parseLine(line);
+      if (ev) {
+        evs.push(ev);
+      }
+    }
     if (evs.length > 0) {
       onBatch(evs);
     }
   });
-  p.then(null, (ex: unknown) => {
-    if (onError) {
-      onError(errMsg(ex));
+  proc.catch((e: unknown) => {
+    const msg = errMsg(e);
+    // close() rejects the promise with "cancelled" — that's our own stop().
+    if (onError && !/cancelled/i.test(msg)) {
+      onError(msg);
     }
   });
-  return { stop: () => p.stop() };
+  return { stop: () => proc.close() };
 }
 
 export interface FetchResult {
@@ -103,7 +118,7 @@ export interface FetchResult {
   capped: boolean; // true if the cap was hit (older events may be missing)
 }
 
-// Fetch all alert/drop events in [since, until], newest-last, capped at `cap`.
+// Fetch alert/drop events in [since, until], oldest-first, capped at `cap`.
 // `since`/`until` are journalctl time strings (see sinceDays). Omit `since` for
 // the full retained window ("All").
 export function fetchEvents(opts: {
@@ -112,20 +127,28 @@ export function fetchEvents(opts: {
   cap?: number;
 }): Promise<FetchResult> {
   const cap = opts.cap ?? DEFAULT_CAP;
-  return new Promise<FetchResult>((resolve, reject) => {
-    const events: Ev[] = [];
-    const p = journal.journalctl(MATCH, {
-      follow: false,
-      count: cap,
-      ...(opts.since ? { since: opts.since } : {}),
-      ...(opts.until ? { until: opts.until } : {}),
+  const args = [...BASE, "--no-pager", "-n", String(cap)];
+  if (opts.since) {
+    args.push("--since", opts.since);
+  }
+  if (opts.until) {
+    args.push("--until", opts.until);
+  }
+  return cockpit
+    .spawn(args, { superuser: "try", err: "message" })
+    .then((out: string) => {
+      const events: Ev[] = [];
+      for (const line of out.split("\n")) {
+        const ev = parseLine(line);
+        if (ev) {
+          events.push(ev);
+        }
+      }
+      return { events, capped: events.length >= cap };
+    })
+    .catch((e: unknown): FetchResult => {
+      throw new Error(errMsg(e));
     });
-    p.stream((entries) => collect(entries, events));
-    p.then(
-      () => resolve({ events, capped: events.length >= cap }),
-      (ex: unknown) => reject(new Error(errMsg(ex))),
-    );
-  });
 }
 
 // journalctl --since string for "N days ago", formatted in local time
