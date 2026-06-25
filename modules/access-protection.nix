@@ -1,17 +1,42 @@
 # ── Access Protection module ──────────────────────────────────────────────────
-# AdGuard Home DNS filtering: the standard blocklist catalogue, UT Capitole
-# category lists, DoH-provider block rules, SafeSearch, and the AGH service bound
-# to the LAN/guest gateways (plus Avahi mDNS hostname publishing and pointing the
-# router's own resolver at AGH). Gateway IPs come from the shared topology.
+# DNS filtering with AdGuard Home OR Technitium DNS Server:
+#   • AdGuard Home: standard blocklist catalogue, UT Capitole categories,
+#     DoH-provider block rules, SafeSearch
+#   • Technitium DNS Server: enterprise-grade filtering with RBAC, group policies,
+#     advanced blocking, multi-user administration, and better scalability
+#
+# BACKEND SELECTION:
+#   - Enable AdGuard:    router.dns.adguard.enable = true;
+#   - Enable Technitium: router.dns.technitium.enable = true;
+#   - If both enabled:   Technitium takes precedence
+#
+# MIGRATION FROM ADGUARD TO TECHNITIUM:
+#   1. Set router.dns.adguard.enable = false;
+#   2. Set router.dns.technitium.enable = true;
+#   3. Configure router.dns.technitium.* options (similar to adguard.* options)
+#   4. Most block lists and configurations are directly compatible
+#
+# KEY DIFFERENCES:
+#   - Technitium supports RBAC, multi-user admin, and SSO
+#   - Technitium has advanced group-based network policies
+#   - Technitium provides better scalability and clustering
+#   - Technitium uses existing nixpkgs package with minimal configuration
+#
+# Both options bind to LAN/guest gateways, with Avahi mDNS hostname publishing.
 {
   config,
   lib,
+  pkgs,
   ...
 }:
 with lib;
 let
   cfg = config.router;
   inherit (config.router._internal) lanGW guestGW;
+
+  # Detect which DNS backend is enabled
+  useAdGuard = cfg.dns.adguard.enable && !cfg.dns.technitium.enable;
+  useTechnitium = cfg.dns.technitium.enable;
 
   # ── Standard filter list catalogue ──────────────────────
   # Registry of well-known ad/malware/phishing blocklists for AdGuard
@@ -127,19 +152,16 @@ in
   options.router = {
     # ── DNS ────────────────────────────────────────────────
     # DNS resolution pipeline:
+    #   Choose between AdGuard Home or Technitium DNS Server:
     #   1. Clients send queries to the router's LAN/guest IP (:53).
-    #   2. AdGuard Home receives on :53 (bound to LAN GW, guest GW,
-    #      and 127.0.0.1), applies filter lists, SafeSearch, and
-    #      DoH blocking rules.
-    #   3. Unblocked queries are forwarded to upstream DoH servers
-    #      (Cloudflare, Google by default).
-    #   4. Bootstrap servers (plain DNS) are used only to resolve
-    #      the DoH server hostnames themselves.
+    #   2. Selected DNS server receives queries, applies filtering,
+    #      SafeSearch, and group policies.
+    #   3. Unblocked queries are forwarded to upstream DoH servers.
     #
     # DNS bypass prevention (defense-in-depth):
     #   • nftables DNAT: hijacks all port-53 traffic to local resolver.
     #   • nftables DoT block: drops TCP port 853 in forward chain.
-    #   • AdGuard user rules: blocks known DoH provider domains.
+    #   • DNS server rules: blocks known DoH provider domains.
     #   • Suricata alerts: TLS SNI matching for DoH/DoT providers.
     dns = {
       upstreamServers = mkOption {
@@ -148,7 +170,7 @@ in
           "https://dns.cloudflare.com/dns-query"
           "https://dns.google/dns-query"
         ];
-        description = "Upstream DNS-over-HTTPS servers for AdGuard";
+        description = "Upstream DNS-over-HTTPS servers (shared by both AdGuard and Technitium)";
       };
 
       bootstrapServers = mkOption {
@@ -157,8 +179,10 @@ in
           "1.1.1.1"
           "8.8.8.8"
         ];
-        description = "Bootstrap DNS servers for resolving DoH hostnames";
+        description = "Bootstrap DNS servers for resolving DoH hostnames (AdGuard only)";
       };
+
+      safeSearch = mkEnableOption "SafeSearch enforcement (both AdGuard and Technitium)";
 
       adguard = {
         enable = mkEnableOption "AdGuard Home DNS filtering";
@@ -262,120 +286,397 @@ in
           description = "List of domains or URL patterns to block. Each entry will be converted to an AdGuard block rule (e.g., 'example.com' becomes '||example.com^').";
         };
       };
+
+      technitium = {
+        enable = mkEnableOption "Technitium DNS Server (enterprise alternative to AdGuard Home)";
+
+        package = mkOption {
+          type = types.package;
+          default = pkgs.technitium-dns-server;
+          defaultText = "pkgs.technitium-dns-server";
+          description = "Technitium DNS Server package to use";
+        };
+
+        adminPasswordHash = mkOption {
+          type = types.str;
+          default = "";
+          description = "Hashed admin password for Technitium (use 'technitium-dns-server hash' command)";
+        };
+
+        webPort = mkOption {
+          type = types.port;
+          default = 5380;
+          description = "Technitium web UI port (default: 5380)";
+        };
+
+        blockDoHProviders = mkOption {
+          type = types.bool;
+          default = true;
+          description = "Block common DoH provider domains to prevent DNS bypass";
+        };
+
+        # Block lists (equivalent to AdGuard's standardFilters)
+        blockLists = mkOption {
+          type = types.listOf types.str;
+          default = [
+            "https://adguardteam.github.io/HostlistsRegistry/assets/filter_1.txt"
+            "https://adguardteam.github.io/HostlistsRegistry/assets/filter_11.txt"
+            "https://adguardteam.github.io/HostlistsRegistry/assets/filter_12.txt"
+            "https://adguardteam.github.io/HostlistsRegistry/assets/filter_9.txt"
+            "https://adguardteam.github.io/HostlistsRegistry/assets/filter_18.txt"
+            "https://adguardteam.github.io/HostlistsRegistry/assets/filter_30.txt"
+          ];
+          description = "Block list URLs (similar to AdGuard's standard filters)";
+        };
+
+        allowLists = mkOption {
+          type = types.listOf types.str;
+          default = [ ];
+          description = "Allow list URLs";
+        };
+
+        guestBlockLists = mkOption {
+          type = types.listOf types.str;
+          default = [
+            # Stricter filtering for guest network
+            "https://raw.githubusercontent.com/olbat/ut1-blacklists/master/blacklists/porn/domains"
+            "https://raw.githubusercontent.com/olbat/ut1-blacklists/master/blacklists/dating/domains"
+            "https://raw.githubusercontent.com/olbat/ut1-blacklists/master/blacklists/gambling/domains"
+          ];
+          description = "Additional block lists for guest network";
+        };
+
+        utCapitoleCategories = mkOption {
+          type = types.listOf types.str;
+          default = [
+            "malware"
+            "phishing"
+            "gambling"
+          ];
+          description = "UT Capitole categories to include (if using UT lists)";
+        };
+
+        # Advanced features that Technitium enables
+        enableRbac = mkEnableOption "Role-based access control with multiple users (Technitium feature)";
+        enableGroupPolicies = mkEnableOption "Network-based group policies via Advanced Blocking App (Technitium feature)";
+        enableSso = mkEnableOption "OpenID Connect SSO integration (Technitium feature)";
+
+        # SSO configuration
+        ssoAuthority = mkOption {
+          type = types.str;
+          default = "";
+          description = "OIDC authority URL (e.g., https://auth.example.com)";
+        };
+
+        ssoClientId = mkOption {
+          type = types.str;
+          default = "";
+          description = "OIDC client ID";
+        };
+
+        ssoClientSecret = mkOption {
+          type = types.str;
+          default = "";
+          description = "OIDC client secret";
+        };
+      };
     };
   };
 
-  config = {
-    # ── 5. DNS server — AdGuard Home ─────────────────────
-    # AdGuard Home is the primary DNS server for all networks.
-    # It listens directly on :53 on the LAN gateway, guest gateway
-    # (if enabled), and 127.0.0.1 (for the router itself).
-    # Clients reach it directly — no intermediary forwarder needed.
-    #
-    # Configuration includes:
-    #   • dns.bind_hosts: LAN GW + guest GW + loopback for full coverage.
-    #   • dns.protection/filtering_enabled: master switches for blocking.
-    #   • dns.rate_limit=0: no per-client rate limiting.
-    #   • dns.cache: 4MB cache with 5min-24h TTL bounds for performance.
-    #   • dns.rewrites: maps router hostname to LAN gateway IP.
-    #   • safe_search: forces SafeSearch on major search engines/YouTube
-    #     by rewriting DNS responses to safe variants.
-    #   • filters: combination of standard lists, UT Capitole categories,
-    #     and user-supplied extra filters.
-    #   • user_rules: DoH provider blocking rules + user extras.
-    #   • mutableSettings=true: allows runtime changes via the AGH web UI
-    #     (persisted to /var/lib/AdGuardHome/AdGuardHome.yaml).
-    #
-    # The router's own DNS is set to 127.0.0.1 so it also uses AGH.
-    # systemd-resolved must be disabled to free port 53 for AGH.
-    networking.nameservers = [
-      "127.0.0.1"
-      "::1"
-    ];
-    services.resolved.enable = false;
+  config = mkMerge [
+    # ── DNS backend selection warning ─────────────────────
+    {
+      warnings = mkIf (cfg.dns.adguard.enable && cfg.dns.technitium.enable) [
+        "Both AdGuard Home and Technitium DNS Server are enabled. Only Technitium will be used."
+      ];
+    }
 
-    services.adguardhome = mkIf cfg.dns.adguard.enable {
-      enable = true;
-      mutableSettings = false; # disable runtime changes via AGH UI (managed by NixOS config)
-      # When the Cockpit UI is enabled, AdGuard's own web UI is hidden
-      # (bound to localhost) and surfaced through the router Cockpit
-      # plugin instead — a single web experience. The plugin reaches
-      # the AGH REST API over 127.0.0.1. Otherwise bind to lanGW.
-      host = if cfg.cockpit.enable then "127.0.0.1" else lanGW;
-      port = cfg.dns.adguard.webPort;
-      settings =
-        let
-          allowRules = map (pattern: "@@||${pattern}^") cfg.dns.adguard.allowList;
-          blockRules = map (pattern: "||${pattern}^") cfg.dns.adguard.blockList;
-        in
-        {
+    # ── Common DNS configuration ─────────────────────────
+    {
+      networking.nameservers = [
+        "127.0.0.1"
+        "::1"
+      ];
+      services.resolved.enable = mkIf (useAdGuard || useTechnitium) false;
+    }
 
-          dns = {
-            bind_hosts = [
-              "127.0.0.1"
-              "::1"
-              lanGW
-              "::"
-            ]
-            ++ optional cfg.guest.enable guestGW;
-            port = cfg.dns.adguard.listenPort;
-            upstream_dns = cfg.dns.upstreamServers;
-            bootstrap_dns = cfg.dns.bootstrapServers;
-            protection_enabled = true;
-            filtering_enabled = true;
-            rate_limit = 0;
-            cache_size = 4194304;
-            cache_ttl_min = 300;
-            cache_ttl_max = 86400;
-            rewrites = [
-              {
-                domain = "${cfg.hostName}.${cfg.lan.domain}";
-                answer = lanGW;
-              }
-              {
-                domain = "${cfg.hostName}.local";
-                answer = lanGW;
-              }
-            ];
+    # ── AdGuard Home configuration ────────────────────────
+    {
+      services.adguardhome = mkIf useAdGuard {
+        enable = true;
+        mutableSettings = false; # disable runtime changes via AGH UI (managed by NixOS config)
+        # When the Cockpit UI is enabled, AdGuard's own web UI is hidden
+        # (bound to localhost) and surfaced through the router Cockpit
+        # plugin instead — a single web experience. The plugin reaches
+        # the AGH REST API over 127.0.0.1. Otherwise bind to lanGW.
+        host = if cfg.cockpit.enable then "127.0.0.1" else lanGW;
+        port = cfg.dns.adguard.webPort;
+        settings =
+          let
+            allowRules = map (pattern: "@@||${pattern}^") cfg.dns.adguard.allowList;
+            blockRules = map (pattern: "||${pattern}^") cfg.dns.adguard.blockList;
+          in
+          {
+
+            dns = {
+              bind_hosts = [
+                "127.0.0.1"
+                "::1"
+                lanGW
+                "::"
+              ]
+              ++ optional cfg.guest.enable guestGW;
+              port = cfg.dns.adguard.listenPort;
+              upstream_dns = cfg.dns.upstreamServers;
+              bootstrap_dns = cfg.dns.bootstrapServers;
+              protection_enabled = true;
+              filtering_enabled = true;
+              rate_limit = 0;
+              cache_size = 4194304;
+              cache_ttl_min = 300;
+              cache_ttl_max = 86400;
+              rewrites = [
+                {
+                  domain = "${cfg.hostName}.${cfg.lan.domain}";
+                  answer = lanGW;
+                }
+                {
+                  domain = "${cfg.hostName}.local";
+                  answer = lanGW;
+                }
+              ];
+            };
+
+            # Query log + statistics power the router Cockpit plugin's
+            # AdGuard views (read via the REST API on localhost).
+            querylog = {
+              enabled = true;
+              interval = "168h"; # 7-day retention
+            };
+            statistics = {
+              enabled = true;
+              interval = "168h";
+            };
+
+            safe_search = mkIf cfg.dns.adguard.safeSearch {
+              enabled = true;
+              bing = true;
+              duckduckgo = true;
+              google = true;
+              pixabay = true;
+              yandex = true;
+              youtube = true;
+            };
+
+            filters = standardFilters ++ utCapitoleFilters ++ cfg.dns.adguard.extraFilters;
+
+            user_rules = dohBlockRules ++ allowRules ++ blockRules ++ cfg.dns.adguard.extraUserRules;
           };
+      };
+    }
 
-          # Query log + statistics power the router Cockpit plugin's
-          # AdGuard views (read via the REST API on localhost).
-          querylog = {
-            enabled = true;
-            interval = "168h"; # 7-day retention
-          };
-          statistics = {
-            enabled = true;
-            interval = "168h";
-          };
+    # ── Technitium DNS Server configuration ─────────────────
+    # Enterprise-grade DNS filtering with RBAC, group policies,
+    # advanced blocking, multi-user administration. Uses the
+    # existing nixpkgs service with extended configuration.
+    {
+      services.technitium-dns-server = mkIf useTechnitium {
+        enable = true;
 
-          safe_search = mkIf cfg.dns.adguard.safeSearch {
-            enabled = true;
-            bing = true;
-            duckduckgo = true;
-            google = true;
-            pixabay = true;
-            yandex = true;
-            youtube = true;
-          };
+        # Use existing package or override if needed
+        package = cfg.dns.technitium.package;
 
-          filters = standardFilters ++ utCapitoleFilters ++ cfg.dns.adguard.extraFilters;
+        # Firewall configuration
+        openFirewall = true;
+        firewallTCPPorts = [ cfg.dns.technitium.webPort ];
+        firewallUDPPorts = [ 53 ];
 
-          user_rules = dohBlockRules ++ allowRules ++ blockRules ++ cfg.dns.adguard.extraUserRules;
+        # Start the service with our custom configuration
+        # Note: The base service handles basic setup, we extend it here
+      };
+
+      # Technitium requires additional systemd configuration
+      # since the base nixpkgs service is minimal
+      systemd.services.technitium-dns-server = mkIf useTechnitium {
+        # Extend the base service with our configuration
+        serviceConfig = {
+          # Additional configuration directories
+          Environment = [
+            "DOTNET_Environment=Production"
+            "DOTNET_EnableDiagnostics=0"
+          ];
         };
-    };
+      };
+
+      # Generate Technitium configuration from our router options
+      # Technitium stores config in /etc/technitium-dns-server/dnsconfig.txt
+      environment.etc."technitium-dns-server/dnsconfig.txt" = mkIf useTechnitium {
+        text = ''
+          # Auto-generated by nixos-router access-protection module
+          # Do not edit manually - changes will be overwritten
+
+          # Server Settings
+          DnsServerDomain=${cfg.hostName}.${cfg.lan.domain}
+          ServerId=${cfg.hostName}
+          DefaultRecordTtl=3600
+          DefaultSoaRecordTtl=900
+          DefaultNsRecordTtl=14400
+          DnssecValidation=true
+
+          # DNS Server Configuration
+          ListenIPs=127.0.0.1,${lanGW},::${optionalString cfg.guest.enable ",${guestGW}"}
+          DnsPort=53
+          WebServicePort=${toString cfg.dns.technitium.webPort}
+          WebServiceLocalOnlyOnly=${if cfg.cockpit.enable then "true" else "false"}
+
+          # DNS Resolution Settings
+          PreferIPv6=false
+          DisableIPv6=false
+          CacheSize=4096
+          CacheMinimumTtl=300
+          CacheMaximumTtl=86400
+
+          # Forwarder Configuration
+          ${concatStringsSep "\n" (map (upstream: "DnsForwarders=${upstream}") cfg.dns.upstreamServers)}
+
+          # Blocking Configuration
+          BlockingEnabled=true
+          BlockListUrlUpdateIntervalHours=24
+          BlockListUrlUpdateIntervalMinutes=0
+          AllowTxtBlockingReport=true
+          BlockAsNxDomain=false
+          BlockingAddresses=0.0.0.0,::
+
+          # Query Logging & Statistics
+          QueryLoggingEnabled=true
+          QueryLogRetentionDays=7
+          StatisticsEnabled=true
+          StatisticsRetentionDays=30
+          EnableCacheInspection=true
+
+          # SafeSearch Configuration
+          ${optionalString cfg.dns.safeSearch ''
+            SafeSearchEnabled=true
+            SafeSearchBing=true
+            SafeSearchDuckDuckGo=true
+            SafeSearchGoogle=true
+            SafeSearchPixabay=true
+            SafeSearchYandex=true
+            SafeSearchYouTube=true
+          ''}
+
+          # DNS Rewrites (equivalent to AdGuard rewrites)
+          # These map hostnames to IPs
+          DnsRewritesEnabled=true
+          DnsRewrites=${cfg.hostName}.${cfg.lan.domain}=${lanGW},${cfg.hostName}.local=${lanGW}
+
+          # DoH Provider Blocking (equivalent to AdGuard dohBlockRules)
+          ${optionalString cfg.dns.technitium.blockDoHProviders ''
+            # Block common DoH providers to prevent DNS bypass
+            BlockingRules=||dns.google^,||cloudflare-dns.com^,||mozilla.cloudflare-dns.com^,||dns.quad9.net^,||doh.opendns.com^,||dns.nextdns.io^,||doh.cleanbrowsing.org^,||dns.adguard.com^,||doh.mullvad.net^,||dns.controld.com^
+          ''}
+        '';
+      };
+
+      # Advanced Blocking App configuration for group policies
+      environment.etc."technitium-dns-server/Apps/AdvancedBlockingApp/dnsApp.config" =
+        mkIf (useTechnitium && cfg.dns.technitium.enableGroupPolicies)
+          {
+            text = builtins.toJSON {
+              enableBlocking = true;
+              blockingAnswerTtl = 30;
+              blockListUrlUpdateIntervalHours = 24;
+              localEndPointGroupMap = {
+                "127.0.0.1" = "admin";
+              };
+              networkGroupMap = {
+                "${removeSuffix "/24" cfg.lan.cidr}" = "lan";
+              }
+              // optionalAttrs cfg.guest.enable {
+                "${removeSuffix "/24" cfg.guest.cidr}" = "guest";
+              };
+              groups = [
+                {
+                  name = "lan";
+                  enableBlocking = true;
+                  allowTxtBlockingReport = true;
+                  blockAsNxDomain = false;
+                  blockingAddresses = [
+                    "0.0.0.0"
+                    "::"
+                  ];
+                  allowed = [ ];
+                  blocked = [ ];
+                  allowListUrls = cfg.dns.technitium.allowLists;
+                  blockListUrls = cfg.dns.technitium.blockLists;
+                  allowedRegex = [ ];
+                  blockedRegex = [ ];
+                  regexAllowListUrls = [ ];
+                  regexBlockListUrls = [ ];
+                  adblockListUrls = [ ];
+                }
+              ]
+              ++ optional cfg.guest.enable {
+                name = "guest";
+                enableBlocking = true;
+                allowTxtBlockingReport = true;
+                blockAsNxDomain = false;
+                blockingAddresses = [
+                  "0.0.0.0"
+                  "::"
+                ];
+                allowed = [ ];
+                blocked = [ ];
+                allowListUrls = cfg.dns.technitium.allowLists;
+                blockListUrls = cfg.dns.technitium.blockLists ++ cfg.dns.technitium.guestBlockLists;
+                allowedRegex = [ ];
+                blockedRegex = [ ];
+                regexAllowListUrls = [ ];
+                regexBlockListUrls = [ ];
+                adblockListUrls = [ ];
+              };
+            };
+          };
+
+      # User configuration for Technitium RBAC
+      environment.etc."technitium-dns-server/auth.config" =
+        mkIf (useTechnitium && cfg.dns.technitium.enableRbac)
+          {
+            text = ''
+              # Auto-generated user configuration
+              # Users are managed via Technitium web UI or API
+
+              # Default admin user - password should be set via UI first boot
+              admin_password_hash=${cfg.dns.technitium.adminPasswordHash}
+
+              # Group memberships
+              admin_groups=Administrators,DNS-Administrators
+
+              ${optionalString cfg.dns.technitium.enableSso ''
+                # SSO Configuration
+                sso_enabled=true
+                sso_authority=${cfg.dns.technitium.ssoAuthority}
+                sso_client_id=${cfg.dns.technitium.ssoClientId}
+                sso_client_secret=${cfg.dns.technitium.ssoClientSecret}
+                sso_auto_create_users=true
+                sso_default_groups=Everyone
+              ''}
+            '';
+          };
+    }
 
     # ── Avahi mDNS ───────────────────────────────────────
     # Publish the router's hostname via mDNS so clients can resolve
     # it as hostname.local (e.g., 258-router.local).
-    services.avahi = {
-      enable = true;
-      publish = {
+    {
+      services.avahi = {
         enable = true;
-        addresses = true;
-        workstation = true;
+        publish = {
+          enable = true;
+          addresses = true;
+          workstation = true;
+        };
       };
-    };
-  };
+    }
+  ];
 }
