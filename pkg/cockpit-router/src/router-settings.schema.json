@@ -1,242 +1,626 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "$id": "https://github.com/Avunu/nixos-router/router-settings.schema.json",
-  "title": "router-settings.json",
-  "description": "Cockpit-managed router configuration, mirroring the serializable router.* options of nixos-router's flake.nix module. Unknown keys are rejected (the module errors on an undefined option); structural/package-typed options (cockpit, extraPackages) live in Nix and are not part of this file.",
-  "type": "object",
   "additionalProperties": false,
   "properties": {
-    "hostName": { "type": "string" },
-    "timeZone": { "type": "string" },
-    "stateVersion": { "type": "string" },
-    "diskDevice": { "type": "string" },
-    "bootMode": { "enum": ["uefi", "legacy"] },
-    "trunkInterfaces": { "$ref": "#/definitions/stringArray" },
-
-    "wan": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "interface": { "type": ["string", "null"] },
-        "vlan": { "$ref": "#/definitions/nullableVlan" }
-      }
-    },
-
-    "lan": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "interfaces": { "$ref": "#/definitions/stringArray" },
-        "vlan": { "$ref": "#/definitions/nullableVlan" },
-        "taggedInterfaces": { "$ref": "#/definitions/stringArray" },
-        "address": { "type": "string" },
-        "networkAddress": { "type": "string" },
-        "prefixLength": { "type": "integer" },
-        "domain": { "type": "string" },
-        "dhcp": { "$ref": "#/definitions/dhcp" }
-      }
-    },
-
-    "guest": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enable": { "type": "boolean" },
-        "interfaces": { "$ref": "#/definitions/stringArray" },
-        "vlan": { "$ref": "#/definitions/nullableVlan" },
-        "taggedInterfaces": { "$ref": "#/definitions/stringArray" },
-        "address": { "type": "string" },
-        "networkAddress": { "type": "string" },
-        "prefixLength": { "type": "integer" },
-        "dhcp": { "$ref": "#/definitions/dhcp" }
-      }
-    },
-
-    "wireguard": {
-      "type": "object",
-      "additionalProperties": { "$ref": "#/definitions/tunnel" }
-    },
-
-    "dns": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "upstreamServers": { "$ref": "#/definitions/stringArray" },
-        "bootstrapServers": { "$ref": "#/definitions/stringArray" },
-        "adguard": { "$ref": "#/definitions/adguard" }
-      }
-    },
-
-    "suricata": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enable": { "type": "boolean" },
-        "mode": { "enum": ["ids", "ips"] },
-        "extraRules": { "type": "string" },
-        "categories": {
-          "type": "object",
-          "additionalProperties": { "enum": ["enabled", "disabled", "drop"] }
-        },
-        "policies": {
-          "type": "array",
-          "items": { "$ref": "#/definitions/suricataPolicy" }
-        },
-        "suppressions": {
-          "type": "array",
-          "items": { "$ref": "#/definitions/suricataSuppression" }
-        }
-      }
-    },
-
-    "upnp": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enable": { "type": "boolean" },
-        "extraConfig": { "type": "string" }
-      }
-    },
-
-    "portForwards": {
-      "type": "array",
-      "items": { "$ref": "#/definitions/portForward" }
-    },
-
     "adminUser": {
-      "type": "object",
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
-        "sshKeys": { "$ref": "#/definitions/stringArray" },
-        "initialPassword": { "type": ["string", "null"] }
-      }
-    }
-  },
-
-  "definitions": {
-    "stringArray": {
-      "type": "array",
-      "items": { "type": "string" }
+        "initialPassword": {
+          "default": null,
+          "description": "Initial password for the admin user (required for sudo access on first login; should be changed immediately)",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "default": "admin",
+          "description": "Admin user account name",
+          "type": "string"
+        },
+        "sshKeys": {
+          "default": [],
+          "description": "SSH public keys for the admin user",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
     },
-    "utCapitoleCategory": {
-      "description": "A UT Capitole blacklist category. The allowed enum is injected at build time from ut-capitole.json (the single source shared with the Cockpit UI).",
+    "bootMode": {
+      "default": "uefi",
+      "description": "Boot mode: uefi (systemd-boot) or legacy (GRUB)",
+      "enum": [
+        "uefi",
+        "legacy"
+      ]
+    },
+    "diskDevice": {
+      "default": "/dev/sda",
+      "description": "Disk device for disko partitioning",
       "type": "string"
     },
-    "port": {
-      "type": "integer",
-      "minimum": 0,
-      "maximum": 65535
-    },
-    "suricataPolicy": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["sid"],
-      "properties": {
-        "sid": { "type": "integer" },
-        "action": { "enum": ["alert", "drop", "disable"] },
-        "comment": { "type": "string" }
-      }
-    },
-    "suricataSuppression": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["sid", "ip"],
-      "properties": {
-        "sid": { "type": "integer" },
-        "track": { "enum": ["by_src", "by_dst", "by_either"] },
-        "ip": { "type": "string" },
-        "comment": { "type": "string" }
-      }
-    },
-    "nullableVlan": {
-      "type": ["integer", "null"],
-      "minimum": 1,
-      "maximum": 4094
-    },
-    "dhcp": {
-      "type": "object",
+    "dns": {
       "additionalProperties": false,
       "properties": {
-        "poolOffset": { "type": "integer" },
-        "poolSize": { "type": "integer" },
-        "leaseTime": { "type": "string" }
-      }
-    },
-    "standardFilters": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "adaway": { "type": "boolean" },
-        "adguard_ads": { "type": "boolean" },
-        "adguard_anti_malware": { "type": "boolean" },
-        "adguard_hacked_sites": { "type": "boolean" },
-        "adguard_malware": { "type": "boolean" },
-        "adguard_phishing": { "type": "boolean" },
-        "phishtank_openphish": { "type": "boolean" },
-        "steven_black": { "type": "boolean" },
-        "yoyo_adservers": { "type": "boolean" }
-      }
-    },
-    "adguard": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enable": { "type": "boolean" },
-        "listenPort": { "$ref": "#/definitions/port" },
-        "webPort": { "$ref": "#/definitions/port" },
-        "safeSearch": { "type": "boolean" },
-        "standardFilters": { "$ref": "#/definitions/standardFilters" },
-        "extraFilters": {
-          "type": "array",
-          "items": { "type": "object" }
+        "adguard": {
+          "additionalProperties": false,
+          "properties": {
+            "allowList": {
+              "default": [],
+              "description": "List of domains or URL patterns to allow. Each entry will be converted to an AdGuard allow rule (e.g., 'example.com' becomes '@@||example.com^').",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "blockList": {
+              "default": [],
+              "description": "List of domains or URL patterns to block. Each entry will be converted to an AdGuard block rule (e.g., 'example.com' becomes '||example.com^').",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "enable": {
+              "default": false,
+              "description": "Whether to enable AdGuard Home DNS filtering.",
+              "type": "boolean"
+            },
+            "extraUserRules": {
+              "default": [],
+              "description": "Additional AdGuard user rules (e.g. whitelists)",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "listenPort": {
+              "default": 53,
+              "description": "DNS listen port for AdGuard Home (default 53, served directly to clients)",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "safeSearch": {
+              "default": false,
+              "description": "Whether to enable SafeSearch enforcement.",
+              "type": "boolean"
+            },
+            "standardFilters": {
+              "additionalProperties": false,
+              "properties": {
+                "adaway": {
+                  "default": true,
+                  "description": "AdAway hosts list",
+                  "type": "boolean"
+                },
+                "adguard_ads": {
+                  "default": true,
+                  "description": "AdGuard Base list (ads & trackers)",
+                  "type": "boolean"
+                },
+                "adguard_anti_malware": {
+                  "default": true,
+                  "description": "Dandelion Sprout's Anti-Malware List (filter_12)",
+                  "type": "boolean"
+                },
+                "adguard_hacked_sites": {
+                  "default": true,
+                  "description": "The Big List of Hacked Malware Web Sites (filter_9)",
+                  "type": "boolean"
+                },
+                "adguard_malware": {
+                  "default": true,
+                  "description": "AdGuard Malware filter",
+                  "type": "boolean"
+                },
+                "adguard_phishing": {
+                  "default": true,
+                  "description": "AdGuard Phishing URL Blocklist (filter_18)",
+                  "type": "boolean"
+                },
+                "phishtank_openphish": {
+                  "default": true,
+                  "description": "Phishing Army list based on PhishTank + OpenPhish (filter_30)",
+                  "type": "boolean"
+                },
+                "steven_black": {
+                  "default": true,
+                  "description": "Steven Black's unified hosts file (ads + malware)",
+                  "type": "boolean"
+                },
+                "yoyo_adservers": {
+                  "default": true,
+                  "description": "Peter Lowe's ad/tracker server list (yoyo.org)",
+                  "type": "boolean"
+                }
+              },
+              "type": "object"
+            },
+            "utCapitoleCategories": {
+              "default": [],
+              "description": "UT Capitole blacklist categories to enable as AdGuard filters.\nEach category name maps to a domain list fetched from\nhttps://dsi.ut-capitole.fr/blacklists/download/<category>/domains.\nSee https://dsi.ut-capitole.fr/blacklists/index_en.php for the\nfull list of available categories (e.g. \"adult\", \"malware\",\n\"phishing\", \"gambling\", \"cryptojacking\", \"vpn\", \"dating\", etc.).\n",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "webPort": {
+              "default": 3000,
+              "description": "Web UI port for AdGuard Home",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": "object"
         },
-        "utCapitoleCategories": {
-          "type": "array",
-          "items": { "$ref": "#/definitions/utCapitoleCategory" }
+        "bootstrapServers": {
+          "default": [
+            "1.1.1.1",
+            "8.8.8.8"
+          ],
+          "description": "Bootstrap DNS servers for resolving DoH hostnames",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         },
-        "extraUserRules": { "$ref": "#/definitions/stringArray" },
-        "allowList": { "$ref": "#/definitions/stringArray" },
-        "blockList": { "$ref": "#/definitions/stringArray" }
-      }
-    },
-    "peer": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "publicKey": { "type": "string" },
-        "endpoint": { "type": ["string", "null"] },
-        "allowedIPs": { "$ref": "#/definitions/stringArray" },
-        "persistentKeepalive": { "type": "integer" }
-      }
-    },
-    "tunnel": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "address": { "type": "string" },
-        "listenPort": { "$ref": "#/definitions/port" },
-        "privateKeyFile": { "type": "string" },
-        "routes": { "$ref": "#/definitions/stringArray" },
-        "peers": {
-          "type": "array",
-          "items": { "$ref": "#/definitions/peer" }
+        "upstreamServers": {
+          "default": [
+            "https://dns.cloudflare.com/dns-query",
+            "https://dns.google/dns-query"
+          ],
+          "description": "Upstream DNS-over-HTTPS servers for AdGuard",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
-      }
+      },
+      "type": "object"
     },
-    "portForward": {
-      "type": "object",
+    "guest": {
       "additionalProperties": false,
       "properties": {
-        "name": { "type": "string" },
-        "protocol": { "enum": ["tcp", "udp"] },
-        "destination": { "type": "string" },
-        "ports": {
-          "type": "array",
-          "items": { "$ref": "#/definitions/port" }
+        "address": {
+          "default": "192.168.20.1",
+          "description": "Guest gateway IP address",
+          "type": "string"
         },
-        "source": { "type": ["string", "null"] }
-      }
+        "dhcp": {
+          "additionalProperties": false,
+          "properties": {
+            "leaseTime": {
+              "default": "1h",
+              "description": "Guest DHCP lease duration (shorter default encourages rotation)",
+              "type": "string"
+            },
+            "poolOffset": {
+              "default": 100,
+              "description": "Offset from network base to first guest DHCP address",
+              "type": "integer"
+            },
+            "poolSize": {
+              "default": 151,
+              "description": "Number of addresses in the guest DHCP pool",
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "enable": {
+          "default": false,
+          "description": "Whether to enable guest network with client isolation.",
+          "type": "boolean"
+        },
+        "interfaces": {
+          "default": [],
+          "description": "Physical interface names to assign to the guest bridge (untagged)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "networkAddress": {
+          "default": "192.168.20.0",
+          "description": "Guest network address (e.g. 192.168.20.0)",
+          "type": "string"
+        },
+        "prefixLength": {
+          "default": 24,
+          "description": "Guest subnet prefix length",
+          "type": "integer"
+        },
+        "taggedInterfaces": {
+          "default": [],
+          "description": "Interfaces on which this network's VLAN tag is available, in\naddition to the global `trunkInterfaces`. Non-exclusive: a port\nmay carry several networks' tags. Requires `vlan` to be set.\n",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "vlan": {
+          "default": null,
+          "description": "VLAN id for this network's tagged traffic; null = untagged-only.\nThe tag is carried on `trunkInterfaces` plus this network's\n`taggedInterfaces`.\n",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "hostName": {
+      "default": "router",
+      "description": "Hostname for the router",
+      "type": "string"
+    },
+    "lan": {
+      "additionalProperties": false,
+      "properties": {
+        "address": {
+          "description": "LAN gateway IP address (e.g. 192.168.10.1)",
+          "type": "string"
+        },
+        "dhcp": {
+          "additionalProperties": false,
+          "properties": {
+            "leaseTime": {
+              "default": "24h",
+              "description": "DHCP lease duration",
+              "type": "string"
+            },
+            "poolOffset": {
+              "description": "Offset from network base to first DHCP address (e.g. 100 for .100)",
+              "type": "integer"
+            },
+            "poolSize": {
+              "description": "Number of addresses in the DHCP pool (e.g. 151 for .100-.250)",
+              "type": "integer"
+            }
+          },
+          "required": [
+            "poolOffset",
+            "poolSize"
+          ],
+          "type": "object"
+        },
+        "domain": {
+          "default": "lan",
+          "description": "Local DNS domain",
+          "type": "string"
+        },
+        "interfaces": {
+          "default": [],
+          "description": "Physical LAN port interface names (untagged). May be empty for a VLAN-only LAN.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "networkAddress": {
+          "description": "LAN network address (e.g. 192.168.10.0)",
+          "type": "string"
+        },
+        "prefixLength": {
+          "default": 24,
+          "description": "LAN subnet prefix length",
+          "type": "integer"
+        },
+        "taggedInterfaces": {
+          "default": [],
+          "description": "Interfaces on which this network's VLAN tag is available, in\naddition to the global `trunkInterfaces`. Non-exclusive: a port\nmay carry several networks' tags. Requires `vlan` to be set.\n",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "vlan": {
+          "default": null,
+          "description": "VLAN id for this network's tagged traffic; null = untagged-only.\nThe tag is carried on `trunkInterfaces` plus this network's\n`taggedInterfaces`.\n",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "address",
+        "networkAddress"
+      ],
+      "type": "object"
+    },
+    "portForwards": {
+      "default": [],
+      "description": "Static inbound port forwards (DNAT) from the WAN to internal hosts. IPv4 only.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "destination": {
+            "description": "Internal IPv4 address to forward the traffic to.",
+            "type": "string"
+          },
+          "name": {
+            "default": "",
+            "description": "Descriptive label, emitted as an nftables rule comment.",
+            "type": "string"
+          },
+          "ports": {
+            "description": "WAN-facing ports to forward, each mapped 1:1 to the same port on `destination`.",
+            "items": {
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "type": "array"
+          },
+          "protocol": {
+            "default": "tcp",
+            "description": "Transport protocol to forward.",
+            "enum": [
+              "tcp",
+              "udp"
+            ]
+          },
+          "source": {
+            "default": null,
+            "description": "Optional WAN source prefix the forward is restricted to. Null allows any source.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "destination",
+          "ports"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
+    "stateVersion": {
+      "default": "25.11",
+      "description": "NixOS state version",
+      "type": "string"
+    },
+    "suricata": {
+      "additionalProperties": false,
+      "properties": {
+        "categories": {
+          "additionalProperties": {
+            "enum": [
+              "enabled",
+              "disabled",
+              "drop"
+            ]
+          },
+          "default": {},
+          "description": "Per-category action overrides, keyed by suricata-update rule\ngroup (the source rule-file name, e.g. `emerging-malware.rules`).\n`disabled` adds a `group:` line to the suricata-update disable\nlist; `drop` adds one to the drop list (only effective in\n`ips` mode); `enabled` keeps the ruleset default. Categories\nabsent here are unchanged. Edited from the Cockpit IPS\n\"Policies\" tab.\n",
+          "type": "object"
+        },
+        "enable": {
+          "default": false,
+          "description": "Whether to enable Suricata IPS inline inspection.",
+          "type": "boolean"
+        },
+        "extraRules": {
+          "default": "",
+          "description": "Additional Suricata local rules",
+          "type": "string"
+        },
+        "mode": {
+          "default": "ids",
+          "description": "Detection mode. `ids` = alert only, never drop (Synology\n\"detect\"). `ips` = honor the drop actions configured per\ncategory/signature below (Synology \"drop high-risk packets\nautomatically\"). NFQUEUE already enforces `drop` verdicts; this\ngates whether any `drop` conversions are emitted to\nsuricata-update at all.\n",
+          "enum": [
+            "ids",
+            "ips"
+          ]
+        },
+        "policies": {
+          "default": [],
+          "description": "Per-signature action overrides (\"self-defined policy\"). Built\nfrom the Cockpit IPS \"Policies\" tab, typically by editing the\naction of a signature seen in the Events list.\n",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "action": {
+                "default": "alert",
+                "description": "`alert` (default, no change), `drop` (convert to drop —\n`ips` mode only), or `disable` (remove the rule).\n",
+                "enum": [
+                  "alert",
+                  "drop",
+                  "disable"
+                ]
+              },
+              "comment": {
+                "default": "",
+                "description": "Free-text note shown in the UI.",
+                "type": "string"
+              },
+              "sid": {
+                "description": "Signature ID (gid 1).",
+                "type": "integer"
+              }
+            },
+            "required": [
+              "sid"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "suppressions": {
+          "default": [],
+          "description": "Per-host signature suppressions, rendered into Suricata's\nthreshold.config as `suppress` lines (\"do nothing for this host\non this signature\").\n",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "comment": {
+                "default": "",
+                "description": "Free-text note shown in the UI.",
+                "type": "string"
+              },
+              "ip": {
+                "description": "Host or subnet exempted from this signature.",
+                "type": "string"
+              },
+              "sid": {
+                "description": "Signature ID (gid 1) to suppress.",
+                "type": "integer"
+              },
+              "track": {
+                "default": "by_src",
+                "description": "Which side of the flow the IP matches.",
+                "enum": [
+                  "by_src",
+                  "by_dst",
+                  "by_either"
+                ]
+              }
+            },
+            "required": [
+              "ip",
+              "sid"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "timeZone": {
+      "default": "America/New_York",
+      "description": "System timezone",
+      "type": "string"
+    },
+    "trunkInterfaces": {
+      "default": [],
+      "description": "Physical ports carrying tagged VLANs with no untagged network of their own (e.g. a single switch-trunk uplink).",
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "upnp": {
+      "additionalProperties": false,
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Whether to enable UPnP-IGD / NAT-PMP automatic port forwarding (miniupnpd).",
+          "type": "boolean"
+        },
+        "extraConfig": {
+          "default": "",
+          "description": "Additional miniupnpd.conf lines, appended after the hardened defaults",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "wan": {
+      "additionalProperties": false,
+      "properties": {
+        "interface": {
+          "default": null,
+          "description": "WAN untagged uplink interface name (e.g. enp1s0). Set null for a VLAN-only WAN.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "vlan": {
+          "default": null,
+          "description": "WAN VLAN id (tagged); null = untagged uplink. The WAN tag is\ncarried only on `trunkInterfaces` (never on LAN/guest ports).\nWhen set, the WAN DHCP client runs on a bridge (br-wan)\naggregating those VLAN sub-interfaces.\n",
+          "type": [
+            "integer",
+            "null"
+          ]
+        }
+      },
+      "type": "object"
+    },
+    "wireguard": {
+      "additionalProperties": {
+        "additionalProperties": false,
+        "properties": {
+          "address": {
+            "description": "Local WireGuard address with CIDR (e.g. 10.100.0.1/24)",
+            "type": "string"
+          },
+          "listenPort": {
+            "default": 51820,
+            "description": "UDP listen port for WireGuard",
+            "maximum": 65535,
+            "minimum": 0,
+            "type": "integer"
+          },
+          "peers": {
+            "default": [],
+            "description": "List of WireGuard peers",
+            "items": {
+              "additionalProperties": false,
+              "properties": {
+                "allowedIPs": {
+                  "description": "Allowed IP ranges for this peer",
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                "endpoint": {
+                  "default": null,
+                  "description": "Endpoint address:port of the peer",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "persistentKeepalive": {
+                  "default": 25,
+                  "description": "Persistent keepalive interval in seconds",
+                  "type": "integer"
+                },
+                "publicKey": {
+                  "description": "Public key of the WireGuard peer",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "allowedIPs",
+                "publicKey"
+              ],
+              "type": "object"
+            },
+            "type": "array"
+          },
+          "privateKeyFile": {
+            "description": "Path to the WireGuard private key file",
+            "type": "string"
+          },
+          "routes": {
+            "default": [],
+            "description": "Additional route destinations to add for this tunnel",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "address",
+          "privateKeyFile"
+        ],
+        "type": "object"
+      },
+      "default": {},
+      "description": "WireGuard tunnel interfaces (keys are interface names, e.g. wg0)",
+      "type": "object"
     }
-  }
+  },
+  "type": "object"
 }

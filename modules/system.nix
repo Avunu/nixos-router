@@ -107,6 +107,7 @@ in
   options.router = {
     hostName = mkOption {
       type = types.str;
+      default = "router";
       description = "Hostname for the router";
     };
 

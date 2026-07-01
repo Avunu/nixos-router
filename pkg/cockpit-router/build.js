@@ -21,12 +21,27 @@ const outdir = "dist";
 // in the browser. Generate a plain-JS validator module from the schema at build
 // time instead (no runtime codegen); src/schema.ts imports it. Regenerated every
 // build, so the validator never drifts from router-settings.schema.json.
+// router-settings.schema.json is GENERATED from the router.* NixOS options by
+// nixos-install-helper (single source — regenerate with:
+//   nix build .#packages.x86_64-linux.settingsSchema-router
+//   && jq -S . result > src/router-settings.schema.json). It is a flat, inlined
+// Draft-07 schema (no $ref/definitions, no $id).
 const schema = JSON.parse(fs.readFileSync("./src/router-settings.schema.json", "utf8"));
-// Single source: the UT Capitole category set lives in ut-capitole.json (shared
-// with the Cockpit UI). Inject its ids as the schema enum so an unknown category
-// is rejected at validation time — without duplicating the list.
+// Ajv's standaloneCode keys exports by $id; the derived schema has none, so set
+// a stable one here.
+schema.$id =
+  schema.$id || "https://github.com/Avunu/nixos-router/router-settings.schema.json";
+// Single source for the UT Capitole categories: their ids live in
+// ut-capitole.json (shared with the Cockpit UI). Inject them as the enum on the
+// derived schema's category list so an unknown category is rejected at
+// validation time — without duplicating the list.
 const utCapitole = JSON.parse(fs.readFileSync("./src/ut-capitole.json", "utf8"));
-schema.definitions.utCapitoleCategory.enum = utCapitole.map((c) => c.id);
+const utEnum = utCapitole.map((c) => c.id);
+const utItems =
+  schema.properties?.dns?.properties?.adguard?.properties?.utCapitoleCategories?.items;
+if (utItems) utItems.enum = utEnum;
+// Back-compat: if a legacy definitions block is still present, fill it too.
+if (schema.definitions?.utCapitoleCategory) schema.definitions.utCapitoleCategory.enum = utEnum;
 const ajv = new Ajv({ code: { source: true, esm: true }, allErrors: true, allowUnionTypes: true });
 ajv.compile(schema); // compiles + registers the schema under its $id
 fs.mkdirSync("./src/_generated", { recursive: true });
