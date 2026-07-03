@@ -3,25 +3,23 @@
 # workspace with maturin/PyO3. Used by router-logd — the single process allowed
 # to touch the query-log database (Turso does not support multi-process access).
 #
-# Pinned to a specific upstream commit; the file format is SQLite-compatible, so
-# stdlib sqlite3 remains a drop-in fallback should the bindings misbehave.
+# `src` is the `turso` flake input (tracked in flake.lock); the file format is
+# SQLite-compatible, so stdlib sqlite3 remains a drop-in fallback should the
+# bindings misbehave.
 {
   lib,
-  python3Packages,
+  buildPythonPackage,
   rustPlatform,
-  fetchFromGitHub,
+  typing-extensions,
+  src,
 }:
-python3Packages.buildPythonPackage rec {
+buildPythonPackage {
   pname = "pyturso";
-  version = "0.7.0-pre.14";
+  # Read from the source workspace so it follows the flake input.
+  version = (lib.importTOML "${src}/Cargo.toml").workspace.package.version;
   pyproject = true;
 
-  src = fetchFromGitHub {
-    owner = "tursodatabase";
-    repo = "turso";
-    rev = "8f157dc1181e9892eea2c3032a316333ceb33092";
-    hash = "sha256-qJxAOZqlrAZB/ODiW4aqzp+aiT5Gv1QMeSYwkWZDXjc=";
-  };
+  inherit src;
 
   cargoDeps = rustPlatform.importCargoLock {
     lockFile = "${src}/Cargo.lock";
@@ -35,7 +33,7 @@ python3Packages.buildPythonPackage rec {
     maturinBuildHook
   ];
 
-  dependencies = with python3Packages; [ typing-extensions ];
+  dependencies = [ typing-extensions ];
 
   # Upstream tests need pytest fixtures and a workspace checkout; the VM test
   # exercises the bindings end-to-end through router-logd instead.

@@ -218,7 +218,26 @@
         "disko": "disko",
         "git-hooks": "git-hooks",
         "nixos-install-helper": "nixos-install-helper",
-        "nixpkgs": "nixpkgs"
+        "nixpkgs": "nixpkgs",
+        "technitium-dns": "technitium-dns",
+        "turso": "turso"
+      }
+    },
+    "technitium-dns": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1778325996,
+        "narHash": "sha256-464jhswTOJnQnxetl9hH5U3aDP0RXzJTicot9nWzpAo=",
+        "owner": "TechnitiumSoftware",
+        "repo": "DnsServer",
+        "rev": "aa9044d4df9d739b6a6e428bb77cecb3356b775b",
+        "type": "github"
+      },
+      "original": {
+        "owner": "TechnitiumSoftware",
+        "ref": "v15.2.0",
+        "repo": "DnsServer",
+        "type": "github"
       }
     },
     "treefmt-nix": {
@@ -240,6 +259,22 @@
       "original": {
         "owner": "numtide",
         "repo": "treefmt-nix",
+        "type": "github"
+      }
+    },
+    "turso": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1783064589,
+        "narHash": "sha256-7PVna1uECVPuoFmf9DoONa13x5AqDPYupqqfuUFNBCo=",
+        "owner": "tursodatabase",
+        "repo": "turso",
+        "rev": "7b8f325dccd0446661fb713fe589960bced61a41",
+        "type": "github"
+      },
+      "original": {
+        "owner": "tursodatabase",
+        "repo": "turso",
         "type": "github"
       }
     }

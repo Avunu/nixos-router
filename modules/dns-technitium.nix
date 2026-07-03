@@ -5,10 +5,11 @@
 # declaratively, so provisioning happens in three phases:
 #   1. FIRST BOOT: DNS_SERVER_* environment variables seed the config — they
 #      are read only when dns.config is absent (verified in DnsServer.cs).
-#   2. APP PRE-SEEDING: a root ExecStartPre copies the fetchurl-pinned DNS app
-#      payloads (Advanced Blocking, Log Exporter, Block Page — from
-#      pkg/router-dns-tools passthru) into the state dir before the daemon
-#      starts, so filtering is enforced from the first second. The Block Page
+#   2. APP PRE-SEEDING: a root ExecStartPre copies the from-source DNS app
+#      payloads (Advanced Blocking, Log Exporter, Block Page — compiled by
+#      pkg/technitium-apps, re-exposed via pkg/router-dns-tools passthru) into
+#      the state dir before the daemon starts, so filtering is enforced from
+#      the first second. The Block Page
 #      app also receives the Nix-generated branded wwwroot.
 #   3. RECONCILE: technitium-reconcile.service (oneshot, re-run by every
 #      nixos-rebuild whose generated desired state changed) asserts settings,
@@ -23,6 +24,7 @@
   config,
   lib,
   pkgs,
+  routerOverlay,
   ...
 }:
 with lib;
@@ -36,9 +38,11 @@ let
 
   catalog = import ./filter-catalog.nix;
 
-  routerDnsTools = pkgs.callPackage ../pkg/router-dns-tools/package.nix {
-    pyturso = pkgs.callPackage ../pkg/pyturso/package.nix { };
-  };
+  # Apply the router overlay locally (it closes over the turso + technitium-dns
+  # flake inputs) rather than via nixpkgs.overlays, which conflicts when a
+  # consumer supplies nixpkgs.pkgs. router-dns-tools bundles pyturso and the
+  # from-source Technitium apps.
+  routerDnsTools = (pkgs.extend routerOverlay).router-dns-tools;
 
   stateDir = "/var/lib/router-technitium";
   technitiumStateDir = "/var/lib/technitium-dns-server";

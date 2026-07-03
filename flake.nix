@@ -32,6 +32,13 @@
   # disko:     Declarative disk partitioning — generates partition layouts from
   #            Nix expressions, supporting both UEFI (GPT+ESP) and legacy
   #            (GPT+BIOS boot) modes.
+  # turso:     Source-only input for Turso's Python bindings (pyturso), built by
+  #            pkg/pyturso. Tracked via flake.lock instead of a pinned hash.
+  # technitium-dns: Source-only input for the Technitium DNS Apps (Advanced
+  #            Blocking, Log Exporter, Block Page), compiled from source by
+  #            pkg/technitium-apps. Pinned to the SAME tag as nixpkgs'
+  #            technitium-dns-server (v15.2.0) so the app DLLs stay ABI-compatible
+  #            with the running server — bump both together.
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     git-hooks = {
@@ -46,6 +53,14 @@
       url = "github:Avunu/nixos-install-helper";
       inputs.nixpkgs.follows = "nixpkgs";
       inputs.disko.follows = "disko";
+    };
+    turso = {
+      url = "github:tursodatabase/turso";
+      flake = false;
+    };
+    technitium-dns = {
+      url = "github:TechnitiumSoftware/DnsServer/v15.2.0";
+      flake = false;
     };
   };
 
@@ -156,6 +171,24 @@
         }
       );
 
+      # ── Overlay ──────────────────────────────────────────────────────────────
+      # Adds the router's from-source packages to nixpkgs, closing over the flake
+      # inputs for their sources (so they are tracked in flake.lock, not pinned by
+      # hardcoded hashes). The router NixOS module applies this overlay, so the
+      # sub-modules can build them via `pkgs.router-dns-tools` etc.
+      overlays.router = final: _prev: {
+        pyturso = final.python3Packages.callPackage ./pkg/pyturso/package.nix {
+          src = inputs.turso;
+        };
+        technitium-dns-apps = final.callPackage ./pkg/technitium-apps/package.nix {
+          technitiumSrc = inputs.technitium-dns;
+        };
+        router-dns-tools = final.callPackage ./pkg/router-dns-tools/package.nix {
+          inherit (final) pyturso;
+          technitiumApps = final.technitium-dns-apps;
+        };
+      };
+
       # ── Developer Shell ──────────────────────────────────────────────────────
       # Installs the pre-commit hooks and provides nixfmt on PATH.
       devShells = forAllSystems (
@@ -183,9 +216,11 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          routerPkgs = pkgs.extend self.overlays.router;
         in
         {
           cockpit-router = pkgs.callPackage ./pkg/cockpit-router/package.nix { };
+          inherit (routerPkgs) pyturso technitium-dns-apps router-dns-tools;
         }
         # Merge the installer artifacts on x86_64 (installerIso, guidedIso,
         # settingsSchema, …) plus the FLAT schema the Cockpit UI validates
@@ -248,6 +283,12 @@
           ./modules/firewall.nix
           ./modules/system.nix
         ];
+        # Hand the overlay (which closes over the turso + technitium-dns flake
+        # inputs) to the sub-modules as a module arg. dns-technitium.nix applies
+        # it locally with `pkgs.extend` rather than via `nixpkgs.overlays`, which
+        # would conflict with test harnesses / consumers that supply
+        # `nixpkgs.pkgs` (making nixpkgs.overlays read-only).
+        _module.args.routerOverlay = self.overlays.router;
       };
     };
 
