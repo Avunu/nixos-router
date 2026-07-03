@@ -190,17 +190,69 @@
       };
 
       # ── Developer Shell ──────────────────────────────────────────────────────
-      # Installs the pre-commit hooks and provides nixfmt on PATH.
+      # Installs the pre-commit hooks, nixfmt, and the `update-deps` helper.
       devShells = forAllSystems (
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+
+          # `update-deps` — refresh the external dependency pins in one command:
+          #   1. update all flake inputs (nixpkgs, turso, technitium-dns, …);
+          #   2. report whether the pinned technitium-dns input still matches the
+          #      Technitium DNS Server version in the (now updated) nixpkgs — the
+          #      app DLLs must stay ABI-compatible with that server, so on a
+          #      mismatch the user bumps the input ref by hand;
+          #   3. regenerate pkg/technitium-apps/nuget-deps.json for the current
+          #      technitium-dns source.
+          update-deps = pkgs.writeShellApplication {
+            name = "update-deps";
+            runtimeInputs = with pkgs; [
+              git
+              jq
+            ];
+            text = ''
+              root=$(git rev-parse --show-toplevel)
+              cd "$root" || exit 1
+
+              echo "==> Updating flake inputs (nix flake update)..."
+              nix flake update
+
+              echo
+              echo "==> Technitium DNS Server version check"
+              nixpkgsVer=$(nix eval --raw --impure --expr \
+                '(builtins.getFlake "'"$root"'").inputs.nixpkgs.legacyPackages.${system}.technitium-dns-server.version')
+              appsRef=$(jq -r '.nodes."technitium-dns".original.ref // "unknown"' flake.lock)
+              echo "    nixpkgs technitium-dns-server: $nixpkgsVer"
+              echo "    technitium-dns input ref:      $appsRef"
+              if [ "$appsRef" != "v$nixpkgsVer" ]; then
+                echo
+                echo "    !!  Mismatch: the DNS apps compile from '$appsRef' but nixpkgs now ships"
+                echo "        technitium-dns-server $nixpkgsVer. The app DLLs must stay ABI-compatible"
+                echo "        with the server. Bump the 'technitium-dns' input in flake.nix to"
+                echo "        'v$nixpkgsVer', run 'nix flake update technitium-dns', then re-run update-deps."
+              else
+                echo "    OK: apps input matches the nixpkgs server version."
+              fi
+
+              echo
+              echo "==> Regenerating pkg/technitium-apps/nuget-deps.json..."
+              fetchDeps=$(nix build --no-link --print-out-paths \
+                ".#packages.${system}.technitium-dns-apps.fetch-deps")
+              "$fetchDeps" "$root/pkg/technitium-apps/nuget-deps.json"
+
+              echo
+              echo "==> Done. Review with:"
+              echo "    git diff -- flake.lock pkg/technitium-apps/nuget-deps.json"
+              echo "    and re-run: nix build .#checks.${system}.technitium-vm"
+            '';
+          };
         in
         {
           default = pkgs.mkShell {
-            packages = with pkgs; [
-              nixd
-              nixfmt
+            packages = [
+              pkgs.nixd
+              pkgs.nixfmt
+              update-deps
             ];
             inherit (self.checks.${system}.pre-commit) shellHook;
           };
