@@ -21,6 +21,7 @@ interface CockpitProcess extends Promise<string> {
 
 interface CockpitFileOptions {
   superuser?: "require" | "try";
+  binary?: boolean;
 }
 
 interface CockpitFile {
@@ -28,20 +29,41 @@ interface CockpitFile {
   replace: (content: string) => Promise<unknown>;
 }
 
+// Binary variant (cockpit.file(path, { binary: true })) — used for PDF report
+// downloads; read() resolves to raw bytes.
+interface CockpitBinaryFile {
+  read: () => Promise<Uint8Array | null>;
+}
+
 interface CockpitHttpOptions {
   address: string;
   port: number;
 }
 
+interface CockpitHttpRequestOptions {
+  method: string;
+  path: string;
+  params?: Record<string, unknown>;
+  headers?: Record<string, string>;
+  body?: string;
+}
+
 interface CockpitHttp {
-  get: (path: string, params?: Record<string, unknown>) => Promise<string>;
+  // cockpit.js supports an optional third headers argument on get().
+  get: (
+    path: string,
+    params?: Record<string, unknown> | null,
+    headers?: Record<string, string>,
+  ) => Promise<string>;
+  request: (options: CockpitHttpRequestOptions) => Promise<string>;
 }
 
 interface Cockpit {
   gettext: (message: string) => string;
   format: (template: string, ...args: unknown[]) => string;
   spawn: (args: string[], options?: CockpitSpawnOptions) => CockpitProcess;
-  file: (path: string, options?: CockpitFileOptions) => CockpitFile;
+  file: ((path: string, options: CockpitFileOptions & { binary: true }) => CockpitBinaryFile) &
+    ((path: string, options?: CockpitFileOptions) => CockpitFile);
   http: (options: CockpitHttpOptions) => CockpitHttp;
 }
 
@@ -49,7 +71,13 @@ declare const cockpit: Cockpit;
 
 interface Window {
   cockpitRouterConfig?: {
-    adguardPort: number;
+    technitiumPort?: number;
+    technitiumTokenPath?: string;
+    logdPort?: number;
+    logdTokenPath?: string;
+    directoryStatePath?: string;
+    directoryStatusPath?: string;
+    reportsDir?: string;
     macPrefixesPath?: string;
     // Baked in by package.nix: where the editable JSON config lives, the host
     // name, and the flake path used for nixos-rebuild.

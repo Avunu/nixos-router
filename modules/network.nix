@@ -124,6 +124,18 @@ let
       };
     };
   };
+
+  # staticLeasesFor:
+  #   DHCP reservations for registry devices (router.hosts) pinned to the
+  #   given network segment. Rendered as [DHCPServerStaticLease] sections so
+  #   the device keeps a stable IP — the anchor the access-policy compiler
+  #   uses to map a device to its filtering group.
+  staticLeasesFor =
+    network:
+    map (h: {
+      MACAddress = toLower h.mac;
+      Address = h.staticIp;
+    }) (filter (h: h.network == network && h.staticIp != null) cfg.hosts);
 in
 {
   options.router = {
@@ -537,6 +549,7 @@ in
             EmitDNS = true;
             EmitRouter = true;
           };
+          dhcpServerStaticLeases = staticLeasesFor "lan";
           dhcpPrefixDelegationConfig = {
             UplinkInterface = wanIf;
             SubnetId = 0;
@@ -627,6 +640,7 @@ in
             EmitDNS = true;
             EmitRouter = true;
           };
+          dhcpServerStaticLeases = staticLeasesFor "guest";
           dhcpPrefixDelegationConfig = {
             UplinkInterface = wanIf;
             SubnetId = 1;

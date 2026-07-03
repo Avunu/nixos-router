@@ -1,4 +1,46 @@
 {
+    "accessPolicies": {
+        "blockPage": {
+            "enable": false
+        },
+        "defaultPolicy": "Base",
+        "policies": [
+            {
+                "allowDomains": [
+                    "supabase.com"
+                ],
+                "assignments": {
+                    "directoryGroups": [],
+                    "hostGroups": [],
+                    "networks": [],
+                    "subnets": []
+                },
+                "blockDomains": [],
+                "categories": [
+                    "malware",
+                    "phishing",
+                    "cryptojacking",
+                    "ddos",
+                    "porn"
+                ],
+                "description": "Default policy (migrated from AdGuard Home settings)",
+                "name": "Base",
+                "priority": 0,
+                "responseType": "blockingAddress",
+                "standardFilters": [
+                    "adaway",
+                    "adguard_ads",
+                    "adguard_anti_malware",
+                    "adguard_hacked_sites",
+                    "adguard_malware",
+                    "adguard_phishing",
+                    "phishtank_openphish",
+                    "steven_black",
+                    "yoyo_adservers"
+                ]
+            }
+        ]
+    },
     "adminUser": {
         "initialPassword": "admin123",
         "name": "admin",
@@ -8,42 +50,17 @@
         ]
     },
     "bootMode": "uefi",
+    "directory": {
+        "provider": "none"
+    },
     "diskDevice": "/dev/sda",
     "dns": {
-        "adguard": {
-            "allowList": [
-                "supabase.com"
-            ],
-            "blockList": [],
+        "technitium": {
+            "blockDoHProviders": true,
             "enable": true,
-            "extraFilters": [],
-            "extraUserRules": [],
             "listenPort": 53,
-            "safeSearch": true,
-            "standardFilters": {
-                "adaway": true,
-                "adguard_ads": true,
-                "adguard_anti_malware": true,
-                "adguard_hacked_sites": true,
-                "adguard_malware": true,
-                "adguard_phishing": true,
-                "phishtank_openphish": true,
-                "steven_black": true,
-                "yoyo_adservers": true
-            },
-            "utCapitoleCategories": [
-                "malware",
-                "phishing",
-                "cryptojacking",
-                "ddos",
-                "porn"
-            ],
-            "webPort": 3000
+            "safeSearch": true
         },
-        "bootstrapServers": [
-            "1.1.1.1",
-            "8.8.8.8"
-        ],
         "upstreamServers": [
             "https://dns.cloudflare.com/dns-query",
             "https://dns.google/dns-query"
@@ -71,7 +88,9 @@
         ],
         "vlan": 20
     },
+    "hostGroups": [],
     "hostName": "948-router",
+    "hosts": [],
     "lan": {
         "address": "10.48.4.1",
         "dhcp": {
@@ -95,6 +114,11 @@
         "vlan": null
     },
     "portForwards": [],
+    "reporting": {
+        "enable": true,
+        "retentionDays": 90,
+        "schedules": []
+    },
     "stateVersion": "26.11",
     "suricata": {
         "enable": true,

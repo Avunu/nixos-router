@@ -38,12 +38,14 @@ let
 
   # cockpitRouterPlugin:
   #   The in-repo Cockpit plugin (pkg/cockpit-router) that adds
-  #   router-specific views (connected hosts, Suricata + AdGuard
-  #   events, network diagnostics) to Cockpit. Installed via the
-  #   services.cockpit.plugins hook. The AdGuard web port is passed
-  #   in so the plugin can reach the local AGH REST API.
+  #   router-specific views (hosts & groups, access policies, users,
+  #   reports, Suricata, diagnostics) to Cockpit. Installed via the
+  #   services.cockpit.plugins hook. Local service ports/token paths
+  #   are baked into config.js so the frontend can reach Technitium
+  #   and router-logd on localhost.
   cockpitRouterPlugin = pkgs.callPackage ../pkg/cockpit-router/package.nix {
-    adguardPort = cfg.dns.adguard.webPort;
+    technitiumPort = cfg.dns.technitium.webPort;
+    logdPort = cfg.reporting.logd.port;
     hostName = cfg.hostName;
     flakePath = cfg.cockpit.flakePath;
     settingsFile = cfg.cockpit.settingsFile;
@@ -65,6 +67,11 @@ let
     "guest"
     "wireguard"
     "dns"
+    "hosts"
+    "hostGroups"
+    "accessPolicies"
+    "directory"
+    "reporting"
     "suricata"
     "upnp"
     "portForwards"
@@ -145,11 +152,17 @@ in
     # used (openFirewall = false) because nftables already allows
     # all traffic from trusted IFs in the input chain.
     cockpit = {
-      enable = mkEnableOption "Cockpit web-based system administration UI";
+      enable = mkOption {
+        type = types.bool;
+        default = false;
+        visible = false; # Nix-locked; never part of the JSON/UI schema
+        description = "Enable the Cockpit web-based system administration UI.";
+      };
 
       port = mkOption {
         type = types.port;
         default = 9090;
+        visible = false;
         description = "Port for the Cockpit web interface";
       };
 
@@ -157,6 +170,7 @@ in
         type = types.package;
         default = pkgs.cockpit;
         defaultText = literalExpression "pkgs.cockpit";
+        visible = false;
         description = "Cockpit package to use";
       };
 
@@ -164,18 +178,21 @@ in
         type = types.listOf types.package;
         default = [ ];
         description = "Additional Cockpit plugin packages";
+        visible = false;
       };
 
       allowedOrigins = mkOption {
         type = types.listOf types.str;
         default = [ ];
         description = "Allowed origins for the Cockpit web interface (e.g. [ \"https://router.lan:9090\" ])";
+        visible = false;
       };
 
       showBanner = mkOption {
         type = types.bool;
         default = true;
         description = "Show system banner on the Cockpit login page";
+        visible = false;
       };
 
       settings = mkOption {
@@ -190,11 +207,13 @@ in
           );
         default = { };
         description = "Additional cockpit.conf settings as nested attribute set (section → key → value)";
+        visible = false;
       };
 
       flakePath = mkOption {
         type = types.str;
         default = "/etc/nixos";
+        visible = false;
         description = ''
           Path to the host flake on the deployed router. The Cockpit
           router plugin runs `nixos-rebuild --flake <flakePath>#<hostName>`
@@ -205,6 +224,7 @@ in
       settingsFile = mkOption {
         type = types.str;
         default = "/etc/nixos/router-settings.json";
+        visible = false;
         description = ''
           Path to the editable JSON config the Cockpit plugin reads and
           writes. The host flake feeds this same file into the router
@@ -258,7 +278,7 @@ in
   #   2. Kernel            — Sysctl tuning, conntrack, kernel modules.
   #   3. systemd-networkd  — WAN/LAN/Guest/WG interface + DHCPServer.
   #   4. nftables          — Stateful firewall, NAT, DNS hijacking.
-  #   5. AdGuard Home      — DNS server, filtering, SafeSearch.
+  #   5. Technitium DNS    — DNS server, access-policy filtering.
   #   6. Suricata          — Inline IPS (optional).
   #   7. Cockpit           — Web admin UI (optional).
   #   8. Packages          — System packages (diagnostic tools, etc.).

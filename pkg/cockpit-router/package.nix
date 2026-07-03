@@ -13,9 +13,16 @@
   avahi,
   nmap,
   wireguard-tools,
-  # The AdGuard Home web/API port the plugin talks to on localhost. Baked into
-  # config.js at install time so the frontend knows where to reach it.
-  adguardPort ? 3000,
+  # Local service endpoints/paths baked into config.js at install time:
+  # Technitium web API port + the read-only dashboard token, router-logd's
+  # port + query token, the directory sync state files, and the reports dir.
+  technitiumPort ? 5380,
+  technitiumTokenPath ? "/var/lib/cockpit-router/technitium-token",
+  logdPort ? 8067,
+  logdTokenPath ? "/var/lib/router-technitium/logd-query.token",
+  directoryStatePath ? "/var/lib/router-directory/directory.json",
+  directoryStatusPath ? "/var/lib/router-directory/status.json",
+  reportsDir ? "/var/lib/router-reports",
   # Baked into config.js so the frontend knows where the editable JSON config
   # lives, the host name, and the flake path for nixos-rebuild. Defaults match
   # the standard deployment layout.
@@ -68,7 +75,7 @@ buildNpmPackage (finalAttrs: {
     runHook preInstall
     mkdir -p $out/share/cockpit/router
     cp -r dist/* $out/share/cockpit/router/
-    echo 'window.cockpitRouterConfig = { adguardPort: ${toString adguardPort}, macPrefixesPath: "${nmap}/share/nmap/nmap-mac-prefixes", hostName: "${hostName}", flakePath: "${flakePath}", settingsFile: "${settingsFile}" };' \
+    echo 'window.cockpitRouterConfig = { technitiumPort: ${toString technitiumPort}, technitiumTokenPath: "${technitiumTokenPath}", logdPort: ${toString logdPort}, logdTokenPath: "${logdTokenPath}", directoryStatePath: "${directoryStatePath}", directoryStatusPath: "${directoryStatusPath}", reportsDir: "${reportsDir}", macPrefixesPath: "${nmap}/share/nmap/nmap-mac-prefixes", hostName: "${hostName}", flakePath: "${flakePath}", settingsFile: "${settingsFile}" };' \
       > $out/share/cockpit/router/config.js
     runHook postInstall
   '';
@@ -88,7 +95,7 @@ buildNpmPackage (finalAttrs: {
   ];
 
   meta = {
-    description = "Cockpit plugin with router views (hosts, Suricata, AdGuard, diagnostics)";
+    description = "Cockpit plugin with router views (hosts, policies, reports, Suricata, diagnostics)";
     license = lib.licenses.mit;
     platforms = lib.platforms.linux;
   };

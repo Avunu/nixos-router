@@ -95,7 +95,7 @@ let
   #   2. `ip nat` — NAT and DNS hijacking
   #      • Prerouting: intercepts all DNS (port 53) from LAN/guest
   #        and redirects to the local resolver, preventing clients
-  #        from bypassing AdGuard filtering by hardcoding external
+  #        from bypassing Technitium filtering by hardcoding external
   #        DNS servers.
   #      • Postrouting: masquerades outbound WAN traffic.
   #
@@ -119,6 +119,10 @@ let
           iifname "${brGuest}" udp dport { 53, 67 } accept
           iifname "${brGuest}" tcp dport 53 accept
           iifname "${brGuest}" icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit } accept
+          ${optionalString cfg.accessPolicies.blockPage.enable ''
+            # Block page (Technitium Block Page app) + exception-request portal (router-logd)
+            iifname "${brGuest}" tcp dport { 80, 443, ${toString cfg.reporting.logd.port} } accept
+          ''}
         ''}
 
         # mDNS (multicast DNS) for hostname resolution

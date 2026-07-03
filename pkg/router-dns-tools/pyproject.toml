@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "router-dns-tools"
+version = "0.1.0"
+description = "nixos-router access-protection runtime tooling (Technitium reconcile, policy compiler, query-log daemon, directory sync, reports)"
+requires-python = ">=3.12"
+
+[project.scripts]
+router-technitium-reconcile = "router_dns_tools.reconcile:main"
+router-policy-push = "router_dns_tools.reconcile:push_policies"
+router-policy-compile = "router_dns_tools.compile_policies:main"
+router-logd = "router_dns_tools.logd:main"
+router-directory-sync = "router_dns_tools.directory_sync:main"
+router-report = "router_dns_tools.report:main"
+
+[tool.setuptools.packages.find]
+include = ["router_dns_tools*"]
+
+[tool.setuptools.package-data]
+router_dns_tools = ["report.typ", "blockpage/*"]

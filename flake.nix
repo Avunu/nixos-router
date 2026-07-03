@@ -5,7 +5,7 @@
 # ║  featured router with:                                                     ║
 # ║    • systemd-networkd managed WAN (DHCP) + LAN/Guest bridges w/ DHCPServer ║
 # ║    • nftables stateful firewall with NAT, DNS hijacking, DoT blocking      ║
-# ║    • AdGuard Home DNS filtering + SafeSearch on :53 (direct to clients)    ║
+# ║    • Technitium DNS filtering + per-group access policies on :53           ║
 # ║    • Avahi mDNS for hostname resolution (router.local)                     ║
 # ║    • WireGuard VPN tunnels with full LAN ↔ WAN ↔ WG routing                ║
 # ║    • Optional Suricata IPS inline via NFQUEUE                              ║
@@ -17,7 +17,7 @@
 # ║    host configuration. See the MODULE OPTIONS section for all settings.    ║
 # ║                                                                            ║
 # ║  Architecture:                                                             ║
-# ║    DNS flow: clients → AdGuard Home (:53) → DoH upstream                  ║
+# ║    DNS flow: clients → Technitium DNS (:53) → DoH upstream                ║
 # ║    mDNS: clients → Avahi (multicast) for .local resolution                ║
 # ║    Traffic:  LAN/Guest/WG → nftables (→ Suricata NFQUEUE) → NAT → WAN     ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -76,17 +76,30 @@
         optionRoots = [ "router" ];
         flakeStyle = "local";
         upstream = "github:Avunu/nixos-router";
-        settingsFiles.router = ./local/router-settings.json;
-        # cockpit.* is Nix-locked (Cockpit-managed), never in the JSON/UI schema.
-        schemaExclude = [ "cockpit" ];
-        # A router's full topology can't be picked offline on a generic image;
-        # deploy via the unattended ISO (per-host) or nixos-anywhere.
-        guided = false;
+        # Wrapped-by-root settings for the per-host install systems (the runtime
+        # /etc/nixos/router-settings.json stays FLAT — see mkFlatRouterSchema).
+        settingsFile = ./local/install-settings.json;
         hints = {
           diskDevice = "disk-device";
           "wan.interface" = "net-iface";
         };
       };
+
+      # The Cockpit UI validates the FLAT router-settings.json, so flatten the
+      # install-helper's per-root schema ({ properties.router = {...} }) down to
+      # the router subtree. cockpit.* is Nix-locked (Cockpit-managed) and never
+      # part of the JSON/UI surface, so its options are marked visible = false
+      # in modules/system.nix and drop out of the derived schema.
+      flatRouterSchema =
+        (ih.settingsSchema.properties.router or {
+          type = "object";
+          additionalProperties = false;
+          properties = { };
+        }
+        )
+        // {
+          "$schema" = "http://json-schema.org/draft-07/schema#";
+        };
     in
     {
       # ── Pre-commit checks ────────────────────────────────────────────────────
@@ -99,6 +112,15 @@
           # integration end-to-end. Build/run with:
           #   nix build .#checks.<system>.suricata-vm
           suricata-vm = import ./tests/suricata.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
+          # NixOS VM test: Technitium access-protection stack end-to-end
+          # (policies, static leases, logd pipeline, block page, reports).
+          #   nix build .#checks.<system>.technitium-vm
+          technitium-vm = import ./tests/technitium.nix {
             pkgs = nixpkgs.legacyPackages.${system};
             routerModule = self.nixosModules.router;
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
@@ -123,7 +145,7 @@
             nixpkgs.legacyPackages.${system}.runCommand "router-schema-fresh"
               { nativeBuildInputs = [ nixpkgs.legacyPackages.${system}.jq ]; }
               ''
-                if diff <(jq -S . ${ih.packages.x86_64-linux."settingsSchema-router"}) \
+                if diff <(jq -S . ${self.packages.${system}.settingsSchema-router}) \
                         <(jq -S . ${./pkg/cockpit-router/src/router-settings.schema.json}); then
                   touch "$out"
                 else
@@ -165,9 +187,19 @@
         {
           cockpit-router = pkgs.callPackage ./pkg/cockpit-router/package.nix { };
         }
-        # Merge the installer artifacts on x86_64: settingsSchema-router,
-        # installerIso, guidedIso, settingsSchema. (cockpit-router above wins.)
-        // lib.optionalAttrs (system == "x86_64-linux") ih.packages.x86_64-linux
+        # Merge the installer artifacts on x86_64 (installerIso, guidedIso,
+        # settingsSchema, …) plus the FLAT schema the Cockpit UI validates
+        # against. Regenerate the committed copy after changing router options:
+        #   nix build .#packages.x86_64-linux.settingsSchema-router \
+        #     && jq -S . result > pkg/cockpit-router/src/router-settings.schema.json
+        // lib.optionalAttrs (system == "x86_64-linux") (
+          ih.packages.x86_64-linux
+          // {
+            settingsSchema-router = pkgs.writeText "router-settings.schema.json" (
+              builtins.toJSON flatRouterSchema
+            );
+          }
+        )
       );
 
       # install / installTemplate systems + configure/install/deploy/wizard apps.
@@ -185,7 +217,7 @@
       #  ROUTER MODULE
       #
       #  The core of the flake: declares all `router.*` options and maps them to
-      #  NixOS config (systemd-networkd, nftables, AdGuard Home, WireGuard,
+      #  NixOS config (systemd-networkd, nftables, Technitium DNS, WireGuard,
       #  Suricata, Cockpit, etc.). It is composed from focused sub-modules under
       #  ./modules, each aligned with a Cockpit UI domain:
       #    • topology.nix          — shared derived values (interface names,
@@ -193,7 +225,11 @@
       #                              others via the internal `router._internal`.
       #    • network.nix           — systemd-networkd interfaces/bridges/VLAN/WG.
       #    • threat-protection.nix — Suricata IPS.
-      #    • access-protection.nix — AdGuard Home DNS filtering + Avahi.
+      #    • hosts.nix             — device registry, groups, DHCP reservations.
+      #    • access-policies.nix   — named filtering policies + assignments.
+      #    • dns-technitium.nix    — Technitium DNS engine provisioning + Avahi.
+      #    • directory-sync.nix    — LDAP/Entra/Google user+group sync.
+      #    • reporting.nix         — router-logd query-log store + PDF reports.
       #    • firewall.nix          — nftables ruleset, NAT, port-forwards, UPnP.
       #    • system.nix            — boot/disko, kernel, packages, hardening,
       #                              Cockpit, maintenance, effective.json.
@@ -203,8 +239,12 @@
           inputs.disko.nixosModules.disko
           ./modules/topology.nix
           ./modules/network.nix
+          ./modules/hosts.nix
           ./modules/threat-protection.nix
-          ./modules/access-protection.nix
+          ./modules/access-policies.nix
+          ./modules/dns-technitium.nix
+          ./modules/directory-sync.nix
+          ./modules/reporting.nix
           ./modules/firewall.nix
           ./modules/system.nix
         ];

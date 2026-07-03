@@ -11,12 +11,29 @@
 import { validateSettings } from "./schema";
 
 const cfg = (window.cockpitRouterConfig ?? {}) as {
-  adguardPort?: number;
+  technitiumPort?: number;
+  technitiumTokenPath?: string;
+  logdPort?: number;
+  logdTokenPath?: string;
+  directoryStatePath?: string;
+  directoryStatusPath?: string;
+  reportsDir?: string;
   macPrefixesPath?: string;
   hostName?: string;
   flakePath?: string;
   settingsFile?: string;
 };
+
+export const TECHNITIUM_PORT = cfg.technitiumPort ?? 5380;
+export const TECHNITIUM_TOKEN_PATH =
+  cfg.technitiumTokenPath ?? "/var/lib/cockpit-router/technitium-token";
+export const LOGD_PORT = cfg.logdPort ?? 8067;
+export const LOGD_TOKEN_PATH = cfg.logdTokenPath ?? "/var/lib/router-technitium/logd-query.token";
+export const DIRECTORY_STATE_PATH =
+  cfg.directoryStatePath ?? "/var/lib/router-directory/directory.json";
+export const DIRECTORY_STATUS_PATH =
+  cfg.directoryStatusPath ?? "/var/lib/router-directory/status.json";
+export const REPORTS_DIR = cfg.reportsDir ?? "/var/lib/router-reports";
 
 export const HOST = cfg.hostName ?? "";
 export const FLAKE_PATH = cfg.flakePath ?? "/etc/nixos";

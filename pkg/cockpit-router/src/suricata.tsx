@@ -13,7 +13,7 @@
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { loadState, writeDesired, getPath, setPath, errMsg } from "./nix";
 import type { Json } from "./nix";
-import { resolveNames } from "./hosts";
+import { resolveNames } from "./hosts-live";
 import suricataCategories from "./suricata-categories.json";
 import {
   followEvents,

@@ -1,29 +1,44 @@
 {
   "name": "router",
   "menu": {
+    "reports": {
+      "label": "Reports",
+      "order": 28,
+      "path": "reports.html"
+    },
+    "access-policies": {
+      "label": "Access Policies",
+      "order": 29,
+      "path": "access-policies.html"
+    },
+    "hosts": {
+      "label": "Hosts & Groups",
+      "order": 30,
+      "path": "hosts.html"
+    },
+    "users": {
+      "label": "Users",
+      "order": 31,
+      "path": "users.html"
+    },
     "network": {
       "label": "Network",
-      "order": 29,
+      "order": 32,
       "path": "network.html"
     },
     "threat-protection": {
       "label": "Threat Protection",
-      "order": 30,
+      "order": 33,
       "path": "threat-protection.html"
-    },
-    "access-protection": {
-      "label": "Access Protection",
-      "order": 31,
-      "path": "access-protection.html"
     },
     "firewall": {
       "label": "Firewall",
-      "order": 32,
+      "order": 34,
       "path": "firewall.html"
     },
     "system": {
       "label": "System",
-      "order": 33,
+      "order": 35,
       "path": "system.html"
     }
   }

@@ -39,7 +39,8 @@ pkgs.testers.runNixOSTest {
           router.wan.interface = "eth1";
           router.lan.interfaces = [ "eth2" ];
           router.guest.enable = false;
-          router.dns.adguard.enable = false;
+          # Keep the VM light: no Technitium/dotnet closure in the IPS test.
+          router.dns.technitium.enable = false;
           router.cockpit.enable = true;
           router.suricata = {
             enable = true;

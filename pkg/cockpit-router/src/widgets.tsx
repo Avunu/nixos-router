@@ -98,28 +98,65 @@ interface VoronoiPoint {
 const CHART_HEIGHT = 230;
 
 // Two overlaid area series (total + blocked) over `total.length` time buckets.
-// The arrays come straight from AdGuard's /control/stats and are ordered
-// oldest→newest (the last element is the current bucket), so bucket i sits
-// `len-1-i` units before now. `timeUnits` decides whether a bucket is a day or
-// an hour, which sets the x-axis labels.
+// The arrays are ordered oldest→newest (the last element is the current bucket).
+// Bucket labels come from one of two sources:
+//   • `labels` (ISO timestamps, e.g. Technitium's mainChartData.labels) — shown
+//     as short local time ("HH:mm") for hour-scale buckets or "MMM d" for
+//     day-scale ones. The scale comes from `labelFormat` when given (a moment-
+//     style format string such as "HH:mm" or "MM/DD"), else from the spacing
+//     between the first two timestamps.
+//   • otherwise the legacy computed labels: bucket i sits `len-1-i` `timeUnits`
+//     before now.
 export const QueriesChart = ({
   title,
   total,
   blocked,
   timeUnits,
+  labels,
+  labelFormat,
 }: {
   title: string;
   total: number[];
   blocked: number[];
-  timeUnits: "hours" | "days";
+  timeUnits?: "hours" | "days";
+  labels?: string[];
+  labelFormat?: string;
 }) => {
   const [ref, width] = useContainerWidth();
 
   const n = total.length;
+
+  const hoursScale = (() => {
+    if (labelFormat) {
+      // "HH:mm" → hour-scale; "MM/DD" / "MM/YYYY" → day-scale (case matters:
+      // lowercase "mm" is minutes, uppercase "MM" is the month).
+      return labelFormat.includes("H") || labelFormat.includes("mm");
+    }
+    if (labels && labels.length >= 2) {
+      const first = Date.parse(labels[0] ?? "");
+      const second = Date.parse(labels[1] ?? "");
+      if (!Number.isNaN(first) && !Number.isNaN(second)) {
+        // Buckets closer than ~a day apart are sub-daily → show times.
+        return Math.abs(second - first) < 82_800_000;
+      }
+    }
+    return false;
+  })();
+
   const labelAt = (i: number): string => {
+    const iso = labels?.[i];
+    if (iso !== undefined) {
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) {
+        return iso;
+      }
+      return hoursScale
+        ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })
+        : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+    }
     const now = new Date();
     const back = n - 1 - i;
-    if (timeUnits === "hours") {
+    if ((timeUnits ?? "days") === "hours") {
       const d = new Date(now.getTime() - back * 3_600_000);
       return `${d.getHours()}:00`;
     }
