@@ -1,6 +1,6 @@
 # ── Firewall module ───────────────────────────────────────────────────────────
 # The complete nftables ruleset (inet filter + ip nat with DNS hijacking + inet
-# dot_block), generated from the topology and the WireGuard / port-forward
+# dns_bypass), generated from the topology and the WireGuard / port-forward
 # options, plus optional UPnP-IGD/NAT-PMP via miniupnpd. The ruleset is kept as a
 # single atomic flush-ruleset string; interface names come from the shared
 # topology (config.router._internal).
@@ -81,6 +81,25 @@ let
     ''iifname "${wanIf}" ${pfSaddr f.source}ip daddr ${f.destination} ${f.protocol} dport ${pfDports f.ports} ct state { new, established, related } accept${pfComment f.name}''
   ) cfg.portForwards;
 
+  # v6DnsDropRules:
+  #   IPv6 :53 drops for the policy-enforced segments (LAN + guest), emitted
+  #   into BOTH hooks of the `inet dns_bypass` table — see the comment on that
+  #   table for why IPv6 DNS is dropped rather than redirected to the resolver.
+  #   WireGuard is deliberately excluded: peers are roaming admin devices with
+  #   no DHCP reservation to anchor a device-tier policy to in the first place.
+  v6DnsSegments = [ brLAN ] ++ optional cfg.guest.enable brGuest;
+  v6DnsDropTargets = concatMap (
+    br:
+    map (proto: { inherit br proto; }) [
+      "udp"
+      "tcp"
+    ]
+  ) v6DnsSegments;
+  v6DnsDropRules = concatMapStringsSep "\n    " (
+    p:
+    ''iifname "${p.br}" meta nfproto ipv6 ${p.proto} dport 53 counter drop comment "Block IPv6 DNS (policy tiers are IPv4-anchored)"''
+  ) v6DnsDropTargets;
+
   # nftRuleset:
   #   The complete nftables configuration, organized into three tables:
   #
@@ -93,16 +112,16 @@ let
   #        only (fully isolated from LAN and WG).
   #
   #   2. `ip nat` — NAT and DNS hijacking
-  #      • Prerouting: intercepts all DNS (port 53) from LAN/guest
-  #        and redirects to the local resolver, preventing clients
-  #        from bypassing Technitium filtering by hardcoding external
-  #        DNS servers.
+  #      • Prerouting: intercepts all IPv4 DNS (port 53) from
+  #        LAN/guest and redirects to the local resolver, preventing
+  #        clients from bypassing Technitium filtering by hardcoding
+  #        external DNS servers.
   #      • Postrouting: masquerades outbound WAN traffic.
   #
-  #   3. `inet dot_block` — DNS-over-TLS blocking
-  #      • Runs at priority filter-1 (before the main filter) to
-  #        drop TCP port 853 from LAN/guest, preventing DoT bypass
-  #        of the local DNS resolver.
+  #   3. `inet dns_bypass` — DNS bypass prevention
+  #      • Runs at priority filter-1 (before the main filter) to drop
+  #        DoT (:853) and IPv6 :53 from LAN/guest, on both the input
+  #        and forward hooks.
   nftRuleset = ''
     table inet filter {
       chain input {
@@ -182,19 +201,17 @@ let
       chain prerouting {
         type nat hook prerouting priority dstnat; policy accept;
 
-        # Force all LAN DNS through local resolver (prevents bypass)
-        # IPv4: DNAT to gateway IP; IPv6: redirect (PD address is dynamic)
+        # Force all LAN DNS through the local resolver (prevents bypass).
+        # IPv4 only — IPv6 :53 is dropped in `inet dns_bypass` instead of
+        # redirected, because the access-policy compiler can only attribute
+        # IPv4-sourced queries to a device (see that table's comment).
         iifname "${brLAN}" udp dport 53 ip daddr != ${lanGW} dnat to ${lanGW}:53
         iifname "${brLAN}" tcp dport 53 ip daddr != ${lanGW} dnat to ${lanGW}:53
-        iifname "${brLAN}" meta nfproto ipv6 udp dport 53 redirect to :53
-        iifname "${brLAN}" meta nfproto ipv6 tcp dport 53 redirect to :53
 
         ${optionalString cfg.guest.enable ''
-          # Force guest DNS through local resolver
+          # Force guest DNS through the local resolver (IPv4; see above)
           iifname "${brGuest}" udp dport 53 ip daddr != ${guestGW} dnat to ${guestGW}:53
           iifname "${brGuest}" tcp dport 53 ip daddr != ${guestGW} dnat to ${guestGW}:53
-          iifname "${brGuest}" meta nfproto ipv6 udp dport 53 redirect to :53
-          iifname "${brGuest}" meta nfproto ipv6 tcp dport 53 redirect to :53
         ''}
 
         ${optionalString (cfg.portForwards != [ ]) ''
@@ -210,12 +227,33 @@ let
       }
     }
 
-    # Block DoT bypass (port 853) in forward chain
-    table inet dot_block {
+    # ── DNS bypass prevention ─────────────────────────────
+    # Priority filter-1 puts these chains BEFORE the main `inet filter`
+    # chains, so the drops below win over the blanket trusted-interface
+    # accept in the input chain and the LAN→WAN accept in the forward chain.
+    #
+    #   • DoT (:853) — the router runs no DoT listener, so drop outright.
+    #   • IPv6 :53 — the access-policy compiler anchors the device, host
+    #     group and directory-user tiers to each device's IPv4 DHCP
+    #     reservation, so an IPv6-sourced query can only ever match the
+    #     catch-all [::]/0 entry and would silently fall back to the DEFAULT
+    #     policy — a bypass for any device pinned to a stricter one. The
+    #     router never advertises an IPv6 resolver (ipv6SendRAConfig.EmitDNS
+    #     = false), so dropping IPv6 :53 costs nothing and forces every
+    #     client onto IPv4, where the policy tiers actually apply. Both hooks
+    #     are required: `input` covers queries aimed at the router's own IPv6
+    #     addresses, `forward` those aimed at an external resolver.
+    table inet dns_bypass {
+      chain input {
+        type filter hook input priority filter - 1; policy accept;
+        ${v6DnsDropRules}
+      }
+
       chain forward {
         type filter hook forward priority filter - 1; policy accept;
         iifname "${brLAN}" tcp dport 853 counter drop comment "Block DoT bypass"
         ${optionalString cfg.guest.enable ''iifname "${brGuest}" tcp dport 853 counter drop comment "Block guest DoT bypass"''}
+        ${v6DnsDropRules}
       }
     }
   '';

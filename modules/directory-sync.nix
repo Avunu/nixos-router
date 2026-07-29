@@ -126,8 +126,21 @@ in
     ];
 
     # Shared read group: the sync unit writes directory.json 0640 with this
-    # group so router-logd (a different DynamicUser) can read it.
+    # group so router-logd (a DynamicUser) can read it.
     users.groups.router-data = { };
+
+    # A STATIC user, deliberately — not DynamicUser. With DynamicUser the
+    # StateDirectory would live at /var/lib/private/router-directory (the
+    # /var/lib/router-directory symlink is only a facade), and /var/lib/private
+    # is 0700 root:root. router-logd runs as its own DynamicUser, so no group
+    # membership could get it past that directory and the user tier would
+    # silently never appear in query-log attribution. A static user keeps the
+    # state directory at its real path, where the router-data group works.
+    users.users.router-directory-sync = {
+      isSystemUser = true;
+      group = "router-data";
+      description = "Directory sync for router access policies";
+    };
 
     systemd.services.router-directory-sync = {
       # The unit name is a UI contract — Cockpit's "Sync now" button starts it.
@@ -136,7 +149,7 @@ in
       wants = [ "network-online.target" ];
       serviceConfig = {
         Type = "oneshot";
-        DynamicUser = true;
+        User = "router-directory-sync";
         Group = "router-data";
         StateDirectory = "router-directory";
         StateDirectoryMode = "0750";

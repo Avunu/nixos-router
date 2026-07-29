@@ -263,8 +263,8 @@ in
     #     but allows LAN to access Guest (one-way) for administration.
     #   • Guest clients can reach DHCP (port 67) and DNS (port 53)
     #     on the router, but nothing else on the router itself.
-    #   • DNS is hijacked to the local resolver (same as LAN).
-    #   • DoT (port 853) is blocked to prevent DNS bypass.
+    #   • IPv4 DNS is hijacked to the local resolver (same as LAN).
+    #   • DoT (port 853) and IPv6 :53 are blocked to prevent DNS bypass.
     #   • Shorter default DHCP lease (1h) encourages address rotation.
     guest = {
       enable = mkEnableOption "guest network with client isolation";

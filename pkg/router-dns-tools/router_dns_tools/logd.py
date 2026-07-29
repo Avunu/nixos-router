@@ -116,8 +116,10 @@ class Attribution:
         self.hosts_by_ip = {h["staticIp"]: h for h in static["hosts"] if h.get("staticIp")}
         self.networks = []
         for cidr, group in compiled["networkGroupMap"].items():
+            # Advanced Blocking brackets IPv6 keys ("[::]/0", "[::1]"); strip()
+            # would leave "::]/0" intact because the key ends in a digit.
             try:
-                net = ipaddress.ip_network(cidr.strip("[]"), strict=False)
+                net = ipaddress.ip_network(cidr.replace("[", "").replace("]", ""), strict=False)
             except ValueError:
                 continue
             self.networks.append((net, group))

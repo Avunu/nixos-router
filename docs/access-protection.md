@@ -72,7 +72,14 @@ to exactly one group; most-specific `networkGroupMap` prefix wins):
 
 Within a tier the highest `priority` wins. DoH-provider domains are appended
 to every policy's block list (bypass prevention), complementing the nftables
-:53 DNAT and :853 DoT drop.
+IPv4 :53 DNAT and the `inet dns_bypass` drops (:853 DoT and IPv6 :53).
+
+The device, host-group and directory-user tiers are anchored to each device's
+IPv4 DHCP reservation, so **only IPv4 queries can be attributed to a device**.
+IPv6-sourced queries could only ever match the catch-all `[::]/0` entry and
+fall back to the default policy, so IPv6 :53 is dropped outright rather than
+redirected — the router does not advertise an IPv6 resolver
+(`ipv6SendRAConfig.EmitDNS = false`), so clients use IPv4 regardless.
 
 ## Block page & exception requests
 

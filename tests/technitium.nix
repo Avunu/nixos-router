@@ -86,6 +86,21 @@ pkgs.testers.runNixOSTest {
             ];
           };
 
+          # Exercise the directory-sync unit's FILESYSTEM contract. The sync
+          # itself cannot succeed offline (port 1 refuses instantly, keeping
+          # the failure fast and deterministic) — what matters here is that
+          # its StateDirectory lands at the real /var/lib/router-directory
+          # with the router-data group, so router-logd can read directory.json.
+          router.directory = {
+            provider = "ldap";
+            ldap = {
+              url = "ldaps://127.0.0.1:1";
+              bindDn = "cn=sync,dc=test";
+              baseDn = "dc=test";
+              bindPasswordFile = "/etc/router-test-ldap.pass";
+            };
+          };
+
           router.reporting.schedules = [
             {
               name = "vmtest";
@@ -113,11 +128,13 @@ pkgs.testers.runNixOSTest {
             memorySize = 3072;
             cores = 2;
           };
+          environment.etc."router-test-ldap.pass".text = "not-a-real-secret";
           environment.systemPackages = [
             pkgs.iproute2
             pkgs.dnsutils
             pkgs.curl
             pkgs.jq
+            pkgs.nftables
           ];
         }
       ];
@@ -188,6 +205,42 @@ pkgs.testers.runNixOSTest {
         out = router.succeed(dig.format(ns="kid", name="lan-blocked.test"))
         assert "NXDOMAIN" not in out or "10.48.4.1" not in out, out
 
+    with subtest("IPv6 :53 is dropped so devices cannot escape their policy tier"):
+        # The device/group/user tiers are anchored to IPv4 DHCP reservations,
+        # so an IPv6-sourced query could only match the catch-all [::]/0 entry
+        # and would answer the pinned "kid" client under the DEFAULT policy.
+        # Technitium listens on [::]:53, so without the dns_bypass drops this
+        # query WOULD be answered — that is precisely the bypass. Give both
+        # ends a ULA (nodad keeps it instant) to model a client that has been
+        # pointed at an IPv6 resolver by hand.
+        router.succeed("ip -6 addr add fd48:4::1/64 dev br-lan nodad")
+        router.succeed("ip -n kid -6 addr add fd48:4::50/64 dev veth-kid nodad")
+        router.fail("ip netns exec kid dig +time=2 +tries=1 @fd48:4::1 kids-blocked.test")
+        # Prove the query actually hit the drop rules rather than failing for
+        # some unrelated reason (no route, no address, …).
+        dropped = int(
+            router.succeed(
+                "nft -j list table inet dns_bypass | jq '[.nftables[] | select(.rule) "
+                '| .rule | select((.comment // "") | contains("IPv6 DNS")) '
+                "| .expr[] | select(.counter) | .counter.packets] | add'"
+            ).strip()
+        )
+        assert dropped > 0, f"IPv6 :53 never matched the dns_bypass drops ({dropped})"
+
+    with subtest("directory state dir is shared, not hidden under /var/lib/private"):
+        # The sync itself fails (nothing is listening on port 1) but systemd
+        # still sets up the StateDirectory and the unit still writes its
+        # status file. With DynamicUser the state dir would materialize as a
+        # symlink into the 0700 root-only /var/lib/private, which no amount of
+        # router-data group membership would let router-logd traverse.
+        # (Tolerate a concurrent run from the boot timer — the assertions
+        # below, not the exit status, are the contract under test.)
+        router.succeed("systemctl start router-directory-sync.service || true")
+        router.wait_until_succeeds("test -f /var/lib/router-directory/status.json", timeout=60)
+        router.succeed("test ! -L /var/lib/router-directory")
+        owner = router.succeed("stat -c %U:%G /var/lib/router-directory/status.json").strip()
+        assert owner == "router-directory-sync:router-data", owner
+
     with subtest("directory tier activates after sync + policy push"):
         # jdoe has no directory data yet → kids-blocked.test resolves via Base (not blocked)
         directory = {
@@ -195,7 +248,6 @@ pkgs.testers.runNixOSTest {
             "groups": [{"id": "g1", "name": "Students"}],
             "syncedAt": "2026-01-01T00:00:00Z",
         }
-        router.succeed("mkdir -p /var/lib/router-directory")
         router.succeed(
             "cat > /var/lib/router-directory/directory.json <<'EOF'\n"
             + json.dumps(directory)
@@ -216,6 +268,19 @@ pkgs.testers.runNixOSTest {
         )
         parsed = json.loads(entry)
         assert parsed["host_group"] == "Kids", parsed
+        assert parsed["policy"] == "Strict", parsed
+
+        # jdoe reaches Strict only through the DIRECTORY tier, so this also
+        # proves router-logd (a DynamicUser) can read the state directory
+        # written by router-directory-sync — the /var/lib/private trap.
+        entry = router.wait_until_succeeds(
+            f"curl -s -H 'Authorization: Bearer {token}' "
+            "'http://127.0.0.1:8067/logs?blocked=1&client=10.48.4.60' "
+            "| jq -e '.entries[0]'",
+            timeout=120,
+        )
+        parsed = json.loads(entry)
+        assert parsed["device"] == "jdoe-laptop", parsed
         assert parsed["policy"] == "Strict", parsed
 
     with subtest("block page is served with the branded wwwroot"):
