@@ -86,11 +86,13 @@ let
   #
   #   1. `inet filter` — Stateful firewall (input + forward chains)
   #      • Input: loopback accepted; trusted IFs (LAN+WG) fully open;
-  #        guest limited to DHCP/DNS only; WAN allows established +
-  #        ICMP + WireGuard ports; everything else dropped.
+  #        guest limited to DHCP/DNS plus replies to router-initiated
+  #        flows; WAN allows established + ICMP + WireGuard ports;
+  #        everything else dropped.
   #      • Forward: optional Suricata NFQUEUE inspection; WG
   #        bidirectional; LAN→WAN; WAN→LAN established; guest→WAN
-  #        only (fully isolated from LAN and WG).
+  #        only, plus LAN→guest one-way (guest is isolated from WG
+  #        entirely and may only answer LAN, never initiate to it).
   #
   #   2. `ip nat` — NAT and DNS hijacking
   #      • Prerouting: intercepts all DNS (port 53) from LAN/guest
@@ -115,6 +117,13 @@ let
         iifname { ${nftSet trustedIFs} } accept comment "Allow LAN and WG to router"
 
         ${optionalString cfg.guest.enable ''
+          # Replies to router-initiated traffic (e.g. pinging a guest host,
+          # probing a guest service). Without this the router can reach the
+          # guest subnet but never sees the answer, since this chain drops by
+          # policy and guest is not in trustedIFs. Stateful only — guest still
+          # cannot open new connections to the router.
+          iifname "${brGuest}" ct state { established, related } accept
+
           # Guest: DHCP/DNS and NDP to router only (all other guest→router dropped)
           iifname "${brGuest}" udp dport { 53, 67 } accept
           iifname "${brGuest}" tcp dport 53 accept
@@ -168,8 +177,11 @@ let
           iifname "${brGuest}" oifname "${wanIf}" accept
           iifname "${wanIf}" oifname "${brGuest}" ct state { established, related } accept
 
-          # LAN → Guest (one-way access for administration)
+          # LAN → Guest (one-way access for administration). The return rule
+          # is stateful, so guest hosts can answer a LAN-initiated connection
+          # but can never initiate one toward the LAN themselves.
           iifname "${brLAN}" oifname "${brGuest}" accept
+          iifname "${brGuest}" oifname "${brLAN}" ct state { established, related } accept
         ''}
       }
     }
