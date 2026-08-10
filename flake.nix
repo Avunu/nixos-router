@@ -146,6 +146,7 @@
             packages = with pkgs; [
               nixd
               nixfmt
+              prek
             ];
             inherit (self.checks.${system}.pre-commit) shellHook;
           };
