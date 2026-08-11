@@ -290,27 +290,49 @@ pkgs.testers.runNixOSTest {
     add_client("jdoe", "10.48.4.60")     # registry: user jdoe@test (no group)
     add_client("guestpc", "10.48.4.99")  # unregistered → Base (default)
 
-    dig = "ip netns exec {ns} dig +time=3 +tries=1 @10.48.4.1 {name}"
-    # +short prints the ANSWER section only. Assertions about the block-page
+    # A blocked answer is served locally and returns instantly; an UNblocked
+    # name has to fail through the (unreachable) forwarders first, so give both
+    # room rather than racing a 3s deadline.
+    dig = "ip netns exec {ns} dig +time=10 +tries=1 @10.48.4.1 {name}"
+    # +short prints the ANSWER section only. Any assertion about the block-page
     # ADDRESS must use it: dig's own "SERVER: 10.48.4.1#53" trailer contains the
-    # LAN gateway, so `"10.48.4.1" in out` on full output is always true and the
-    # check is silently vacuous.
+    # LAN gateway, so `"10.48.4.1" in out` on full output is true no matter what
+    # the server answered.
     dig_short = "ip netns exec {ns} dig +short +time=10 +tries=1 @10.48.4.1 {name}"
+
+    # The Advanced Blocking app attaches an Extended DNS Error to every response
+    # it produces, carrying the policy group that matched:
+    #   ; EDE: 15 (Blocked): (source=advanced-blocking-app; group=Strict; domain=…)
+    # This is what makes the tier assertions specific. A bare "NXDOMAIN in out"
+    # cannot tell the app apart from a special-use zone (Technitium 15.4.0 serves
+    # test/invalid/local/onion itself, ahead of the app), an authoritative zone,
+    # or an upstream answer — which is exactly how the fixtures silently stopped
+    # testing anything when they were still *.test.
+    def blocked_by(out):
+        m = re.search(r"source=advanced-blocking-app; group=([^;)]+)", out)
+        return m.group(1) if m else None
 
     with subtest("host-group tier: Kids device gets Strict (NXDOMAIN)"):
         out = router.wait_until_succeeds(
             dig.format(ns="kid", name="kids-blocked.vmtest"), timeout=60
         )
-        assert "NXDOMAIN" in out, out
+        assert "status: NXDOMAIN" in out, out
+        assert blocked_by(out) == "Strict", out
 
     with subtest("default tier: unregistered client gets Base (block page address)"):
-        out = router.succeed(dig_short.format(ns="guestpc", name="lan-blocked.vmtest"))
-        assert out.strip() == "10.48.4.1", out
+        out = router.succeed(dig.format(ns="guestpc", name="lan-blocked.vmtest"))
+        assert blocked_by(out) == "Base", out
+        answer = router.succeed(dig_short.format(ns="guestpc", name="lan-blocked.vmtest"))
+        assert answer.strip() == "10.48.4.1", answer
+
         # Exactly-one-group check: a Strict client must NOT inherit Base's block.
-        # Nothing resolves this name in the hermetic VM, so the server SERVFAILs
-        # once its forwarders fail and +short prints nothing at all.
-        out = router.succeed(dig_short.format(ns="kid", name="lan-blocked.vmtest"))
-        assert out.strip() == "", out
+        # No group blocked it, so there is no EDE at all; nothing resolves the
+        # name in this hermetic VM, so the server SERVFAILs once its forwarders
+        # fail and +short prints nothing.
+        out = router.succeed(dig.format(ns="kid", name="lan-blocked.vmtest"))
+        assert blocked_by(out) is None, out
+        answer = router.succeed(dig_short.format(ns="kid", name="lan-blocked.vmtest"))
+        assert answer.strip() == "", answer
 
     with subtest("IPv6 :53 is dropped so devices cannot escape their policy tier"):
         # The device/group/user tiers are anchored to IPv4 DHCP reservations,
@@ -396,9 +418,16 @@ pkgs.testers.runNixOSTest {
     with subtest("directory tier activates via the path unit, no manual push"):
         # The atomic rename in _atomic_write is what fires router-policy-push;
         # starting it by hand here would leave that wiring untested.
+        # Poll on the GROUP, not on the response code: jdoe reaching Strict is
+        # the whole point, and an NXDOMAIN by itself would not prove the
+        # directory tier ran.
         router.wait_until_succeeds(
-            dig.format(ns="jdoe", name="kids-blocked.vmtest") + " | grep NXDOMAIN", timeout=90
+            dig.format(ns="jdoe", name="kids-blocked.vmtest") + " | grep -q 'group=Strict'",
+            timeout=90,
         )
+        out = router.succeed(dig.format(ns="jdoe", name="kids-blocked.vmtest"))
+        assert "status: NXDOMAIN" in out, out
+        assert blocked_by(out) == "Strict", out
 
     with subtest("an empty adminGroup keeps SSSD out of the login path"):
         # Identity is for policy assignment only. The primary control is that
