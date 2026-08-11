@@ -156,6 +156,16 @@
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
           };
 
+          # Eval-only guard on the AdGuard Home → Technitium migration. This
+          # branch switches the DNS engine for every existing deployment, so
+          # the compatibility shim is the one code path they all run through.
+          #   nix build .#checks.<system>.legacy-adguard
+          legacy-adguard = import ./tests/legacy-adguard.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
           pre-commit = inputs.git-hooks.lib.${system}.run {
             src = ./.;
             hooks = {
