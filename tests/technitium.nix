@@ -264,8 +264,26 @@ pkgs.testers.runNixOSTest {
 
     with subtest("DHCP reservations render as networkd static leases"):
         unit = router.succeed("cat /etc/systemd/network/40-br-lan.network")
-        assert "DHCPServerStaticLease" in unit, unit
-        assert "aa:bb:cc:dd:ee:01" in unit and "10.48.4.50" in unit, unit
+        # Parse the lease sections rather than substring-matching the file:
+        # separate `"<mac>" in unit` / `"<ip>" in unit` checks pass even when the
+        # two land in DIFFERENT leases, which is the pairing bug this subtest
+        # exists to catch. The address also appears elsewhere in the file.
+        leases = {}
+        for block in unit.split("[DHCPServerStaticLease]")[1:]:
+            kv = dict(
+                (k.strip(), v.strip())
+                for k, v in (
+                    line.split("=", 1)
+                    for line in block.split("[")[0].splitlines()
+                    if "=" in line
+                )
+            )
+            leases[kv["MACAddress"]] = kv["Address"]
+        assert leases == {
+            "aa:bb:cc:dd:ee:01": "10.48.4.50",
+            "aa:bb:cc:dd:ee:02": "10.48.4.60",
+            "aa:bb:cc:dd:ee:03": "10.48.4.61",
+        }, (leases, unit)
 
     with subtest("cockpit token + logd tokens are provisioned 0600"):
         for f in [
@@ -380,7 +398,8 @@ pkgs.testers.runNixOSTest {
         # This is why directory.json is built from policy references rather than
         # from a user listing. If this ever starts listing jdoe, the sync design
         # rests on a false premise.
-        assert "jdoe" not in router.succeed("getent passwd"), "domain is enumerable"
+        passwd = router.succeed("getent passwd")
+        assert not re.search(r"^jdoe:", passwd, re.M), "domain is enumerable"
 
     with subtest("directory state dir is shared, not hidden under /var/lib/private"):
         # With DynamicUser the state dir would materialize as a symlink into
@@ -487,8 +506,13 @@ pkgs.testers.runNixOSTest {
 
     with subtest("a report PDF is generated offline"):
         router.succeed("systemctl start router-report-vmtest.service")
-        out = router.succeed("ls /var/lib/router-reports/")
-        assert ".pdf" in out, out
+        # `".pdf" in ls` passes on a zero-byte file, or on a stack trace saved
+        # under a .pdf name — Typst failing still leaves the name behind. Check
+        # the magic bytes and that there is a document's worth of content.
+        pdf = router.succeed("ls /var/lib/router-reports/*.pdf").strip().splitlines()[0]
+        assert router.succeed(f"head -c4 {pdf}") == "%PDF", pdf
+        size = int(router.succeed(f"stat -c %s {pdf}").strip())
+        assert size > 1024, f"{pdf} is only {size} bytes"
 
     with subtest("cockpit router plugin is installed with the new pages"):
         manifest = "/etc/cockpit/share/cockpit/router/manifest.json"
