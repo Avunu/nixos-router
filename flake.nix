@@ -91,9 +91,21 @@
         optionRoots = [ "router" ];
         flakeStyle = "local";
         upstream = "github:Avunu/nixos-router";
-        # Wrapped-by-root settings for the per-host install systems (the runtime
-        # /etc/nixos/router-settings.json stays FLAT — see mkFlatRouterSchema).
-        settingsFile = ./local/install-settings.json;
+        # No generic guided ISO. The guided image bakes the router modules
+        # evaluated with NO settings, but a router with no settings is not a
+        # router: network.nix asserts that a WAN uplink, a LAN port and at least
+        # one physical interface are assigned, and those are the last things that
+        # can be guessed generically. The guided installer could not fill them in
+        # either — it prompts for `guidedPrompts` paths, which are string-typed
+        # only, and `lan.interfaces` is a list. Every router is delivered per-site
+        # from a settings JSON via the unattended ISO (local/build-iso.sh) or the
+        # network deploy, both of which remain.
+        guided = false;
+        # Per-root FLAT settings for the per-host install systems: the file holds
+        # router.* values at top level and the helper applies it as
+        # `{ router = mkDefault <flat> }` — the same shape as the runtime
+        # /etc/nixos/router-settings.json the Cockpit UI edits.
+        settingsFiles.router = ./local/install-settings.json;
         hints = {
           diskDevice = "disk-device";
           "wan.interface" = "net-iface";
@@ -289,8 +301,17 @@
         )
       );
 
-      # install / installTemplate systems + configure/install/deploy/wizard apps.
-      nixosConfigurations = ih.nixosConfigurations;
+      # The `install` system + configure/install/deploy/wizard apps.
+      #
+      # `installTemplate` — the router modules evaluated with NO settings — is
+      # dropped: mkProject exports it unconditionally, but it is only ever read
+      # through a guided ISO's manifest (mk-project.nix `hostAttr`,
+      # scripts/guided-install.sh), and `guided = false` above means nothing
+      # builds one. Left in, it is a nixosConfiguration that cannot evaluate —
+      # a settings-free router trips network.nix's "no port exists to carry
+      # traffic" assertion — so `nix flake check` fails on an output no consumer
+      # has.
+      nixosConfigurations = builtins.removeAttrs ih.nixosConfigurations [ "installTemplate" ];
       apps = ih.apps;
 
       # ── Installer scripts ────────────────────────────────────────────────────
