@@ -23,12 +23,16 @@ import type { Json } from "./nix";
 
 const _ = cockpit.gettext;
 
-// ── Legacy AdGuard Home migration ────────────────────────────────────────────
-// The dns.adguard section was replaced by accessPolicies + dns.technitium; the
-// generated schema rejects the old keys, which would block every save/apply.
-// Detect the stale section and offer a one-click transform into an equivalent
-// "Base" default policy (the same mapping the NixOS module's compatibility
-// shim applies at eval time, so filtering never lapses in the interim).
+// ── Legacy settings migration ────────────────────────────────────────────────
+// Two stale shapes, both rejected by the generated schema (which would block
+// every save/apply until fixed):
+//   • dns.adguard      — replaced by accessPolicies + dns.technitium
+//   • dns.upstreamServers — moved under dns.technitium, since only Technitium
+//     can use them (they are DoH URLs; the resolved fallback speaks DoT)
+// Either one alone triggers the banner: a config already migrated off AdGuard
+// on this branch still carries the old upstreamServers path. The transform
+// mirrors what the NixOS module does at eval time (compatibility shim +
+// mkRenamedOptionModule), so nothing lapses in the interim.
 interface LegacyAdguard {
   standardFilters?: Record<string, boolean>;
   utCapitoleCategories?: string[];
@@ -44,14 +48,32 @@ const isObj = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
 export function migrateLegacyAdguard(desired: Json): Json | null {
-  if (!isObj(desired) || !isObj(desired.dns) || !isObj(desired.dns.adguard)) {
+  if (!isObj(desired) || !isObj(desired.dns)) {
+    return null;
+  }
+  const hasAdguard = isObj(desired.dns.adguard);
+  const hasStaleUpstreams = Array.isArray(desired.dns.upstreamServers);
+  if (!hasAdguard && !hasStaleUpstreams) {
     return null;
   }
   const next = structuredClone(desired) as Record<string, Json>;
   const dns = next.dns as Record<string, Json>;
+  const upstreams = dns.upstreamServers as Json | undefined;
+  delete dns.upstreamServers;
+  delete dns.bootstrapServers; // Technitium resolves forwarders itself
+
+  if (!hasAdguard) {
+    // Only the upstream move is due; leave policies and everything else alone.
+    const tech = isObj(dns.technitium) ? (dns.technitium as Record<string, Json>) : {};
+    dns.technitium = {
+      ...tech,
+      ...(upstreams === undefined ? {} : { upstreamServers: upstreams }),
+    };
+    return next;
+  }
+
   const ag = dns.adguard as LegacyAdguard;
   delete dns.adguard;
-  delete dns.bootstrapServers; // Technitium resolves forwarders itself
 
   const rules = ag.extraUserRules ?? [];
   const exact = (prefix: string) =>
@@ -64,6 +86,7 @@ export function migrateLegacyAdguard(desired: Json): Json | null {
     listenPort: ag.listenPort ?? 53,
     safeSearch: ag.safeSearch ?? false,
     blockDoHProviders: true,
+    ...(upstreams === undefined ? {} : { upstreamServers: upstreams }),
   };
   next.accessPolicies = {
     defaultPolicy: "Base",

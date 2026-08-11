@@ -59,12 +59,12 @@
       "blockDoHProviders": true,
       "enable": true,
       "listenPort": 53,
-      "safeSearch": true
-    },
-    "upstreamServers": [
-      "https://dns.cloudflare.com/dns-query",
-      "https://dns.google/dns-query"
-    ]
+      "safeSearch": true,
+      "upstreamServers": [
+        "https://dns.cloudflare.com/dns-query",
+        "https://dns.google/dns-query"
+      ]
+    }
   },
   "guest": {
     "address": "192.168.20.1",

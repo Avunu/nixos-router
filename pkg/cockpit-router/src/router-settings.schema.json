@@ -495,6 +495,17 @@
               "description": "Enforce SafeSearch (Google, Bing, DuckDuckGo, YouTube) globally via\nprovisioned ANAME records. Technitium has no built-in SafeSearch.\n",
               "type": "boolean"
             },
+            "upstreamServers": {
+              "default": [
+                "https://dns.cloudflare.com/dns-query",
+                "https://dns.google/dns-query"
+              ],
+              "description": "Upstream DNS-over-HTTPS forwarders for Technitium.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
             "webPort": {
               "default": 5380,
               "description": "Web console / HTTP API port (bound to localhost).",
@@ -504,17 +515,6 @@
             }
           },
           "type": "object"
-        },
-        "upstreamServers": {
-          "default": [
-            "https://dns.cloudflare.com/dns-query",
-            "https://dns.google/dns-query"
-          ],
-          "description": "Upstream DNS-over-HTTPS forwarders.",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
         }
       },
       "type": "object"

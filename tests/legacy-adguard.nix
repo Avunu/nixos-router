@@ -55,6 +55,10 @@ let
               router.wan.interface = "eth1";
               router.lan.interfaces = [ "eth2" ];
 
+              # Moved under dns.technitium on this branch. An existing JSON
+              # still has it here, so mkRenamedOptionModule has to carry it.
+              router.dns.upstreamServers = [ "https://legacy.example/dns-query" ];
+
               # The legacy block exactly as it sits in a pre-migration JSON.
               router.dns.adguard = {
                 standardFilters = {
@@ -98,8 +102,17 @@ let
   };
 
   cfg = sys.config;
-  static = builtins.fromJSON (builtins.readFile cfg.router._policyStaticInputs);
+
+  # unsafeDiscardStringContext: these files are Nix-generated store paths, and
+  # values parsed out of them carry that path as string context. The failure
+  # messages below interpolate those values into the check's own script, which
+  # Nix refuses if they still reference a store path. Nothing here needs the
+  # dependency — only the text.
+  readJSON = path: builtins.fromJSON (builtins.unsafeDiscardStringContext (builtins.readFile path));
+
+  static = readJSON cfg.router._policyStaticInputs;
   policy = builtins.head static.policies;
+  dnsTools = readJSON cfg.router._dnsToolsConfig;
 
   failedAssertions = map (a: a.message) (lib.filter (a: !a.assertion) cfg.assertions);
   has = xs: x: builtins.elem x xs;
@@ -170,6 +183,14 @@ let
       name = "extra-filter-url-preserved";
       ok = has policy.adblockListUrls "https://example.invalid/list.txt";
       detail = "extraFilters url was lost";
+    }
+    {
+      # dns.upstreamServers moved under dns.technitium. The rename has to keep
+      # feeding Technitium's forwarders, or an upgraded router quietly reverts
+      # to the default resolvers instead of the ones the admin chose.
+      name = "renamed-upstream-servers-still-applied";
+      ok = lib.hasInfix "https://legacy.example/dns-query" dnsTools.settings.forwarders;
+      detail = "forwarders = ${dnsTools.settings.forwarders}";
     }
     {
       # Silent migration is worse than none: the admin must be told to finish it.

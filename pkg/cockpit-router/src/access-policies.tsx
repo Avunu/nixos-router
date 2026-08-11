@@ -1163,9 +1163,9 @@ const DnsSettingsTab = () => {
           <FormSection title={_("Upstream DNS")} titleElement="h2">
             <FormGroup label={_("Upstream servers")} fieldId="dns-upstream">
               <ListEditor
-                value={s.valueOf("dns.upstreamServers", [])}
-                isDisabled={s.lockedOf("dns.upstreamServers")}
-                onChange={(v) => s.setLeaf("dns.upstreamServers", v)}
+                value={s.valueOf("dns.technitium.upstreamServers", [])}
+                isDisabled={s.lockedOf("dns.technitium.upstreamServers")}
+                onChange={(v) => s.setLeaf("dns.technitium.upstreamServers", v)}
                 placeholder={_("https://dns.example/dns-query")}
               />
             </FormGroup>

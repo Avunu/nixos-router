@@ -111,7 +111,7 @@ let
         dnsServerLocalEndPoints = concatStringsSep "," listenEndpoints;
         webServiceLocalAddresses = "127.0.0.1";
         webServiceHttpPort = toString tcfg.webPort;
-        forwarders = concatStringsSep "," cfg.dns.upstreamServers;
+        forwarders = concatStringsSep "," tcfg.upstreamServers;
         forwarderProtocol = "Https";
         concurrentForwarding = "true";
         # Not "Deny" — that would refuse LAN clients. Recursion (including
@@ -277,6 +277,17 @@ let
   '';
 in
 {
+  # `router.dns.upstreamServers` predates this branch — it fed AdGuard Home's
+  # `upstream_dns` — so it is sitting in every existing settings JSON. Renaming
+  # rather than deleting keeps those configs evaluating, with a warning naming
+  # the new path, instead of failing the rebuild on an unknown option.
+  imports = [
+    (mkRenamedOptionModule
+      [ "router" "dns" "upstreamServers" ]
+      [ "router" "dns" "technitium" "upstreamServers" ]
+    )
+  ];
+
   options.router._dnsToolsConfig = mkOption {
     type = types.path;
     internal = true;
@@ -291,15 +302,6 @@ in
   };
 
   options.router.dns = {
-    upstreamServers = mkOption {
-      type = types.listOf types.str;
-      default = [
-        "https://dns.cloudflare.com/dns-query"
-        "https://dns.google/dns-query"
-      ];
-      description = "Upstream DNS-over-HTTPS forwarders.";
-    };
-
     # Kept for settings-JSON compatibility: Technitium resolves forwarder
     # hostnames internally, so bootstrap servers are a documented no-op.
     bootstrapServers = mkOption {
@@ -317,6 +319,19 @@ in
         type = types.bool;
         default = true;
         description = "Enable Technitium DNS Server (the router's filtering resolver).";
+      };
+
+      # Scoped under technitium, not dns, because only Technitium can use these:
+      # they are DoH URLs, and the systemd-resolved fallback that answers LAN :53
+      # when `enable = false` speaks DoT. Leaving them at dns.* implied they
+      # governed the router's DNS generally, which they never did.
+      upstreamServers = mkOption {
+        type = types.listOf types.str;
+        default = [
+          "https://dns.cloudflare.com/dns-query"
+          "https://dns.google/dns-query"
+        ];
+        description = "Upstream DNS-over-HTTPS forwarders for Technitium.";
       };
       package = mkOption {
         type = types.package;
@@ -402,7 +417,7 @@ in
           DNS_SERVER_ADMIN_PASSWORD_FILE = "%d/admin-password";
           DNS_SERVER_WEB_SERVICE_HTTP_PORT = toString tcfg.webPort;
           DNS_SERVER_WEB_SERVICE_LOCAL_ADDRESSES = "127.0.0.1";
-          DNS_SERVER_FORWARDERS = concatStringsSep "," cfg.dns.upstreamServers;
+          DNS_SERVER_FORWARDERS = concatStringsSep "," tcfg.upstreamServers;
           DNS_SERVER_FORWARDER_PROTOCOL = "Https";
           DNS_SERVER_RECURSION = "AllowOnlyForPrivateNetworks";
           DNS_SERVER_ENABLE_BLOCKING = "false";
@@ -499,7 +514,7 @@ in
     # systemd-resolved fills the role: its stub listener normally binds only
     # 127.0.0.53, so DNSStubListenerExtra puts it on the gateway addresses where
     # the redirected queries actually arrive. It forwards to whatever the WAN
-    # link learned over DHCP — it cannot honour dns.upstreamServers, which are
+    # link learned over DHCP — it cannot honour the DoH upstreamServers, which
     # DoH URLs, and resolved speaks DoT rather than DoH.
     (mkIf (!tcfg.enable) {
       services.resolved = {
