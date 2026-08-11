@@ -60,25 +60,26 @@ export interface AccessPoliciesSection {
 }
 
 export interface DirectorySettings {
-  provider?: "none" | "ldap" | "entra" | "google";
+  provider?: "none" | "sssd";
   syncIntervalMinutes?: number;
-  ldap?: {
-    url?: string;
+  sssd?: {
+    domain?: string;
+    servers?: string[];
+    baseDn?: string;
+    userSearchBase?: string;
+    groupSearchBase?: string;
+    schema?: "ad" | "rfc2307bis" | "rfc2307";
+    idMapping?: boolean;
     bindDn?: string;
     bindPasswordFile?: string | null;
-    baseDn?: string;
-    userFilter?: string;
-    groupFilter?: string;
-  };
-  entra?: {
-    tenantId?: string;
-    clientId?: string;
-    clientSecretFile?: string | null;
-  };
-  google?: {
-    domain?: string;
-    adminEmail?: string;
-    serviceAccountKeyFile?: string | null;
+    tlsCaCertFile?: string | null;
+    tlsClientCertFile?: string | null;
+    tlsClientKeyFile?: string | null;
+    tlsReqCert?: "never" | "allow" | "try" | "demand" | "hard";
+    cacheTimeoutMinutes?: number;
+    groups?: string[];
+    adminGroup?: string;
+    adminSsh?: boolean;
   };
 }
 
@@ -102,10 +103,10 @@ export interface ReportingSettings {
 
 // ── Directory sync state files (read-only runtime data) ─────────────────────
 export interface DirectoryUser {
-  id: string;
-  name: string;
-  email: string;
-  groups: string[]; // group ids
+  id: string; // POSIX login name — what router.hosts[].user must hold
+  name: string; // GECOS full name
+  email: string; // "" for POSIX, or the alias hosts[].user used if NSS canonicalized it
+  groups: string[]; // POSIX group names (group.id === group.name)
 }
 
 export interface DirectoryGroup {
@@ -123,6 +124,9 @@ export interface DirectoryStatus {
   lastSync?: string;
   ok?: boolean;
   error?: string | null;
+  // Referenced names NSS could not resolve. NOT a sync failure — a typo must
+  // not blank the user tier for everyone else (see directory_sync/__init__.py).
+  unresolved?: string[];
 }
 
 // ── router-logd API shapes ───────────────────────────────────────────────────

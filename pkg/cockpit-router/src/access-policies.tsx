@@ -47,7 +47,8 @@ import {
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import { useSettings, ListEditor, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
-import { DIRECTORY_STATE_PATH, errMsg, setPath, writeDesired } from "./nix";
+import { errMsg, setPath, writeDesired } from "./nix";
+import { loadDirectoryAll } from "./directory";
 import type { Json } from "./nix";
 import { exceptionRequests, setExceptionStatus } from "./logd";
 import { resolvePolicy } from "./policy-resolver";
@@ -102,23 +103,24 @@ function networkCidrs(s: Settings): NetworkCidrs {
   return cidrs;
 }
 
-// Directory sync state (users/groups) — read-only runtime data; tolerate a
-// missing or unreadable file (directory sync disabled / never ran).
-function useDirectory(): DirectoryState | null {
-  const [dir, setDir] = useState<DirectoryState | null>(null);
+// Directory sync state + status — read-only runtime data; tolerate missing or
+// unreadable files (directory sync disabled / never ran). `unresolved` names
+// the references the last sync could not resolve, which is the only way to tell
+// a group nobody has used yet from a typo: SSSD is never enumerated, so
+// `state.groups` holds only groups already referenced AND resolved.
+function useDirectory(): { state: DirectoryState | null; unresolved: string[] } {
+  const [dir, setDir] = useState<{ state: DirectoryState | null; unresolved: string[] }>({
+    state: null,
+    unresolved: [],
+  });
   useEffect(() => {
-    void cockpit
-      .file(DIRECTORY_STATE_PATH, { superuser: "try" })
-      .read()
-      .then((raw) => {
-        if (!raw || !raw.trim()) {
-          return;
-        }
-        const parsed = JSON.parse(raw) as DirectoryState;
-        if (Array.isArray(parsed.users) && Array.isArray(parsed.groups)) {
-          setDir(parsed);
-        }
-      })
+    void loadDirectoryAll()
+      .then(({ state, status }) =>
+        setDir({
+          state: state && Array.isArray(state.users) && Array.isArray(state.groups) ? state : null,
+          unresolved: Array.isArray(status?.unresolved) ? status.unresolved : [],
+        }),
+      )
       .catch(() => {});
   }, []);
   return dir;
@@ -279,14 +281,26 @@ const CheckboxMultiSelect = ({
   );
 };
 
+// Stable empty default for TypeaheadMultiSelect's optional list prop — an
+// inline [] would be a new reference on every render.
+const NO_UNRESOLVED: string[] = [];
+
 const TypeaheadMultiSelect = ({
   options,
+  unresolved = NO_UNRESOLVED,
+  isCreatable = false,
   selected,
   onChange,
   placeholder,
   isDisabled,
 }: {
   options: string[];
+  // Names the last directory sync could not resolve — rendered as warning chips.
+  unresolved?: string[];
+  // Allow entries that are not in `options`. REQUIRED for directory groups:
+  // `options` only lists groups a policy already references, so on a fresh
+  // install it is empty and a closed list could never accept the first group.
+  isCreatable?: boolean;
   selected: string[];
   onChange: (v: string[]) => void;
   placeholder: string;
@@ -297,6 +311,12 @@ const TypeaheadMultiSelect = ({
   const toggleRef = useRef<HTMLButtonElement>(null);
   const filter = inputValue.trim().toLowerCase();
   const filtered = options.filter((o) => !filter || o.toLowerCase().includes(filter));
+  const isBad = (name: string) => unresolved.some((u) => u.toLowerCase() === name.toLowerCase());
+  const canCreate =
+    isCreatable &&
+    filter !== "" &&
+    !options.some((o) => o.toLowerCase() === filter) &&
+    !selected.some((x) => x.toLowerCase() === filter);
   const toggleValue = (name: string) => {
     onChange(selected.includes(name) ? selected.filter((x) => x !== name) : [...selected, name]);
     setInputValue("");
@@ -344,6 +364,12 @@ const TypeaheadMultiSelect = ({
                       <Label
                         key={name}
                         variant="outline"
+                        color={isBad(name) ? "orange" : undefined}
+                        title={
+                          isBad(name)
+                            ? _("The last directory sync could not resolve this group name.")
+                            : undefined
+                        }
                         onClose={(e) => {
                           e.stopPropagation();
                           onChange(selected.filter((x) => x !== name));
@@ -361,11 +387,20 @@ const TypeaheadMultiSelect = ({
       }}
     >
       <SelectList>
+        {canCreate && (
+          <SelectOption key={`__create-${filter}`} value={inputValue.trim()}>
+            {cockpit.format(_('Use "$0"'), inputValue.trim())}
+          </SelectOption>
+        )}
         {filtered.length === 0 ? (
           <SelectOption isDisabled value="">
-            {filter
-              ? cockpit.format(_('No groups match "$0"'), inputValue.trim())
-              : _("No groups available")}
+            {isCreatable
+              ? _(
+                  "No resolved group matches — type the group name exactly as the directory spells it.",
+                )
+              : filter
+                ? cockpit.format(_('No groups match "$0"'), inputValue.trim())
+                : _("No groups available")}
           </SelectOption>
         ) : (
           filtered.map((o) => (
@@ -387,6 +422,7 @@ const PolicyEditorCard = ({
   guestEnabled,
   hostGroupOptions,
   directoryGroupOptions,
+  directoryUnresolved,
   isDisabled,
   onPatch,
   onMakeDefault,
@@ -397,7 +433,8 @@ const PolicyEditorCard = ({
   isDefault: boolean;
   guestEnabled: boolean;
   hostGroupOptions: string[];
-  directoryGroupOptions: string[] | null;
+  directoryGroupOptions: string[];
+  directoryUnresolved: string[];
   isDisabled: boolean;
   onPatch: (patch: Partial<AccessPolicy>) => void;
   onMakeDefault: () => void;
@@ -651,33 +688,20 @@ const PolicyEditorCard = ({
               label={_("Directory groups")}
               fieldId="ap-dirgroups"
               labelHelp={hint(
-                _("Devices assigned to a member of one of these directory groups get this policy."),
+                _(
+                  "Devices assigned to a member of one of these directory groups get this policy. Type the group name exactly as the directory spells it — names are resolved on demand, so a group you have not used before will not autocomplete.",
+                ),
               )}
             >
-              {directoryGroupOptions ? (
-                <TypeaheadMultiSelect
-                  options={directoryGroupOptions}
-                  selected={assignments.directoryGroups ?? []}
-                  isDisabled={isDisabled}
-                  onChange={(v) => patchAssignments({ directoryGroups: v })}
-                  placeholder={_("Type to filter directory groups")}
-                />
-              ) : (
-                <>
-                  <ListEditor
-                    value={assignments.directoryGroups ?? []}
-                    isDisabled={isDisabled}
-                    onChange={(v) => patchAssignments({ directoryGroups: v })}
-                    placeholder={_("Group name or id")}
-                  />
-                  <div
-                    className="pf-v6-u-color-200"
-                    style={{ fontSize: "0.85rem", marginBlockStart: "0.25rem" }}
-                  >
-                    {_("Directory sync state is not available — enter group names manually.")}
-                  </div>
-                </>
-              )}
+              <TypeaheadMultiSelect
+                options={directoryGroupOptions}
+                unresolved={directoryUnresolved}
+                isCreatable
+                selected={assignments.directoryGroups ?? []}
+                isDisabled={isDisabled}
+                onChange={(v) => patchAssignments({ directoryGroups: v })}
+                placeholder={_("Type a directory group name")}
+              />
             </FormGroup>
           </FormSection>
         </Form>
@@ -689,7 +713,7 @@ const PolicyEditorCard = ({
 // ── Policies tab ─────────────────────────────────────────────────────────────
 const PoliciesTab = () => {
   const s = useSettings();
-  const directory = useDirectory();
+  const { state: directory, unresolved: directoryUnresolved } = useDirectory();
   const [editing, setEditing] = useState<number | null>(null);
 
   if (!s.ready && !s.error) {
@@ -883,7 +907,8 @@ const PoliciesTab = () => {
                 isDefault={editingPolicy.name === defaultPolicy}
                 guestEnabled={guestEnabled}
                 hostGroupOptions={hostGroupOptions}
-                directoryGroupOptions={directory ? directory.groups.map((g) => g.name) : null}
+                directoryGroupOptions={directory ? directory.groups.map((g) => g.name) : []}
+                directoryUnresolved={directoryUnresolved}
                 isDisabled={locked}
                 onPatch={(patch) => updatePolicy(editing, patch)}
                 onMakeDefault={() => write({ ...section, defaultPolicy: editingPolicy.name })}
@@ -911,7 +936,7 @@ const TIER_LABELS: Record<MatchStep["tier"], string> = {
 
 const PreviewTab = () => {
   const s = useSettings();
-  const directory = useDirectory();
+  const { state: directory, unresolved: directoryUnresolved } = useDirectory();
   const [mode, setMode] = useState("device");
   const [device, setDevice] = useState("");
   const [ip, setIp] = useState("");
@@ -992,36 +1017,38 @@ const PreviewTab = () => {
           )}
           {mode === "user" && (
             <FormGroup label={_("User")} fieldId="pv-user">
-              {directory ? (
-                <FormSelect
-                  id="pv-user"
-                  value={userRef}
-                  onChange={(_e, v) => setUserRef(v)}
-                  aria-label={_("User")}
-                  style={{ maxWidth: "20rem" }}
-                >
-                  <FormSelectOption value="" label={_("Select a user…")} />
-                  {directory.users.map((u) => (
-                    <FormSelectOption key={u.id} value={u.id} label={`${u.name} (${u.email})`} />
-                  ))}
-                </FormSelect>
-              ) : (
-                <>
-                  <TextInput
-                    id="pv-user"
-                    value={userRef}
-                    onChange={(_e, v) => setUserRef(v)}
-                    placeholder={_("user id or email")}
-                    style={{ maxWidth: "20rem" }}
-                  />
+              {/* Free text with a datalist rather than a closed select: SSSD is
+                  never enumerated, so `directory.users` only holds identities
+                  already referenced and resolved. A closed list could not
+                  preview a user who has not been assigned to a device yet. */}
+              <TextInput
+                id="pv-user"
+                value={userRef}
+                onChange={(_e, v) => setUserRef(v)}
+                placeholder={_("directory login name, e.g. jdoe")}
+                list="pv-user-options"
+                style={{ maxWidth: "20rem" }}
+              />
+              <datalist id="pv-user-options">
+                {(directory?.users ?? []).map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.name && u.name !== u.id ? u.name : u.id}
+                  </option>
+                ))}
+              </datalist>
+              {userRef.trim() !== "" &&
+                directoryUnresolved.some(
+                  (n) => n.toLowerCase() === userRef.trim().toLowerCase(),
+                ) && (
                   <div
                     className="pf-v6-u-color-200"
                     style={{ fontSize: "0.85rem", marginBlockStart: "0.25rem" }}
                   >
-                    {_("Directory sync state is not available — enter a user reference manually.")}
+                    {_(
+                      "The last directory sync could not resolve this name — the user tier will not match.",
+                    )}
                   </div>
-                </>
-              )}
+                )}
             </FormGroup>
           )}
         </Form>

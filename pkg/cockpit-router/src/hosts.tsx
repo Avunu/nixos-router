@@ -9,7 +9,7 @@
 // hosts[].group on rename/delete.
 import { useEffect, useState, useCallback, useMemo } from "react";
 import type { Ref } from "react";
-import { errMsg, DIRECTORY_STATE_PATH } from "./nix";
+import { errMsg } from "./nix";
 import type { Json } from "./nix";
 import {
   ActionGroup,
@@ -65,7 +65,8 @@ import { loadNeighbors, resolveNames, loadOuiMap, vendorFor, isIPv4 } from "./ho
 import type { LiveHost } from "./hosts-live";
 import { suggestStaticIp, cidrContains, ipToInt } from "./ip-math";
 import type { NetworkShape } from "./ip-math";
-import type { RouterHost, HostGroup, DirectoryState, DirectoryUser } from "./types";
+import { loadDirectoryAll } from "./directory";
+import type { RouterHost, HostGroup, DirectoryUser } from "./types";
 
 const _ = cockpit.gettext;
 
@@ -141,67 +142,56 @@ function checkStaticIp(ip: string, shape: NetworkShape | null, taken: string[]):
   return null;
 }
 
-// Directory users from the sync-state file; null when no directory is
-// configured (absent/empty/invalid file) — the user field degrades to free text.
-function useDirectoryUsers(): DirectoryUser[] | null {
-  const [users, setUsers] = useState<DirectoryUser[] | null>(null);
+// Directory state + status from the sync-state files. `users` holds only the
+// identities already referenced and resolved (SSSD is never enumerated), so it
+// is an autocomplete source rather than a closed list; `unresolved` is what
+// distinguishes a name that has not been looked up yet from a typo.
+function useDirectory(): { users: DirectoryUser[]; unresolved: string[] } {
+  const [dir, setDir] = useState<{ users: DirectoryUser[]; unresolved: string[] }>({
+    users: [],
+    unresolved: [],
+  });
   useEffect(() => {
-    void cockpit
-      .file(DIRECTORY_STATE_PATH, { superuser: "try" })
-      .read()
-      .then((data: string | null) => {
-        if (!data || !data.trim()) {
-          return;
-        }
-        try {
-          const state = JSON.parse(data) as DirectoryState;
-          if (Array.isArray(state.users)) {
-            setUsers(state.users);
-          }
-        } catch {}
-      })
+    void loadDirectoryAll()
+      .then(({ state, status }) =>
+        setDir({
+          users: Array.isArray(state?.users) ? state.users : [],
+          unresolved: Array.isArray(status?.unresolved) ? status.unresolved : [],
+        }),
+      )
       .catch(() => {});
   }, []);
-  return users;
+  return dir;
 }
 
-const userLabel = (u: DirectoryUser) => `${u.name} (${u.email})`;
+const userLabel = (u: DirectoryUser) => (u.name && u.name !== u.id ? `${u.name} (${u.id})` : u.id);
 
-// ── user picker (typeahead over directory users, stores the email) ──────────
+// ── user picker ─────────────────────────────────────────────────────────────
+// FREE TEXT with autocomplete, deliberately not a closed list. SSSD is not
+// enumerated, so `users` only ever holds identities that some device or policy
+// ALREADY references and the last sync resolved — the first device assigned to
+// a new person types a name that is in neither array. The typed value is the
+// stored value; the list is a convenience, and `unresolved` is what turns a
+// typo into a visible warning instead of silent non-enforcement.
 const UserTypeahead = ({
   users,
+  unresolved,
   value,
   onChange,
 }: {
   users: DirectoryUser[];
+  unresolved: string[];
   value: string;
   onChange: (v: string) => void;
 }) => {
-  const initial = users.find((u) => u.email === value || u.id === value);
   const [isOpen, setIsOpen] = useState(false);
-  const [input, setInput] = useState(initial ? userLabel(initial) : value);
-  const [filtering, setFiltering] = useState(false);
+  const q = value.trim().toLowerCase();
+  const shown = q
+    ? users.filter((u) => `${u.id} ${u.name} ${u.email}`.toLowerCase().includes(q))
+    : users;
 
-  const shown =
-    filtering && input.trim()
-      ? users.filter((u) => userLabel(u).toLowerCase().includes(input.trim().toLowerCase()))
-      : users;
-
-  const pick = (email: string) => {
-    const u = users.find((x) => x.email === email);
-    if (u) {
-      onChange(u.email);
-      setInput(userLabel(u));
-    }
-    setFiltering(false);
-    setIsOpen(false);
-  };
-
-  const clear = () => {
-    setInput("");
-    setFiltering(false);
-    onChange("");
-  };
+  const resolved = users.some((u) => u.id.toLowerCase() === q || u.email.toLowerCase() === q);
+  const isBad = q !== "" && unresolved.some((n) => n.toLowerCase() === q);
 
   const toggle = (toggleRef: Ref<MenuToggleElement>) => (
     <MenuToggle
@@ -211,31 +201,28 @@ const UserTypeahead = ({
       onClick={() => setIsOpen((o) => !o)}
       isExpanded={isOpen}
       isFullWidth
+      status={isBad ? "warning" : undefined}
     >
       <TextInputGroup isPlain>
         <TextInputGroupMain
-          value={input}
+          value={value}
           onClick={() => setIsOpen(true)}
           onChange={(_e, v) => {
-            setInput(v);
-            setFiltering(true);
+            onChange(v);
             setIsOpen(true);
-            if (!v) {
-              onChange("");
-            }
           }}
           autoComplete="off"
-          placeholder={_("Search directory users…")}
+          placeholder={_("directory login name, e.g. jdoe")}
           role="combobox"
           isExpanded={isOpen}
           aria-controls="host-user-listbox"
           aria-label={_("User")}
         />
         <TextInputGroupUtilities>
-          {input ? (
+          {value ? (
             <Button
               variant="plain"
-              onClick={clear}
+              onClick={() => onChange("")}
               aria-label={_("Clear user")}
               icon={<TimesIcon />}
             />
@@ -246,33 +233,51 @@ const UserTypeahead = ({
   );
 
   return (
-    <Select
-      isOpen={isOpen}
-      selected={value}
-      variant="typeahead"
-      onSelect={(_e, v) => pick(String(v ?? ""))}
-      onOpenChange={(open) => {
-        setIsOpen(open);
-        if (!open) {
-          setFiltering(false);
-        }
-      }}
-      toggle={toggle}
-    >
-      <SelectList id="host-user-listbox">
-        {shown.length === 0 ? (
-          <SelectOption isDisabled value="">
-            {_("No matching users")}
-          </SelectOption>
-        ) : (
-          shown.map((u) => (
-            <SelectOption key={u.id} value={u.email} isSelected={u.email === value}>
-              {userLabel(u)}
+    <>
+      <Select
+        isOpen={isOpen}
+        selected={value}
+        variant="typeahead"
+        onSelect={(_e, v) => {
+          onChange(String(v ?? ""));
+          setIsOpen(false);
+        }}
+        onOpenChange={setIsOpen}
+        toggle={toggle}
+      >
+        <SelectList id="host-user-listbox">
+          {shown.length === 0 ? (
+            <SelectOption isDisabled value="">
+              {_("No already-resolved user matches — type the login name anyway")}
             </SelectOption>
-          ))
-        )}
-      </SelectList>
-    </Select>
+          ) : (
+            shown.map((u) => (
+              <SelectOption key={u.id} value={u.id} isSelected={u.id === value}>
+                {userLabel(u)}
+              </SelectOption>
+            ))
+          )}
+        </SelectList>
+      </Select>
+      {q !== "" && !resolved && (
+        <HelperText>
+          {isBad ? (
+            <HelperTextItem variant="warning">
+              {cockpit.format(
+                _(
+                  "The last directory sync could not resolve '$0'. Check the spelling against the domain — this device will not get a user-tier policy.",
+                ),
+                value.trim(),
+              )}
+            </HelperTextItem>
+          ) : (
+            <HelperTextItem variant="indeterminate">
+              {_("Not looked up yet — it will be resolved on the next directory sync.")}
+            </HelperTextItem>
+          )}
+        </HelperText>
+      )}
+    </>
   );
 };
 
@@ -294,6 +299,7 @@ const DeviceEditor = ({
   shapes,
   groups,
   users,
+  unresolved,
   taken,
   onSave,
   onCancel,
@@ -302,7 +308,8 @@ const DeviceEditor = ({
   live: LiveHost | null;
   shapes: NetShapes;
   groups: HostGroup[];
-  users: DirectoryUser[] | null;
+  users: DirectoryUser[];
+  unresolved: string[];
   taken: string[];
   onSave: (h: RouterHost) => void;
   onCancel: () => void;
@@ -428,18 +435,16 @@ const DeviceEditor = ({
               ))}
             </FormSelect>
           </FormGroup>
-          <FormGroup label={_("User")} fieldId="devUser">
-            {users ? (
-              <UserTypeahead users={users} value={user} onChange={setUser} />
-            ) : (
-              <TextInput
-                id="devUser"
-                value={user}
-                placeholder={_("directory user id or email")}
-                onChange={(_e, v) => setUser(v)}
-                aria-label={_("User")}
-              />
+          <FormGroup
+            label={_("User")}
+            fieldId="devUser"
+            labelHelp={hint(
+              _(
+                "The directory login name, exactly as `id <name>` resolves it on the router. Free text: the directory is never enumerated, so a person nobody has referenced yet will not autocomplete.",
+              ),
             )}
+          >
+            <UserTypeahead users={users} unresolved={unresolved} value={user} onChange={setUser} />
           </FormGroup>
           <FormGroup label={_("Notes")} fieldId="devNotes">
             <TextArea
@@ -488,7 +493,7 @@ const DevicesTab = ({ s }: { s: S }) => {
   const hosts = s.valueOf<RouterHost[]>("hosts", []);
   const groups = s.valueOf<HostGroup[]>("hostGroups", []);
   const shapes = readShapes(s);
-  const users = useDirectoryUsers();
+  const { users, unresolved } = useDirectory();
 
   const [neighbors, setNeighbors] = useState<LiveHost[]>([]);
   const [names, setNames] = useState<Record<string, string>>({});
@@ -557,8 +562,9 @@ const DevicesTab = ({ s }: { s: S }) => {
   }, [hosts, neighbors]);
 
   const userDisplay = (val: string) => {
-    const u = users?.find((x) => x.email === val || x.id === val);
-    return u ? u.name : val;
+    const v = val.toLowerCase();
+    const u = users.find((x) => x.id.toLowerCase() === v || x.email.toLowerCase() === v);
+    return u?.name || val;
   };
 
   const shown = rows.filter((row) => {
@@ -695,6 +701,7 @@ const DevicesTab = ({ s }: { s: S }) => {
             shapes={shapes}
             groups={groups}
             users={users}
+            unresolved={unresolved}
             taken={takenIps(editing.mac)}
             onSave={commitDevice}
             onCancel={() => setEditing(null)}

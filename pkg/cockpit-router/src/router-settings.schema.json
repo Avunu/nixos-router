@@ -102,7 +102,11 @@
                     "default": [],
                     "description": "Networks whose clients get this policy (unless a more specific tier matches).",
                     "items": {
-                      "enum": ["lan", "guest", "wireguard"]
+                      "enum": [
+                        "lan",
+                        "guest",
+                        "wireguard"
+                      ]
                     },
                     "type": "array"
                   },
@@ -142,7 +146,10 @@
                 "type": "array"
               },
               "blockingAddresses": {
-                "default": ["0.0.0.0", "::"],
+                "default": [
+                  "0.0.0.0",
+                  "::"
+                ],
                 "description": "A/AAAA answers for blocked queries (responseType = blockingAddress).",
                 "items": {
                   "type": "string"
@@ -248,7 +255,10 @@
               "responseType": {
                 "default": "blockingAddress",
                 "description": "Blocked-query answer: NXDOMAIN, or the blocking addresses below.\nWith the block page enabled, \"blockingAddress\" policies answer with\nthe router's LAN IP so clients land on the block page.\n",
-                "enum": ["nxdomain", "blockingAddress"]
+                "enum": [
+                  "nxdomain",
+                  "blockingAddress"
+                ]
               },
               "standardFilters": {
                 "default": [],
@@ -269,7 +279,9 @@
                 "type": "array"
               }
             },
-            "required": ["name"],
+            "required": [
+              "name"
+            ],
             "type": "object"
           },
           "type": "array"
@@ -283,7 +295,10 @@
         "initialPassword": {
           "default": null,
           "description": "Initial password for the admin user (required for sudo access on first login; should be changed immediately)",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "name": {
           "default": "admin",
@@ -304,97 +319,144 @@
     "bootMode": {
       "default": "uefi",
       "description": "Boot mode: uefi (systemd-boot) or legacy (GRUB)",
-      "enum": ["uefi", "legacy"]
+      "enum": [
+        "uefi",
+        "legacy"
+      ]
     },
     "directory": {
       "additionalProperties": false,
       "properties": {
-        "entra": {
-          "additionalProperties": false,
-          "properties": {
-            "clientId": {
-              "default": "",
-              "description": "App registration client id (needs User.Read.All + GroupMember.Read.All).",
-              "type": "string"
-            },
-            "clientSecretFile": {
-              "default": null,
-              "description": "Path to a root-owned file containing the client secret.",
-              "type": ["string", "null"]
-            },
-            "tenantId": {
-              "default": "",
-              "description": "Entra ID tenant id.",
-              "type": "string"
-            }
-          },
-          "type": "object"
+        "provider": {
+          "default": "none",
+          "description": "Identity source for policy assignment. \"sssd\" resolves users and groups\nthrough SSSD/NSS against LDAP or Active Directory. Only the names the\naccess policies reference are looked up — the directory is never\nenumerated, so directory size costs nothing.\n",
+          "enum": [
+            "none",
+            "sssd"
+          ]
         },
-        "google": {
+        "sssd": {
           "additionalProperties": false,
           "properties": {
-            "adminEmail": {
+            "adminGroup": {
               "default": "",
-              "description": "Workspace admin the service account impersonates (domain-wide delegation).",
+              "description": "Empty (the default): directory identities are used for POLICY\nASSIGNMENT ONLY. SSSD runs without its PAM responder, the domain's\naccess_provider is \"deny\", and pam_sss is force-removed from every PAM\nstack — a directory user can never authenticate to the router.\n\nNon-empty: members of this directory group may log in to Cockpit and\nadminister the router. The name must contain no whitespace and must\nnot collide with a local group.\n",
               "type": "string"
             },
-            "domain": {
-              "default": "",
-              "description": "Google Workspace primary domain.",
-              "type": "string"
+            "adminSsh": {
+              "default": false,
+              "description": "Also let adminGroup members in over SSH. This re-enables\nkeyboard-interactive authentication for that group only; the router is\notherwise SSH-key-only. Cockpit-only is the safer default.\n",
+              "type": "boolean"
             },
-            "serviceAccountKeyFile": {
-              "default": null,
-              "description": "Path to the service-account JSON key file.",
-              "type": ["string", "null"]
-            }
-          },
-          "type": "object"
-        },
-        "ldap": {
-          "additionalProperties": false,
-          "properties": {
             "baseDn": {
               "default": "",
-              "description": "Search base DN.",
+              "description": "Search base DN (ldap_search_base).",
               "type": "string"
             },
             "bindDn": {
               "default": "",
-              "description": "Bind DN for the sync account.",
+              "description": "Read-only bind DN (ldap_default_bind_dn). Empty binds anonymously.",
               "type": "string"
             },
             "bindPasswordFile": {
               "default": null,
-              "description": "Path to a root-owned file containing the bind password.",
-              "type": ["string", "null"]
+              "description": "Path to a root-owned file containing ONLY the bind password. It never\nenters the Nix store: a pre-start unit copies it into a 0600 env file\nwhich SSSD substitutes into its config at service start.\n",
+              "type": [
+                "string",
+                "null"
+              ]
             },
-            "groupFilter": {
-              "default": "(objectClass=group)",
-              "description": "LDAP filter selecting group entries.",
-              "type": "string"
+            "cacheTimeoutMinutes": {
+              "default": 90,
+              "description": "How long SSSD serves a cached entry before re-querying (entry_cache_timeout).",
+              "type": "integer"
             },
-            "url": {
+            "domain": {
               "default": "",
-              "description": "LDAP URL, e.g. ldaps://dc1.example.org.",
+              "description": "Directory domain name. Names the sssd.conf [domain/<name>] section.",
               "type": "string"
             },
-            "userFilter": {
-              "default": "(objectClass=person)",
-              "description": "LDAP filter selecting user entries.",
+            "groupSearchBase": {
+              "default": "",
+              "description": "Optional narrower base for group lookups (ldap_group_search_base). Empty = baseDn.",
+              "type": "string"
+            },
+            "groups": {
+              "default": [],
+              "description": "Extra directory group names to resolve and publish even when no policy\nreferences them yet. Because the directory is never enumerated, the\nCockpit directory-group picker can only offer groups it has already\nseen — list your candidates here to populate it.\n",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "idMapping": {
+              "default": true,
+              "description": "Derive POSIX uid/gid from the directory SID (ldap_id_mapping) instead\nof requiring uidNumber/gidNumber attributes. Turn this off only when\nthe directory carries real POSIX attributes.\n",
+              "type": "boolean"
+            },
+            "schema": {
+              "default": "ad",
+              "description": "Directory schema (ldap_schema). \"ad\" for Active Directory and Google\nWorkspace Secure LDAP; \"rfc2307bis\" for most OpenLDAP/389-DS\ndeployments; \"rfc2307\" for memberUid-style groups.\n",
+              "enum": [
+                "ad",
+                "rfc2307bis",
+                "rfc2307"
+              ]
+            },
+            "servers": {
+              "default": [],
+              "description": "LDAP URIs in preference order (ldap_uri). Prefer ldaps://.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "tlsCaCertFile": {
+              "default": null,
+              "description": "PEM CA bundle validating the directory server certificate\n(ldap_tls_cacert). Active Directory LDAPS certificates are usually\nissued by an enterprise CA that is not in the system trust store.\n",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tlsClientCertFile": {
+              "default": null,
+              "description": "Client certificate for mutual-TLS bind (ldap_tls_cert). Required by\nGoogle Workspace Secure LDAP, which authenticates the client by\ncertificate rather than by bind DN and password.\n",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tlsClientKeyFile": {
+              "default": null,
+              "description": "Private key matching tlsClientCertFile (ldap_tls_key).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tlsReqCert": {
+              "default": "demand",
+              "description": "Server certificate validation (ldap_tls_reqcert).",
+              "enum": [
+                "never",
+                "allow",
+                "try",
+                "demand",
+                "hard"
+              ]
+            },
+            "userSearchBase": {
+              "default": "",
+              "description": "Optional narrower base for user lookups (ldap_user_search_base). Empty = baseDn.",
               "type": "string"
             }
           },
           "type": "object"
         },
-        "provider": {
-          "default": "none",
-          "description": "Identity provider for user/group sync (policy assignment only).",
-          "enum": ["none", "ldap", "entra", "google"]
-        },
         "syncIntervalMinutes": {
           "default": 60,
-          "description": "How often to sync users/groups from the provider.",
+          "description": "How often to re-resolve the referenced users/groups through NSS.",
           "type": "integer"
         }
       },
@@ -444,7 +506,10 @@
           "type": "object"
         },
         "upstreamServers": {
-          "default": ["https://dns.cloudflare.com/dns-query", "https://dns.google/dns-query"],
+          "default": [
+            "https://dns.cloudflare.com/dns-query",
+            "https://dns.google/dns-query"
+          ],
           "description": "Upstream DNS-over-HTTPS forwarders.",
           "items": {
             "type": "string"
@@ -517,7 +582,10 @@
         "vlan": {
           "default": null,
           "description": "VLAN id for this network's tagged traffic; null = untagged-only.\nThe tag is carried on `trunkInterfaces` plus this network's\n`taggedInterfaces`.\n",
-          "type": ["integer", "null"]
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -538,7 +606,9 @@
             "type": "string"
           }
         },
-        "required": ["name"],
+        "required": [
+          "name"
+        ],
         "type": "object"
       },
       "type": "array"
@@ -557,7 +627,10 @@
           "group": {
             "default": null,
             "description": "Device group (router.hostGroups name) for policy assignment.",
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "mac": {
             "description": "Device MAC address (colon-separated).",
@@ -570,7 +643,10 @@
           "network": {
             "default": "lan",
             "description": "Network segment that owns this device's lease.",
-            "enum": ["lan", "guest"]
+            "enum": [
+              "lan",
+              "guest"
+            ]
           },
           "notes": {
             "default": "",
@@ -580,15 +656,24 @@
           "staticIp": {
             "default": null,
             "description": "DHCP reservation for this device. Required for device-tier or\nuser-tier access policies (IP→group mapping must be stable).\nMust lie inside the declared network's subnet.\n",
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "user": {
             "default": null,
             "description": "Directory user (id or email) this device belongs to.",
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
-        "required": ["mac", "name"],
+        "required": [
+          "mac",
+          "name"
+        ],
         "type": "object"
       },
       "type": "array"
@@ -617,7 +702,10 @@
               "type": "integer"
             }
           },
-          "required": ["poolOffset", "poolSize"],
+          "required": [
+            "poolOffset",
+            "poolSize"
+          ],
           "type": "object"
         },
         "domain": {
@@ -653,10 +741,16 @@
         "vlan": {
           "default": null,
           "description": "VLAN id for this network's tagged traffic; null = untagged-only.\nThe tag is carried on `trunkInterfaces` plus this network's\n`taggedInterfaces`.\n",
-          "type": ["integer", "null"]
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
-      "required": ["address", "networkAddress"],
+      "required": [
+        "address",
+        "networkAddress"
+      ],
       "type": "object"
     },
     "portForwards": {
@@ -686,15 +780,24 @@
           "protocol": {
             "default": "tcp",
             "description": "Transport protocol to forward.",
-            "enum": ["tcp", "udp"]
+            "enum": [
+              "tcp",
+              "udp"
+            ]
           },
           "source": {
             "default": null,
             "description": "Optional WAN source prefix the forward is restricted to. Null allows any source.",
-            "type": ["string", "null"]
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
-        "required": ["destination", "ports"],
+        "required": [
+          "destination",
+          "ports"
+        ],
         "type": "object"
       },
       "type": "array"
@@ -713,7 +816,10 @@
             "apiTokenFile": {
               "default": null,
               "description": "Path to a root-owned file with a Cloudflare API token (Email Routing: Edit).",
-              "type": ["string", "null"]
+              "type": [
+                "string",
+                "null"
+              ]
             },
             "fromAddress": {
               "default": "",
@@ -755,12 +861,24 @@
               "dayOfWeek": {
                 "default": "Mon",
                 "description": "Day of week (weekly frequency only).",
-                "enum": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                "enum": [
+                  "Mon",
+                  "Tue",
+                  "Wed",
+                  "Thu",
+                  "Fri",
+                  "Sat",
+                  "Sun"
+                ]
               },
               "frequency": {
                 "default": "weekly",
                 "description": "Report cadence.",
-                "enum": ["daily", "weekly", "monthly"]
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "monthly"
+                ]
               },
               "groups": {
                 "default": [],
@@ -783,7 +901,12 @@
                 "type": "array"
               },
               "sections": {
-                "default": ["overview", "topDomains", "topBlocked", "perGroup"],
+                "default": [
+                  "overview",
+                  "topDomains",
+                  "topBlocked",
+                  "perGroup"
+                ],
                 "description": "Report sections to include.",
                 "items": {
                   "enum": [
@@ -803,7 +926,9 @@
                 "type": "string"
               }
             },
-            "required": ["name"],
+            "required": [
+              "name"
+            ],
             "type": "object"
           },
           "type": "array"
@@ -821,7 +946,11 @@
       "properties": {
         "categories": {
           "additionalProperties": {
-            "enum": ["enabled", "disabled", "drop"]
+            "enum": [
+              "enabled",
+              "disabled",
+              "drop"
+            ]
           },
           "default": {},
           "description": "Per-category action overrides, keyed by suricata-update rule\ngroup (the source rule-file name, e.g. `emerging-malware.rules`).\n`disabled` adds a `group:` line to the suricata-update disable\nlist; `drop` adds one to the drop list (only effective in\n`ips` mode); `enabled` keeps the ruleset default. Categories\nabsent here are unchanged. Edited from the Cockpit IPS\n\"Policies\" tab.\n",
@@ -840,7 +969,10 @@
         "mode": {
           "default": "ids",
           "description": "Detection mode. `ids` = alert only, never drop (Synology\n\"detect\"). `ips` = honor the drop actions configured per\ncategory/signature below (Synology \"drop high-risk packets\nautomatically\"). NFQUEUE already enforces `drop` verdicts; this\ngates whether any `drop` conversions are emitted to\nsuricata-update at all.\n",
-          "enum": ["ids", "ips"]
+          "enum": [
+            "ids",
+            "ips"
+          ]
         },
         "policies": {
           "default": [],
@@ -851,7 +983,11 @@
               "action": {
                 "default": "alert",
                 "description": "`alert` (default, no change), `drop` (convert to drop —\n`ips` mode only), or `disable` (remove the rule).\n",
-                "enum": ["alert", "drop", "disable"]
+                "enum": [
+                  "alert",
+                  "drop",
+                  "disable"
+                ]
               },
               "comment": {
                 "default": "",
@@ -863,7 +999,9 @@
                 "type": "integer"
               }
             },
-            "required": ["sid"],
+            "required": [
+              "sid"
+            ],
             "type": "object"
           },
           "type": "array"
@@ -890,10 +1028,17 @@
               "track": {
                 "default": "by_src",
                 "description": "Which side of the flow the IP matches.",
-                "enum": ["by_src", "by_dst", "by_either"]
+                "enum": [
+                  "by_src",
+                  "by_dst",
+                  "by_either"
+                ]
               }
             },
-            "required": ["ip", "sid"],
+            "required": [
+              "ip",
+              "sid"
+            ],
             "type": "object"
           },
           "type": "array"
@@ -936,12 +1081,18 @@
         "interface": {
           "default": null,
           "description": "WAN untagged uplink interface name (e.g. enp1s0). Set null for a VLAN-only WAN.",
-          "type": ["string", "null"]
+          "type": [
+            "string",
+            "null"
+          ]
         },
         "vlan": {
           "default": null,
           "description": "WAN VLAN id (tagged); null = untagged uplink. The WAN tag is\ncarried only on `trunkInterfaces` (never on LAN/guest ports).\nWhen set, the WAN DHCP client runs on a bridge (br-wan)\naggregating those VLAN sub-interfaces.\n",
-          "type": ["integer", "null"]
+          "type": [
+            "integer",
+            "null"
+          ]
         }
       },
       "type": "object"
@@ -977,7 +1128,10 @@
                 "endpoint": {
                   "default": null,
                   "description": "Endpoint address:port of the peer",
-                  "type": ["string", "null"]
+                  "type": [
+                    "string",
+                    "null"
+                  ]
                 },
                 "persistentKeepalive": {
                   "default": 25,
@@ -989,7 +1143,10 @@
                   "type": "string"
                 }
               },
-              "required": ["allowedIPs", "publicKey"],
+              "required": [
+                "allowedIPs",
+                "publicKey"
+              ],
               "type": "object"
             },
             "type": "array"
@@ -1007,7 +1164,10 @@
             "type": "array"
           }
         },
-        "required": ["address", "privateKeyFile"],
+        "required": [
+          "address",
+          "privateKeyFile"
+        ],
         "type": "object"
       },
       "default": {},

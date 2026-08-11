@@ -6,6 +6,8 @@
 #   • first-boot env seeding + app pre-seeding + reconcile all succeed;
 #   • the new router.* sections surface in /etc/router/effective.json;
 #   • DHCP reservations render as [DHCPServerStaticLease] networkd sections;
+#   • directory identity resolves through SSSD against a local OpenLDAP: the
+#     test user exists ONLY in LDAP, so getent/getgrouplist prove the real path;
 #   • policy precedence end-to-end via dig from netns "LAN clients":
 #       - pinned device in a host group → its group policy (NXDOMAIN),
 #       - directory-group tier activates after a directory sync + policy push,
@@ -56,7 +58,16 @@ pkgs.testers.runNixOSTest {
               name = "jdoe-laptop";
               staticIp = "10.48.4.60";
               network = "lan";
-              user = "jdoe@test";
+              user = "jdoe"; # POSIX login, resolved through SSSD
+            }
+            {
+              # Deliberately dangling: proves an unresolvable reference is a
+              # WARNING, not a sync failure (directory_sync/__init__.py).
+              mac = "aa:bb:cc:dd:ee:03";
+              name = "ghost-laptop";
+              staticIp = "10.48.4.61";
+              network = "lan";
+              user = "ghost";
             }
           ];
 
@@ -83,21 +94,38 @@ pkgs.testers.runNixOSTest {
                   directoryGroups = [ "Students" ];
                 };
               }
+              {
+                # Covers the GROUP arm of status.json's unresolved list.
+                name = "Ghosts";
+                priority = 20;
+                blockDomains = [ "ghost-blocked.test" ];
+                responseType = "nxdomain";
+                assignments.directoryGroups = [ "NoSuchGroup" ];
+              }
             ];
           };
 
-          # Exercise the directory-sync unit's FILESYSTEM contract. The sync
-          # itself cannot succeed offline (port 1 refuses instantly, keeping
-          # the failure fast and deterministic) — what matters here is that
-          # its StateDirectory lands at the real /var/lib/router-directory
-          # with the router-data group, so router-logd can read directory.json.
+          # A genuinely end-to-end identity path: a local OpenLDAP holds jdoe
+          # and Students, SSSD is the ONLY way to resolve them (neither name
+          # exists in /etc/passwd or /etc/group), and router-directory-sync
+          # reaches them through NSS exactly as it would against a real DC.
+          #
+          # NB: proxy_lib_name = "files" would be a useless test here —
+          # /etc/nsswitch.conf is "passwd: files sss" with files forced first,
+          # so a local user would be answered by `files` and never reach sss.
           router.directory = {
-            provider = "ldap";
-            ldap = {
-              url = "ldaps://127.0.0.1:1";
-              bindDn = "cn=sync,dc=test";
-              baseDn = "dc=test";
-              bindPasswordFile = "/etc/router-test-ldap.pass";
+            provider = "sssd";
+            syncIntervalMinutes = 5;
+            sssd = {
+              domain = "vmtest";
+              servers = [ "ldap://127.0.0.1:389" ];
+              baseDn = "dc=vmtest";
+              schema = "rfc2307";
+              idMapping = false; # the fixture carries real uidNumber/gidNumber
+              tlsReqCert = "never"; # hermetic VM only; never in production
+              # Identity is for POLICY ASSIGNMENT ONLY — asserted below.
+              adminGroup = "";
+              extraDomainSettings.ldap_id_use_start_tls = "False";
             };
           };
 
@@ -128,7 +156,78 @@ pkgs.testers.runNixOSTest {
             memorySize = 3072;
             cores = 2;
           };
-          environment.etc."router-test-ldap.pass".text = "not-a-real-secret";
+          # jdoe's PRIMARY group (gid 4001) appears in no memberUid anywhere —
+          # exactly like Active Directory's Domain Users, which records primary
+          # membership in primaryGroupID and never in the group's member list.
+          # Students (4100) is supplementary via memberUid. A gr_mem scan would
+          # find only Students; os.getgrouplist must return both.
+          services.openldap = {
+            enable = true;
+            urlList = [ "ldap://127.0.0.1:389" ];
+            settings.children = {
+              "cn=schema".includes = [
+                "${pkgs.openldap}/etc/schema/core.ldif"
+                "${pkgs.openldap}/etc/schema/cosine.ldif"
+                "${pkgs.openldap}/etc/schema/inetorgperson.ldif"
+                "${pkgs.openldap}/etc/schema/nis.ldif"
+              ];
+              "olcDatabase={1}mdb".attrs = {
+                objectClass = [
+                  "olcDatabaseConfig"
+                  "olcMdbConfig"
+                ];
+                olcDatabase = "{1}mdb";
+                olcDbDirectory = "/var/lib/openldap/db";
+                olcSuffix = "dc=vmtest";
+                olcRootDN = "cn=admin,dc=vmtest";
+                olcRootPW = "vmtest";
+                olcAccess = [ "{0}to * by * read" ]; # anonymous bind is enough
+              };
+            };
+            declarativeContents."dc=vmtest" = ''
+              dn: dc=vmtest
+              objectClass: top
+              objectClass: dcObject
+              objectClass: organization
+              o: vmtest
+              dc: vmtest
+
+              dn: ou=people,dc=vmtest
+              objectClass: top
+              objectClass: organizationalUnit
+              ou: people
+
+              dn: ou=groups,dc=vmtest
+              objectClass: top
+              objectClass: organizationalUnit
+              ou: groups
+
+              dn: uid=jdoe,ou=people,dc=vmtest
+              objectClass: person
+              objectClass: posixAccount
+              uid: jdoe
+              cn: John Doe
+              sn: Doe
+              gecos: John Doe,Room 1,,,
+              uidNumber: 4001
+              gidNumber: 4001
+              homeDirectory: /home/jdoe
+              loginShell: /run/current-system/sw/bin/nologin
+
+              dn: cn=jdoe,ou=groups,dc=vmtest
+              objectClass: top
+              objectClass: posixGroup
+              cn: jdoe
+              gidNumber: 4001
+
+              dn: cn=Students,ou=groups,dc=vmtest
+              objectClass: top
+              objectClass: posixGroup
+              cn: Students
+              gidNumber: 4100
+              memberUid: jdoe
+            '';
+          };
           environment.systemPackages = [
             pkgs.iproute2
             pkgs.dnsutils
@@ -142,6 +241,7 @@ pkgs.testers.runNixOSTest {
 
   testScript = ''
     import json
+    import re
 
     start_all()
     router.wait_for_unit("multi-user.target")
@@ -227,36 +327,82 @@ pkgs.testers.runNixOSTest {
         )
         assert dropped > 0, f"IPv6 :53 never matched the dns_bypass drops ({dropped})"
 
+    with subtest("SSSD is the ONLY resolver for the directory identities"):
+        router.wait_for_unit("openldap.service")
+        router.wait_for_unit("sssd.service")
+        router.succeed("sssctl config-check")
+        # If these were local accounts the rest of this subtest would prove
+        # nothing: /etc/nsswitch.conf puts `files` before `sss`.
+        router.fail("grep -q '^jdoe:' /etc/passwd")
+        router.fail("grep -q '^Students:' /etc/group")
+        nss = router.succeed("cat /etc/nsswitch.conf")
+        assert re.search(r"^passwd:.*\bsss\b", nss, re.M), nss
+        assert re.search(r"^group:.*\bsss\b", nss, re.M), nss
+
+        router.wait_until_succeeds("getent passwd jdoe", timeout=180)
+        router.succeed("getent group Students")
+        # Primary group (gidNumber only, in no memberUid) AND supplementary
+        # group must both come back — the getgrouplist-vs-gr_mem contract that
+        # makes AD's "Domain Users" work.
+        groups = router.succeed("id -Gn jdoe").split()
+        assert "jdoe" in groups and "Students" in groups, groups
+
+    with subtest("no enumeration: getent with no argument leaks nothing"):
+        # This is why directory.json is built from policy references rather than
+        # from a user listing. If this ever starts listing jdoe, the sync design
+        # rests on a false premise.
+        assert "jdoe" not in router.succeed("getent passwd"), "domain is enumerable"
+
     with subtest("directory state dir is shared, not hidden under /var/lib/private"):
-        # The sync itself fails (nothing is listening on port 1) but systemd
-        # still sets up the StateDirectory and the unit still writes its
-        # status file. With DynamicUser the state dir would materialize as a
-        # symlink into the 0700 root-only /var/lib/private, which no amount of
-        # router-data group membership would let router-logd traverse.
-        # (Tolerate a concurrent run from the boot timer — the assertions
-        # below, not the exit status, are the contract under test.)
+        # With DynamicUser the state dir would materialize as a symlink into
+        # the 0700 root-only /var/lib/private, which no amount of router-data
+        # group membership would let router-logd traverse. (Tolerate a
+        # concurrent run from the boot timer — the assertions below, not the
+        # exit status, are the contract under test.)
         router.succeed("systemctl start router-directory-sync.service || true")
-        router.wait_until_succeeds("test -f /var/lib/router-directory/status.json", timeout=60)
+        router.wait_until_succeeds("test -f /var/lib/router-directory/status.json", timeout=90)
         router.succeed("test ! -L /var/lib/router-directory")
         owner = router.succeed("stat -c %U:%G /var/lib/router-directory/status.json").strip()
         assert owner == "router-directory-sync:router-data", owner
 
-    with subtest("directory tier activates after sync + policy push"):
-        # jdoe has no directory data yet → kids-blocked.test resolves via Base (not blocked)
-        directory = {
-            "users": [{"id": "u1", "name": "J Doe", "email": "jdoe@test", "groups": ["g1"]}],
-            "groups": [{"id": "g1", "name": "Students"}],
-            "syncedAt": "2026-01-01T00:00:00Z",
-        }
-        router.succeed(
-            "cat > /var/lib/router-directory/directory.json <<'EOF'\n"
-            + json.dumps(directory)
-            + "\nEOF"
+    with subtest("the sync resolves exactly the referenced names, through NSS"):
+        # The sandbox is AF_UNIX-only with PrivateNetwork=true; if NSS could not
+        # reach nsncd/sssd_nss through it, nothing here would resolve.
+        router.wait_until_succeeds("systemctl start router-directory-sync.service", timeout=120)
+        state = json.loads(router.succeed("cat /var/lib/router-directory/directory.json"))
+        assert [u["id"] for u in state["users"]] == ["jdoe"], state
+        jdoe = state["users"][0]
+        assert jdoe["name"] == "John Doe", jdoe          # GECOS field 1 only
+        assert jdoe["email"] == "", jdoe                 # POSIX carries no mail
+        assert "Students" in jdoe["groups"], jdoe        # supplementary
+        assert "jdoe" in jdoe["groups"], jdoe            # primary, memberUid-less
+        assert {"id": "Students", "name": "Students"} in state["groups"], state
+
+        status = json.loads(router.succeed("cat /var/lib/router-directory/status.json"))
+        # A dangling reference is a WARNING, not a failure: one typo must not
+        # blank the user tier for everybody else.
+        assert status["ok"] is True, status
+        assert set(status["unresolved"]) == {"ghost", "NoSuchGroup"}, status
+        assert router.succeed("stat -c %a /var/lib/router-directory/directory.json").strip() == "640"
+        assert router.succeed("stat -c %a /var/lib/router-directory/status.json").strip() == "644"
+
+    with subtest("directory tier activates via the path unit, no manual push"):
+        # The atomic rename in _atomic_write is what fires router-policy-push;
+        # starting it by hand here would leave that wiring untested.
+        router.wait_until_succeeds(
+            dig.format(ns="jdoe", name="kids-blocked.test") + " | grep NXDOMAIN", timeout=90
         )
-        router.succeed("systemctl start router-policy-push.service")
-        out = router.wait_until_succeeds(
-            dig.format(ns="jdoe", name="kids-blocked.test") + " | grep NXDOMAIN", timeout=60
-        )
+
+    with subtest("an empty adminGroup keeps SSSD out of the login path"):
+        # Identity is for policy assignment only. The primary control is that
+        # sssd runs no PAM responder at all...
+        conf = router.succeed("cat /etc/sssd/sssd.conf")
+        assert re.search(r"^services\s*=\s*nss\s*$", conf, re.M), conf
+        assert re.search(r"^access_provider\s*=\s*deny\s*$", conf, re.M), conf
+        # ...and, belt and braces, pam_sss.so is not even wired in.
+        for svc in ["sshd", "cockpit", "login", "sudo"]:
+            pam = router.succeed(f"cat /etc/pam.d/{svc}")
+            assert "pam_sss.so" not in pam, f"{svc}:\n{pam}"
 
     with subtest("blocked queries land in router-logd with group attribution"):
         token = router.succeed("cat /var/lib/router-technitium/logd-query.token").strip()

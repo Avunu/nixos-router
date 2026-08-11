@@ -315,7 +315,7 @@
       #    • hosts.nix             — device registry, groups, DHCP reservations.
       #    • access-policies.nix   — named filtering policies + assignments.
       #    • dns-technitium.nix    — Technitium DNS engine provisioning + Avahi.
-      #    • directory-sync.nix    — LDAP/Entra/Google user+group sync.
+      #    • directory-sync.nix    — SSSD (LDAP/AD) user+group resolution.
       #    • reporting.nix         — router-logd query-log store + PDF reports.
       #    • firewall.nix          — nftables ruleset, NAT, port-forwards, UPnP.
       #    • system.nix            — boot/disko, kernel, packages, hardening,

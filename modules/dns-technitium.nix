@@ -212,12 +212,13 @@ let
       };
 
       directory = {
-        inherit (cfg.directory)
-          provider
-          ldap
-          entra
-          google
-          ;
+        inherit (cfg.directory) provider;
+        # Extra group names to publish even when unreferenced, so Cockpit's
+        # directory-group picker has something to offer (SSSD is not enumerated).
+        groups = cfg.directory.sssd.groups;
+        # The sync resolves ONLY the identities these inputs name:
+        # hosts[].user and policies[].assignments.directoryGroups.
+        staticInputs = config.router._policyStaticInputs;
         stateDir = "/var/lib/router-directory";
       };
 

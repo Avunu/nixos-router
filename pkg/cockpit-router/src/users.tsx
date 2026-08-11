@@ -30,7 +30,7 @@ import {
 } from "@patternfly/react-core";
 import { ExpandableRowContent, Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { errMsg } from "./nix";
-import { Loading, SaveBar, SubNav, TabbedPage, hint, useSettings } from "./settings";
+import { ListEditor, Loading, SaveBar, SubNav, TabbedPage, hint, useSettings } from "./settings";
 import { loadDirectory, loadDirectoryStatus, syncNow } from "./directory";
 import { resolvePolicy } from "./policy-resolver";
 import type { NetworkCidrs } from "./policy-resolver";
@@ -106,7 +106,7 @@ const NoDirectoryState = ({ onGoToSettings }: { onGoToSettings: () => void }) =>
   <EmptyState headingLevel="h2" titleText={_("No directory data")}>
     <EmptyStateBody>
       {_(
-        "No identity provider is configured, or the first sync has not completed yet. Connect LDAP, Microsoft Entra ID or Google Workspace under Directory settings.",
+        "No identity provider is configured, or no device and no policy references a directory user yet. Directory users are looked up on demand — only names referenced under Hosts or by a policy's directory groups appear here.",
       )}
     </EmptyStateBody>
     <EmptyStateFooter>
@@ -180,7 +180,7 @@ const UsersTab = ({
       return true;
     }
     const hay =
-      `${u.name} ${u.email} ${u.groups.map((gid) => groupName(gid)).join(" ")}`.toLowerCase();
+      `${u.name} ${u.id} ${u.email} ${u.groups.map((gid) => groupName(gid)).join(" ")}`.toLowerCase();
     return hay.includes(q);
   });
 
@@ -202,7 +202,7 @@ const UsersTab = ({
           <ToolbarContent>
             <ToolbarItem>
               <SearchInput
-                placeholder={_("Filter by name, email or group")}
+                placeholder={_("Filter by name, login or group")}
                 value={query}
                 onChange={(_e, v) => setQuery(v)}
                 onClear={() => setQuery("")}
@@ -222,7 +222,7 @@ const UsersTab = ({
             <Tr>
               <Th screenReaderText={_("Row expansion")} />
               <Th>{_("Name")}</Th>
-              <Th>{_("Email")}</Th>
+              <Th>{_("Login")}</Th>
               <Th>{_("Groups")}</Th>
               <Th>{_("Devices")}</Th>
               <Th>{_("Effective policy")}</Th>
@@ -242,8 +242,15 @@ const UsersTab = ({
                       onToggle: () => toggle(u.id),
                     }}
                   />
-                  <Td dataLabel={_("Name")}>{u.name || u.email}</Td>
-                  <Td dataLabel={_("Email")}>{u.email}</Td>
+                  <Td dataLabel={_("Name")}>{u.name || u.id}</Td>
+                  <Td dataLabel={_("Login")}>
+                    {u.id}
+                    {u.email && (
+                      <Label isCompact color="grey" className="pf-v6-u-ml-sm">
+                        {cockpit.format(_("alias: $0"), u.email)}
+                      </Label>
+                    )}
+                  </Td>
                   <Td dataLabel={_("Groups")}>
                     {u.groups.length === 0 ? (
                       "—"
@@ -395,6 +402,7 @@ const DirectorySettingsTab = ({ s }: { s: Settings }) => {
   }
 
   const provider = s.valueOf<string>("directory.provider", "none");
+  const adminGroup = s.valueOf<string>("directory.sssd.adminGroup", "");
   const pathHint = hint(_("Path to a root-owned file on the router — never the secret itself."));
 
   const field = (id: string, label: string, path: string, help?: ReactElement) => (
@@ -408,6 +416,23 @@ const DirectorySettingsTab = ({ s }: { s: Settings }) => {
     </FormGroup>
   );
 
+  const list = (
+    id: string,
+    label: string,
+    path: string,
+    placeholder: string,
+    help?: ReactElement,
+  ) => (
+    <FormGroup label={label} fieldId={id} labelHelp={help}>
+      <ListEditor
+        value={s.valueOf<string[]>(path, [])}
+        isDisabled={s.lockedOf(path)}
+        onChange={(v) => s.setLeaf(path, v)}
+        placeholder={placeholder}
+      />
+    </FormGroup>
+  );
+
   return (
     <Stack hasGutter className="ct-router-stack">
       <StackItem isFilled style={{ overflowY: "auto" }}>
@@ -417,7 +442,9 @@ const DirectorySettingsTab = ({ s }: { s: Settings }) => {
               label={_("Provider")}
               fieldId="dir-provider"
               labelHelp={hint(
-                _("Users and groups are synced read-only, for policy assignment only."),
+                _(
+                  "SSSD connects the router to your LDAP or Active Directory domain and answers user and group lookups. Only the names your policies reference are looked up — the directory is never enumerated, so its size costs nothing.",
+                ),
               )}
             >
               <FormSelect
@@ -427,9 +454,7 @@ const DirectorySettingsTab = ({ s }: { s: Settings }) => {
                 onChange={(_e, v) => s.setLeaf("directory.provider", v)}
               >
                 <FormSelectOption value="none" label={_("None")} />
-                <FormSelectOption value="ldap" label="LDAP" />
-                <FormSelectOption value="entra" label="Microsoft Entra ID" />
-                <FormSelectOption value="google" label="Google Workspace" />
+                <FormSelectOption value="sssd" label={_("SSSD (LDAP / Active Directory)")} />
               </FormSelect>
             </FormGroup>
             <FormGroup label={_("Sync interval (minutes)")} fieldId="dir-interval">
@@ -442,61 +467,136 @@ const DirectorySettingsTab = ({ s }: { s: Settings }) => {
             </FormGroup>
           </FormSection>
 
-          {provider === "ldap" && (
-            <FormSection title="LDAP" titleElement="h2">
-              {field(
-                "ldap-url",
-                _("Server URL"),
-                "directory.ldap.url",
-                hint(_("e.g. ldaps://dc1.example.org")),
-              )}
-              {field("ldap-bind-dn", _("Bind DN"), "directory.ldap.bindDn")}
-              {field(
-                "ldap-bind-pw",
-                _("Bind password file"),
-                "directory.ldap.bindPasswordFile",
-                pathHint,
-              )}
-              {field("ldap-base-dn", _("Base DN"), "directory.ldap.baseDn")}
-              {field("ldap-user-filter", _("User filter"), "directory.ldap.userFilter")}
-              {field("ldap-group-filter", _("Group filter"), "directory.ldap.groupFilter")}
-            </FormSection>
-          )}
+          {provider === "sssd" && (
+            <>
+              <FormSection title={_("Domain")} titleElement="h2">
+                {field(
+                  "sssd-domain",
+                  _("Domain name"),
+                  "directory.sssd.domain",
+                  hint(_("e.g. school.example.org")),
+                )}
+                {list(
+                  "sssd-servers",
+                  _("Server URIs"),
+                  "directory.sssd.servers",
+                  "ldaps://dc1.example.org",
+                  hint(_("Tried in order. Prefer ldaps:// — plain ldap:// negotiates StartTLS.")),
+                )}
+                {field(
+                  "sssd-base-dn",
+                  _("Search base"),
+                  "directory.sssd.baseDn",
+                  hint(_("e.g. dc=school,dc=example,dc=org")),
+                )}
+                <FormGroup
+                  label={_("Schema")}
+                  fieldId="sssd-schema"
+                  labelHelp={hint(
+                    _(
+                      "Active Directory also covers Google Workspace Secure LDAP. Use RFC 2307bis for most OpenLDAP and 389-DS deployments.",
+                    ),
+                  )}
+                >
+                  <FormSelect
+                    id="sssd-schema"
+                    value={s.valueOf("directory.sssd.schema", "ad")}
+                    isDisabled={s.lockedOf("directory.sssd.schema")}
+                    onChange={(_e, v) => s.setLeaf("directory.sssd.schema", v)}
+                  >
+                    <FormSelectOption value="ad" label={_("Active Directory")} />
+                    <FormSelectOption value="rfc2307bis" label="RFC 2307bis" />
+                    <FormSelectOption value="rfc2307" label="RFC 2307" />
+                  </FormSelect>
+                </FormGroup>
+                {list(
+                  "sssd-groups",
+                  _("Publish groups"),
+                  "directory.sssd.groups",
+                  _("e.g. Students"),
+                  hint(
+                    _(
+                      "Group names to resolve even when no policy references them yet. Because the directory is never enumerated, this is what gives the directory-group picker something to offer on a fresh install.",
+                    ),
+                  ),
+                )}
+              </FormSection>
 
-          {provider === "entra" && (
-            <FormSection title="Microsoft Entra ID" titleElement="h2">
-              {field("entra-tenant", _("Tenant id"), "directory.entra.tenantId")}
-              {field(
-                "entra-client",
-                _("Client id"),
-                "directory.entra.clientId",
-                hint(_("App registration needs User.Read.All + GroupMember.Read.All.")),
-              )}
-              {field(
-                "entra-secret",
-                _("Client secret file"),
-                "directory.entra.clientSecretFile",
-                pathHint,
-              )}
-            </FormSection>
-          )}
+              <FormSection title={_("Credentials")} titleElement="h2">
+                {field(
+                  "sssd-bind-dn",
+                  _("Bind DN"),
+                  "directory.sssd.bindDn",
+                  hint(_("Read-only service account. Leave empty to bind anonymously.")),
+                )}
+                {field(
+                  "sssd-bind-pw",
+                  _("Bind password file"),
+                  "directory.sssd.bindPasswordFile",
+                  pathHint,
+                )}
+                {field(
+                  "sssd-cacert",
+                  _("CA certificate file"),
+                  "directory.sssd.tlsCaCertFile",
+                  hint(
+                    _(
+                      "PEM bundle validating the directory server certificate. Active Directory LDAPS certificates are usually issued by an enterprise CA that is not in the system trust store.",
+                    ),
+                  ),
+                )}
+                {field(
+                  "sssd-client-cert",
+                  _("Client certificate file"),
+                  "directory.sssd.tlsClientCertFile",
+                  hint(
+                    _(
+                      "Mutual-TLS client certificate. Required by Google Workspace Secure LDAP, which authenticates by certificate rather than by bind DN and password.",
+                    ),
+                  ),
+                )}
+                {field(
+                  "sssd-client-key",
+                  _("Client key file"),
+                  "directory.sssd.tlsClientKeyFile",
+                  pathHint,
+                )}
+              </FormSection>
 
-          {provider === "google" && (
-            <FormSection title="Google Workspace" titleElement="h2">
-              {field("google-domain", _("Domain"), "directory.google.domain")}
-              {field(
-                "google-admin",
-                _("Admin email"),
-                "directory.google.adminEmail",
-                hint(_("Workspace admin the service account impersonates.")),
-              )}
-              {field(
-                "google-key",
-                _("Service account key file"),
-                "directory.google.serviceAccountKeyFile",
-                pathHint,
-              )}
-            </FormSection>
+              <FormSection title={_("Router login")} titleElement="h2">
+                <FormGroup
+                  label={_("Admin group")}
+                  fieldId="sssd-admin-group"
+                  labelHelp={hint(
+                    _(
+                      "Leave empty (recommended) to use directory identity for policy assignment only: SSSD then runs without its authentication responder and no directory user can log in to the router. Set a group name to let its members administer the router through Cockpit.",
+                    ),
+                  )}
+                >
+                  <TextInput
+                    id="sssd-admin-group"
+                    value={adminGroup}
+                    placeholder={_("— no directory logins —")}
+                    isDisabled={s.lockedOf("directory.sssd.adminGroup")}
+                    onChange={(_e, v) => s.setLeaf("directory.sssd.adminGroup", v)}
+                  />
+                </FormGroup>
+                {adminGroup.trim() !== "" && (
+                  <Alert
+                    variant="warning"
+                    isInline
+                    title={_("Directory users can log in to this router")}
+                  >
+                    {cockpit.format(
+                      _(
+                        "Members of '$0' will be able to administer the router through Cockpit, with full sudo. Every other directory user is denied. SSH additionally requires the adminSsh setting.",
+                      ),
+                      adminGroup.trim(),
+                    )}
+                  </Alert>
+                )}
+              </FormSection>
+            </>
           )}
 
           <SaveBar
@@ -578,6 +678,31 @@ export const Users = () => {
         <StackItem>
           <Alert variant="danger" isInline title={_("Directory sync failed")}>
             {status.error ?? ""}
+          </Alert>
+        </StackItem>
+      )}
+      {/* A name that does not resolve is a warning, never a failure: one stale
+          reference must not blank the user tier for everyone else. It has a
+          different remedy from a sync failure, so it gets its own alert. */}
+      {status && status.unresolved && status.unresolved.length > 0 && (
+        <StackItem>
+          <Alert
+            variant="warning"
+            isInline
+            title={_("Some referenced names could not be resolved")}
+          >
+            <LabelGroup numLabels={12}>
+              {status.unresolved.map((n) => (
+                <Label key={n} color="orange" isCompact>
+                  {n}
+                </Label>
+              ))}
+            </LabelGroup>
+            <div className="pf-v6-u-mt-sm">
+              {_(
+                "Fix them under Hosts (device → user) or Access policies (directory groups). Everything else resolved normally.",
+              )}
+            </div>
           </Alert>
         </StackItem>
       )}

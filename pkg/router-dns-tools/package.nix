@@ -21,11 +21,10 @@ python3Packages.buildPythonApplication {
 
   build-system = [ python3Packages.setuptools ];
 
+  # Directory integration is stdlib-only (pwd/grp/os via NSS): SSSD owns the
+  # LDAP/AD connection, so no ldap3 / google-auth / MS Graph client is needed.
   dependencies = with python3Packages; [
     pyturso
-    ldap3
-    google-auth
-    google-api-python-client
   ];
 
   makeWrapperArgs = [
@@ -39,6 +38,7 @@ python3Packages.buildPythonApplication {
   pythonImportsCheck = [
     "router_dns_tools.compile_policies"
     "router_dns_tools.technitium_api"
+    "router_dns_tools.directory_sync.sssd"
   ];
 
   passthru = {
