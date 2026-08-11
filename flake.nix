@@ -166,6 +166,15 @@
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
           };
 
+          # Eval-only guard that something always answers LAN :53 — the
+          # DHCP advert and the :53 DNAT are not gated on technitium.enable.
+          #   nix build .#checks.<system>.dns-fallback
+          dns-fallback = import ./tests/dns-fallback.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
           pre-commit = inputs.git-hooks.lib.${system}.run {
             src = ./.;
             hooks = {

@@ -22,7 +22,12 @@ clients ──:53──► Technitium DNS ──► Advanced Blocking (compiled 
 -   **modules/filter-catalog.nix** — filter/category catalog (format-tagged), DoH-provider list, SafeSearch record map.
 -   **modules/hosts.nix** — device registry (`router.hosts`) and groups; devices with a `staticIp` get a systemd-networkd DHCP reservation, the anchor for device-tier policies.
 -   **modules/access-policies.nix** — `router.accessPolicies`; emits `router-policy-static.json` for the runtime compiler.
--   **modules/dns-technitium.nix** — engine provisioning (see below).
+-   **modules/dns-technitium.nix** — engine provisioning (see below). Setting
+    `dns.technitium.enable = false` means *no filtering*, not *no DNS*: the DHCP
+    advert and the :53 DNAT both point clients at the router regardless, so
+    systemd-resolved takes over the gateway addresses and forwards queries
+    unfiltered (in plaintext to the WAN-provided resolvers — it speaks DoT, not
+    the DoH upstreams configured here). A warning is emitted while in that mode.
 -   **modules/directory-sync.nix** — connects the router to your LDAP/Active Directory domain via **SSSD** and resolves the users and groups the policies reference through NSS into `/var/lib/router-directory/directory.json` (`router-directory-sync.timer`). SSSD owns the directory connection, its TLS, its credentials and its cache; the router only calls `getpwnam` / `getgrouplist` / `getgrnam`. Identity is used for policy assignment only — there is no admin login unless you explicitly set `directory.sssd.adminGroup`.
 -   **modules/reporting.nix** — `router-logd` (query-log store + exception portal) and `router-report-<name>` timers.
 -   **pkg/router-dns-tools** — the Python package behind all runtime services.

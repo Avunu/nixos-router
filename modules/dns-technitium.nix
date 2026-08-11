@@ -33,6 +33,7 @@ let
   tcfg = cfg.dns.technitium;
   inherit (config.router._internal)
     lanGW
+    guestGW
     allHomeNets
     ;
 
@@ -349,140 +350,171 @@ in
     };
   };
 
-  config = mkIf tcfg.enable {
-    # Technitium 15.4.0 added SpecialZoneManager: with the (default-on)
-    # `locallyServedDnsZones` setting it answers the RFC 6761/6762/7686
-    # special-use names authoritatively — and it does so inside
-    # AuthoritativeQueryAsync, i.e. BEFORE the Advanced Blocking app is
-    # consulted. The router's own zone still resolves (an existing apex zone
-    # suppresses the special answer), but every OTHER name under such a domain
-    # becomes NXDOMAIN and no access policy can touch it.
-    warnings =
-      optional
-        (elem cfg.lan.domain [
-          "test"
-          "invalid"
-          "local"
-          "onion"
-        ])
-        ''
-          router.lan.domain = "${cfg.lan.domain}" is a special-use domain. From
-          Technitium 15.4.0 the DNS server answers names under it authoritatively
-          (NXDOMAIN) before access policies apply, so only ${localZone} itself will
-          resolve on the LAN. Pick an ordinary domain such as "lan" or a delegated
-          one you own.
-        '';
+  config = mkMerge [
+    (mkIf tcfg.enable {
+      # Technitium 15.4.0 added SpecialZoneManager: with the (default-on)
+      # `locallyServedDnsZones` setting it answers the RFC 6761/6762/7686
+      # special-use names authoritatively — and it does so inside
+      # AuthoritativeQueryAsync, i.e. BEFORE the Advanced Blocking app is
+      # consulted. The router's own zone still resolves (an existing apex zone
+      # suppresses the special answer), but every OTHER name under such a domain
+      # becomes NXDOMAIN and no access policy can touch it.
+      warnings =
+        optional
+          (elem cfg.lan.domain [
+            "test"
+            "invalid"
+            "local"
+            "onion"
+          ])
+          ''
+            router.lan.domain = "${cfg.lan.domain}" is a special-use domain. From
+            Technitium 15.4.0 the DNS server answers names under it authoritatively
+            (NXDOMAIN) before access policies apply, so only ${localZone} itself will
+            resolve on the LAN. Pick an ordinary domain such as "lan" or a delegated
+            one you own.
+          '';
 
-    # ── Base service + first-boot seeding ─────────────────
-    services.technitium-dns-server = {
-      enable = true;
-      package = tcfg.package;
-      # Firewall is the router's own nftables ruleset (modules/firewall.nix);
-      # the nixpkgs option drives networking.firewall, which is unused here.
-      openFirewall = false;
-    };
-
-    systemd.services.router-dns-secrets = {
-      description = "Generate router DNS runtime secrets";
-      wantedBy = [ "multi-user.target" ];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        ExecStart = secretsScript;
-      };
-    };
-
-    systemd.services.technitium-dns-server = {
-      after = [ "router-dns-secrets.service" ];
-      requires = [ "router-dns-secrets.service" ];
-      environment = {
-        DNS_SERVER_DOMAIN = localZone;
-        DNS_SERVER_ADMIN_PASSWORD_FILE = "%d/admin-password";
-        DNS_SERVER_WEB_SERVICE_HTTP_PORT = toString tcfg.webPort;
-        DNS_SERVER_WEB_SERVICE_LOCAL_ADDRESSES = "127.0.0.1";
-        DNS_SERVER_FORWARDERS = concatStringsSep "," cfg.dns.upstreamServers;
-        DNS_SERVER_FORWARDER_PROTOCOL = "Https";
-        DNS_SERVER_RECURSION = "AllowOnlyForPrivateNetworks";
-        DNS_SERVER_ENABLE_BLOCKING = "false";
-        DOTNET_EnableDiagnostics = "0";
-      };
-      serviceConfig = {
-        LoadCredential = [ "admin-password:${stateDir}/admin.pass" ];
-        # "+" = run as root despite DynamicUser (writes secrets + app payloads).
-        ExecStartPre = [ "+${seedScript}" ];
-        # Run "portable" so the log folder lives under the writable StateDirectory
-        # (<state>/logs) instead of the Unix default /var/log/technitium/dns,
-        # which ProtectSystem=strict makes read-only. Config and apps already use
-        # the explicit config-folder arg, so this only affects log placement.
-        ExecStart = mkForce "${tcfg.package}/bin/technitium-dns-server %S/technitium-dns-server --portable-app";
-      };
-      restartTriggers = [
-        routerDnsTools.passthru.technitiumApps
-        blockPageWwwroot
-      ];
-    };
-
-    # ── Reconcile (idempotent, config-change driven) ──────
-    systemd.services.technitium-reconcile = {
-      description = "Reconcile Technitium DNS Server configuration";
-      after = [
-        "technitium-dns-server.service"
-        "network-online.target"
-      ];
-      wants = [
-        "technitium-dns-server.service"
-        "network-online.target"
-      ];
-      wantedBy = [ "multi-user.target" ];
-      restartTriggers = [
-        dnsToolsConfig
-        config.router._policyStaticInputs
-      ];
-      serviceConfig = {
-        Type = "oneshot";
-        RemainAfterExit = true;
-        ExecStart = "${routerDnsTools}/bin/router-technitium-reconcile --config ${dnsToolsConfig}";
-        Restart = "on-failure";
-        RestartSec = 15;
-      };
-      unitConfig.StartLimitIntervalSec = 300;
-      unitConfig.StartLimitBurst = 4;
-    };
-
-    # ── Policy re-push on directory changes ───────────────
-    systemd.services.router-policy-push = {
-      description = "Compile and push Advanced Blocking policy config";
-      after = [ "technitium-reconcile.service" ];
-      serviceConfig = {
-        Type = "oneshot";
-        ExecStart = "${routerDnsTools}/bin/router-policy-push --config ${dnsToolsConfig}";
-      };
-    };
-    systemd.paths.router-policy-push = {
-      description = "Re-push policies when directory state changes";
-      wantedBy = [ "multi-user.target" ];
-      pathConfig.PathChanged = "/var/lib/router-directory/directory.json";
-    };
-
-    # ── DNS plumbing shared with the old module ───────────
-    networking.nameservers = [
-      "127.0.0.1"
-      "::1"
-    ];
-    services.resolved.enable = false;
-
-    # Publish the router's hostname via mDNS (hostname.local).
-    services.avahi = {
-      enable = true;
-      publish = {
+      # ── Base service + first-boot seeding ─────────────────
+      services.technitium-dns-server = {
         enable = true;
-        addresses = true;
-        workstation = true;
+        package = tcfg.package;
+        # Firewall is the router's own nftables ruleset (modules/firewall.nix);
+        # the nixpkgs option drives networking.firewall, which is unused here.
+        openFirewall = false;
       };
-    };
 
-    # Expose the runtime config path to sibling modules (reporting units).
-    router._dnsToolsConfig = dnsToolsConfig;
-    router._dnsToolsPackage = routerDnsTools;
-  };
+      systemd.services.router-dns-secrets = {
+        description = "Generate router DNS runtime secrets";
+        wantedBy = [ "multi-user.target" ];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = secretsScript;
+        };
+      };
+
+      systemd.services.technitium-dns-server = {
+        after = [ "router-dns-secrets.service" ];
+        requires = [ "router-dns-secrets.service" ];
+        environment = {
+          DNS_SERVER_DOMAIN = localZone;
+          DNS_SERVER_ADMIN_PASSWORD_FILE = "%d/admin-password";
+          DNS_SERVER_WEB_SERVICE_HTTP_PORT = toString tcfg.webPort;
+          DNS_SERVER_WEB_SERVICE_LOCAL_ADDRESSES = "127.0.0.1";
+          DNS_SERVER_FORWARDERS = concatStringsSep "," cfg.dns.upstreamServers;
+          DNS_SERVER_FORWARDER_PROTOCOL = "Https";
+          DNS_SERVER_RECURSION = "AllowOnlyForPrivateNetworks";
+          DNS_SERVER_ENABLE_BLOCKING = "false";
+          DOTNET_EnableDiagnostics = "0";
+        };
+        serviceConfig = {
+          LoadCredential = [ "admin-password:${stateDir}/admin.pass" ];
+          # "+" = run as root despite DynamicUser (writes secrets + app payloads).
+          ExecStartPre = [ "+${seedScript}" ];
+          # Run "portable" so the log folder lives under the writable StateDirectory
+          # (<state>/logs) instead of the Unix default /var/log/technitium/dns,
+          # which ProtectSystem=strict makes read-only. Config and apps already use
+          # the explicit config-folder arg, so this only affects log placement.
+          ExecStart = mkForce "${tcfg.package}/bin/technitium-dns-server %S/technitium-dns-server --portable-app";
+        };
+        restartTriggers = [
+          routerDnsTools.passthru.technitiumApps
+          blockPageWwwroot
+        ];
+      };
+
+      # ── Reconcile (idempotent, config-change driven) ──────
+      systemd.services.technitium-reconcile = {
+        description = "Reconcile Technitium DNS Server configuration";
+        after = [
+          "technitium-dns-server.service"
+          "network-online.target"
+        ];
+        wants = [
+          "technitium-dns-server.service"
+          "network-online.target"
+        ];
+        wantedBy = [ "multi-user.target" ];
+        restartTriggers = [
+          dnsToolsConfig
+          config.router._policyStaticInputs
+        ];
+        serviceConfig = {
+          Type = "oneshot";
+          RemainAfterExit = true;
+          ExecStart = "${routerDnsTools}/bin/router-technitium-reconcile --config ${dnsToolsConfig}";
+          Restart = "on-failure";
+          RestartSec = 15;
+        };
+        unitConfig.StartLimitIntervalSec = 300;
+        unitConfig.StartLimitBurst = 4;
+      };
+
+      # ── Policy re-push on directory changes ───────────────
+      systemd.services.router-policy-push = {
+        description = "Compile and push Advanced Blocking policy config";
+        after = [ "technitium-reconcile.service" ];
+        serviceConfig = {
+          Type = "oneshot";
+          ExecStart = "${routerDnsTools}/bin/router-policy-push --config ${dnsToolsConfig}";
+        };
+      };
+      systemd.paths.router-policy-push = {
+        description = "Re-push policies when directory state changes";
+        wantedBy = [ "multi-user.target" ];
+        pathConfig.PathChanged = "/var/lib/router-directory/directory.json";
+      };
+
+      # ── DNS plumbing shared with the old module ───────────
+      networking.nameservers = [
+        "127.0.0.1"
+        "::1"
+      ];
+      services.resolved.enable = false;
+
+      # Publish the router's hostname via mDNS (hostname.local).
+      services.avahi = {
+        enable = true;
+        publish = {
+          enable = true;
+          addresses = true;
+          workstation = true;
+        };
+      };
+
+      # Expose the runtime config path to sibling modules (reporting units).
+      router._dnsToolsConfig = dnsToolsConfig;
+      router._dnsToolsPackage = routerDnsTools;
+    })
+
+    # ── Fallback resolver when filtering is disabled ───────
+    # `enable = false` has to mean "no DNS FILTERING", not "no DNS". Neither of
+    # the two things that point clients at this box is gated on this option:
+    # network.nix advertises the gateway as the LAN resolver (EmitDNS) and
+    # firewall.nix DNATs every :53 query to it. With nothing bound there, the
+    # LAN is told to use an address it is then forcibly redirected to, where
+    # nothing answers — DNS does not degrade, it stops.
+    #
+    # systemd-resolved fills the role: its stub listener normally binds only
+    # 127.0.0.53, so DNSStubListenerExtra puts it on the gateway addresses where
+    # the redirected queries actually arrive. It forwards to whatever the WAN
+    # link learned over DHCP — it cannot honour dns.upstreamServers, which are
+    # DoH URLs, and resolved speaks DoT rather than DoH.
+    (mkIf (!tcfg.enable) {
+      services.resolved = {
+        enable = true;
+        settings.Resolve.DNSStubListenerExtra = [ lanGW ] ++ optional cfg.guest.enable guestGW;
+      };
+
+      warnings = [
+        ''
+          router.dns.technitium.enable is false: LAN DNS is being answered by
+          systemd-resolved with NO content filtering. Access policies, SafeSearch
+          and DoH-provider blocking are all inactive, and queries are forwarded
+          in plaintext to the WAN-provided resolvers rather than over DoH.
+        ''
+      ];
+    })
+  ];
 }
