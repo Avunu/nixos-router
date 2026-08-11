@@ -350,6 +350,29 @@ in
   };
 
   config = mkIf tcfg.enable {
+    # Technitium 15.4.0 added SpecialZoneManager: with the (default-on)
+    # `locallyServedDnsZones` setting it answers the RFC 6761/6762/7686
+    # special-use names authoritatively — and it does so inside
+    # AuthoritativeQueryAsync, i.e. BEFORE the Advanced Blocking app is
+    # consulted. The router's own zone still resolves (an existing apex zone
+    # suppresses the special answer), but every OTHER name under such a domain
+    # becomes NXDOMAIN and no access policy can touch it.
+    warnings =
+      optional
+        (elem cfg.lan.domain [
+          "test"
+          "invalid"
+          "local"
+          "onion"
+        ])
+        ''
+          router.lan.domain = "${cfg.lan.domain}" is a special-use domain. From
+          Technitium 15.4.0 the DNS server answers names under it authoritatively
+          (NXDOMAIN) before access policies apply, so only ${localZone} itself will
+          resolve on the LAN. Pick an ordinary domain such as "lan" or a delegated
+          one you own.
+        '';
+
     # ── Base service + first-boot seeding ─────────────────
     services.technitium-dns-server = {
       enable = true;

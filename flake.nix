@@ -36,9 +36,12 @@
   #            pkg/pyturso. Tracked via flake.lock instead of a pinned hash.
   # technitium-dns: Source-only input for the Technitium DNS Apps (Advanced
   #            Blocking, Log Exporter, Block Page), compiled from source by
-  #            pkg/technitium-apps. Pinned to the SAME tag as nixpkgs'
-  #            technitium-dns-server (v15.2.0) so the app DLLs stay ABI-compatible
-  #            with the running server — bump both together.
+  #            pkg/technitium-apps. Its ref MUST equal the version of nixpkgs'
+  #            technitium-dns-server so the app DLLs stay ABI-compatible with the
+  #            running server — bump both together, and let
+  #            `nix run .#update-deps` verify the match rather than trusting a
+  #            version number written out here (this comment already went stale
+  #            once, across 15.2.0 → 15.4.0).
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     git-hooks = {

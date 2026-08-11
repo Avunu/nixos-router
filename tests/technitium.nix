@@ -81,13 +81,13 @@ pkgs.testers.runNixOSTest {
             policies = [
               {
                 name = "Base";
-                blockDomains = [ "lan-blocked.test" ];
+                blockDomains = [ "lan-blocked.vmtest" ];
                 responseType = "blockingAddress";
               }
               {
                 name = "Strict";
                 priority = 10;
-                blockDomains = [ "kids-blocked.test" ];
+                blockDomains = [ "kids-blocked.vmtest" ];
                 responseType = "nxdomain";
                 assignments = {
                   hostGroups = [ "Kids" ];
@@ -98,7 +98,7 @@ pkgs.testers.runNixOSTest {
                 # Covers the GROUP arm of status.json's unresolved list.
                 name = "Ghosts";
                 priority = 20;
-                blockDomains = [ "ghost-blocked.test" ];
+                blockDomains = [ "ghost-blocked.vmtest" ];
                 responseType = "nxdomain";
                 assignments.directoryGroups = [ "NoSuchGroup" ];
               }
@@ -291,19 +291,26 @@ pkgs.testers.runNixOSTest {
     add_client("guestpc", "10.48.4.99")  # unregistered → Base (default)
 
     dig = "ip netns exec {ns} dig +time=3 +tries=1 @10.48.4.1 {name}"
+    # +short prints the ANSWER section only. Assertions about the block-page
+    # ADDRESS must use it: dig's own "SERVER: 10.48.4.1#53" trailer contains the
+    # LAN gateway, so `"10.48.4.1" in out` on full output is always true and the
+    # check is silently vacuous.
+    dig_short = "ip netns exec {ns} dig +short +time=10 +tries=1 @10.48.4.1 {name}"
 
     with subtest("host-group tier: Kids device gets Strict (NXDOMAIN)"):
         out = router.wait_until_succeeds(
-            dig.format(ns="kid", name="kids-blocked.test"), timeout=60
+            dig.format(ns="kid", name="kids-blocked.vmtest"), timeout=60
         )
         assert "NXDOMAIN" in out, out
 
     with subtest("default tier: unregistered client gets Base (block page address)"):
-        out = router.succeed(dig.format(ns="guestpc", name="lan-blocked.test"))
-        assert "10.48.4.1" in out, out
-        # exactly-one-group check: Base does NOT block Strict's domain
-        out = router.succeed(dig.format(ns="kid", name="lan-blocked.test"))
-        assert "NXDOMAIN" not in out or "10.48.4.1" not in out, out
+        out = router.succeed(dig_short.format(ns="guestpc", name="lan-blocked.vmtest"))
+        assert out.strip() == "10.48.4.1", out
+        # Exactly-one-group check: a Strict client must NOT inherit Base's block.
+        # Nothing resolves this name in the hermetic VM, so the server SERVFAILs
+        # once its forwarders fail and +short prints nothing at all.
+        out = router.succeed(dig_short.format(ns="kid", name="lan-blocked.vmtest"))
+        assert out.strip() == "", out
 
     with subtest("IPv6 :53 is dropped so devices cannot escape their policy tier"):
         # The device/group/user tiers are anchored to IPv4 DHCP reservations,
@@ -315,7 +322,7 @@ pkgs.testers.runNixOSTest {
         # pointed at an IPv6 resolver by hand.
         router.succeed("ip -6 addr add fd48:4::1/64 dev br-lan nodad")
         router.succeed("ip -n kid -6 addr add fd48:4::50/64 dev veth-kid nodad")
-        router.fail("ip netns exec kid dig +time=2 +tries=1 @fd48:4::1 kids-blocked.test")
+        router.fail("ip netns exec kid dig +time=2 +tries=1 @fd48:4::1 kids-blocked.vmtest")
         # Prove the query actually hit the drop rules rather than failing for
         # some unrelated reason (no route, no address, …).
         dropped = int(
@@ -390,7 +397,7 @@ pkgs.testers.runNixOSTest {
         # The atomic rename in _atomic_write is what fires router-policy-push;
         # starting it by hand here would leave that wiring untested.
         router.wait_until_succeeds(
-            dig.format(ns="jdoe", name="kids-blocked.test") + " | grep NXDOMAIN", timeout=90
+            dig.format(ns="jdoe", name="kids-blocked.vmtest") + " | grep NXDOMAIN", timeout=90
         )
 
     with subtest("an empty adminGroup keeps SSSD out of the login path"):
@@ -436,7 +443,7 @@ pkgs.testers.runNixOSTest {
     with subtest("exception-request portal round-trips"):
         router.succeed(
             "ip netns exec kid curl -s -X POST "
-            "-d 'domain=kids-blocked.test&reason=needed for class' "
+            "-d 'domain=kids-blocked.vmtest&reason=needed for class' "
             "http://10.48.4.1:8067/portal/request-exception | grep -qi 'request submitted'"
         )
         token = router.succeed("cat /var/lib/router-technitium/logd-query.token").strip()
@@ -446,7 +453,7 @@ pkgs.testers.runNixOSTest {
             )
         )["requests"]
         assert any(
-            r["domain"] == "kids-blocked.test" and r["device"] == "lab-1" for r in reqs
+            r["domain"] == "kids-blocked.vmtest" and r["device"] == "lab-1" for r in reqs
         ), reqs
 
     with subtest("a report PDF is generated offline"):

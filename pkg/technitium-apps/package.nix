@@ -21,7 +21,12 @@
 }:
 buildDotnetModule (finalAttrs: {
   pname = "technitium-dns-apps";
-  version = "15.2.0";
+  # Tracks the SERVER these apps are ABI-matched to, rather than repeating the
+  # `technitium-dns` input's tag here — a hand-written copy silently went stale
+  # when the server moved 15.2.0 → 15.4.0. `nix run .#update-deps` is what
+  # enforces that the input's ref equals this version; given that, the two are
+  # the same number and this one cannot drift.
+  inherit (technitium-dns-server-library) version;
 
   src = technitiumSrc;
 
