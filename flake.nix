@@ -59,7 +59,7 @@
       flake = false;
     };
     technitium-dns = {
-      url = "github:TechnitiumSoftware/DnsServer/v15.2.0";
+      url = "github:TechnitiumSoftware/DnsServer/v15.4.0";
       flake = false;
     };
   };
