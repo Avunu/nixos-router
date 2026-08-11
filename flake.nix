@@ -261,9 +261,10 @@
         in
         {
           default = pkgs.mkShell {
-            packages = [
-              pkgs.nixd
-              pkgs.nixfmt
+            packages = with pkgs; [
+              nixd
+              nixfmt
+              prek
               update-deps
             ];
             inherit (self.checks.${system}.pre-commit) shellHook;
