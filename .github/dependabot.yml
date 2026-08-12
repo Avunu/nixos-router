@@ -62,7 +62,18 @@ updates:
 #   backend, which nixpkgs supplies too. Dependabot PRs there would edit a file
 #   that resolves nothing, while implying it does.
 #
-#   nuget — pkg/technitium-apps/nuget-deps.json is a Nix-generated lockfile, and
-#   the .csproj files it derives from live in the technitium-dns SOURCE INPUT,
-#   not in this repo. It moves only when that input moves, via
-#   `nix run .#update-deps`.
+#   nuget — three reasons, stacking. Dependabot's nuget ecosystem discovers
+#   .sln/.slnx/.proj entry points, .csproj/.vbproj/.fsproj projects,
+#   packages.config, global.json, .config/dotnet-tools.json and
+#   .props/.targets for Central Package Management; this repo contains none of
+#   them. pkg/technitium-apps/nuget-deps.json is not one either — it is a
+#   nixpkgs buildDotnetModule lockfile ({pname, version, hash}), which nothing
+#   outside Nix parses. And the real <PackageReference> constraints live in the
+#   technitium-dns SOURCE INPUT, upstream, where we do not control them:
+#   nuget-deps.json is GENERATED to satisfy that restore, so bumping its entries
+#   independently would desync it from the pinned source.
+#
+#   The risk on this path is staleness rather than being out of date — the input
+#   moves and the lockfile is not regenerated — and that fails loudly at build
+#   time (NU1102 during restore), caught by the `vm` CI job which compiles the
+#   apps. Regenerate with `nix run .#update-deps`.
