@@ -1,0 +1,68 @@
+<!doctype html>
+<!-- Served by the Technitium Block Page app (static-site mode) for every
+     blocked domain. Placeholders (@TITLE@ …) are substituted at Nix build
+     time from router.accessPolicies.blockPage; the browser lands here at
+     http://<blocked-domain>/, so location.hostname IS the blocked domain.
+     The form posts to router-logd's portal endpoint (plain form navigation —
+     no CORS involvement). -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>@TITLE@</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; color: #1b1f23;
+           background: #f4f6f8; margin: 0; }
+    main { max-width: 34rem; margin: 8vh auto; padding: 2.5rem;
+           background: #fff; border-radius: 10px;
+           box-shadow: 0 2px 12px rgba(0,0,0,.08); }
+    h1 { margin: 0 0 .5rem; font-size: 1.5rem; }
+    h1::before { content: "🛇 "; }
+    .domain { font-family: ui-monospace, monospace; background: #f0f2f4;
+              padding: .15rem .45rem; border-radius: 4px; }
+    p.contact { color: #57606a; font-size: .9rem; }
+    details { margin-top: 1.75rem; border-top: 1px solid #e1e4e8; padding-top: 1rem; }
+    summary { cursor: pointer; font-weight: 600; }
+    label { display: block; margin: .9rem 0 .25rem; font-weight: 600; font-size: .9rem; }
+    input, textarea { width: 100%; box-sizing: border-box; padding: .5rem;
+                      border: 1px solid #d0d7de; border-radius: 6px; font: inherit; }
+    textarea { min-height: 5rem; resize: vertical; }
+    button { margin-top: 1rem; padding: .55rem 1.4rem; border: 0; border-radius: 6px;
+             background: #0969da; color: #fff; font: inherit; font-weight: 600;
+             cursor: pointer; }
+    button:hover { background: #0a5cc2; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>@HEADING@</h1>
+    <p>@MESSAGE@</p>
+    <p>Blocked address: <span class="domain" id="blocked-domain"></span></p>
+    <p class="contact" id="contact" hidden>Questions? Contact <a id="contact-link" href=""></a>.</p>
+
+    <details>
+      <summary>Request an exception</summary>
+      <form method="post" action="@PORTAL_URL@/portal/request-exception">
+        <input type="hidden" name="domain" id="domain-field">
+        <label for="reason">Why do you need access to this site?</label>
+        <textarea name="reason" id="reason" maxlength="1000"
+                  placeholder="e.g. required for a class assignment"></textarea>
+        <button type="submit">Send request</button>
+      </form>
+    </details>
+  </main>
+  <script>
+    var domain = location.hostname;
+    document.getElementById("blocked-domain").textContent = domain;
+    document.getElementById("domain-field").value = domain;
+    var contact = "@CONTACT@";
+    if (contact) {
+      document.getElementById("contact").hidden = false;
+      var link = document.getElementById("contact-link");
+      link.textContent = contact;
+      link.href = "mailto:" + contact;
+    }
+  </script>
+</body>
+</html>

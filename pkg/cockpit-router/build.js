@@ -29,19 +29,7 @@ const outdir = "dist";
 const schema = JSON.parse(fs.readFileSync("./src/router-settings.schema.json", "utf8"));
 // Ajv's standaloneCode keys exports by $id; the derived schema has none, so set
 // a stable one here.
-schema.$id =
-  schema.$id || "https://github.com/Avunu/nixos-router/router-settings.schema.json";
-// Single source for the UT Capitole categories: their ids live in
-// ut-capitole.json (shared with the Cockpit UI). Inject them as the enum on the
-// derived schema's category list so an unknown category is rejected at
-// validation time — without duplicating the list.
-const utCapitole = JSON.parse(fs.readFileSync("./src/ut-capitole.json", "utf8"));
-const utEnum = utCapitole.map((c) => c.id);
-const utItems =
-  schema.properties?.dns?.properties?.adguard?.properties?.utCapitoleCategories?.items;
-if (utItems) utItems.enum = utEnum;
-// Back-compat: if a legacy definitions block is still present, fill it too.
-if (schema.definitions?.utCapitoleCategory) schema.definitions.utCapitoleCategory.enum = utEnum;
+schema.$id = schema.$id || "https://github.com/Avunu/nixos-router/router-settings.schema.json";
 const ajv = new Ajv({ code: { source: true, esm: true }, allErrors: true, allowUnionTypes: true });
 ajv.compile(schema); // compiles + registers the schema under its $id
 fs.mkdirSync("./src/_generated", { recursive: true });
@@ -79,9 +67,12 @@ await esbuild.build({
         // One HTML page per Cockpit menu entry (see src/manifest.json); each
         // loads the shared index.js bundle and selects its view via data-view.
         const htmlPages = [
+          "reports.html",
+          "access-policies.html",
+          "hosts.html",
+          "users.html",
           "network.html",
           "threat-protection.html",
-          "access-protection.html",
           "firewall.html",
           "system.html",
         ];

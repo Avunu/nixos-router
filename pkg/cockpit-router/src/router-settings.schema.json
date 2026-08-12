@@ -2,6 +2,293 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "additionalProperties": false,
   "properties": {
+    "accessPolicies": {
+      "additionalProperties": false,
+      "properties": {
+        "blockPage": {
+          "additionalProperties": false,
+          "properties": {
+            "contactEmail": {
+              "default": "",
+              "description": "Contact shown on the block page (optional).",
+              "type": "string"
+            },
+            "enable": {
+              "default": false,
+              "description": "Serve a branded block page (Technitium Block Page app on the\nrouter's :80/:443). Policies with responseType \"blockingAddress\"\nanswer with the router's LAN IP so clients land on the page, which\nincludes an exception-request form handled by router-logd.\n",
+              "type": "boolean"
+            },
+            "heading": {
+              "default": "Website Blocked",
+              "description": "Block page heading.",
+              "type": "string"
+            },
+            "message": {
+              "default": "This website has been blocked by your network administrator.",
+              "description": "Block page body message.",
+              "type": "string"
+            },
+            "title": {
+              "default": "Website Blocked",
+              "description": "Block page browser title.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "defaultPolicy": {
+          "default": "Base",
+          "description": "Policy applied to clients no other assignment matches.",
+          "type": "string"
+        },
+        "policies": {
+          "default": [],
+          "description": "Named access policies. When empty, a \"Base\" policy is synthesized\n(from legacy AdGuard settings if present, else a modest default).\n",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "adblockListUrls": {
+                "default": [],
+                "description": "Custom AdBlock/AdGuard-format list URLs.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "allowDomains": {
+                "default": [],
+                "description": "Domains to always allow (with subdomains); wins over blocks.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "allowListUrls": {
+                "default": [],
+                "description": "Custom hosts/domain-format allow list URLs.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "allowRegex": {
+                "default": [],
+                "description": "Regex patterns to always allow.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "assignments": {
+                "additionalProperties": false,
+                "properties": {
+                  "directoryGroups": {
+                    "default": [],
+                    "description": "Directory group names/ids whose members' devices get this policy.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "hostGroups": {
+                    "default": [],
+                    "description": "Device groups (router.hostGroups) this policy applies to.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  },
+                  "networks": {
+                    "default": [],
+                    "description": "Networks whose clients get this policy (unless a more specific tier matches).",
+                    "items": {
+                      "enum": [
+                        "lan",
+                        "guest",
+                        "wireguard"
+                      ]
+                    },
+                    "type": "array"
+                  },
+                  "subnets": {
+                    "default": [],
+                    "description": "Raw CIDR subnets this policy applies to.",
+                    "items": {
+                      "type": "string"
+                    },
+                    "type": "array"
+                  }
+                },
+                "type": "object"
+              },
+              "blockDomains": {
+                "default": [],
+                "description": "Domains to block (with subdomains).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "blockListUrls": {
+                "default": [],
+                "description": "Custom hosts/domain-format block list URLs.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "blockRegex": {
+                "default": [],
+                "description": "Regex patterns to block.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "blockingAddresses": {
+                "default": [
+                  "0.0.0.0",
+                  "::"
+                ],
+                "description": "A/AAAA answers for blocked queries (responseType = blockingAddress).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "categories": {
+                "default": [],
+                "description": "UT Capitole blacklist categories to block.",
+                "items": {
+                  "enum": [
+                    "adult",
+                    "agressif",
+                    "ai",
+                    "arjel",
+                    "associations_religieuses",
+                    "astrology",
+                    "audio-video",
+                    "bank",
+                    "bitcoin",
+                    "blog",
+                    "celebrity",
+                    "chat",
+                    "child",
+                    "cleaning",
+                    "cooking",
+                    "cryptojacking",
+                    "dangerous_material",
+                    "dating",
+                    "ddos",
+                    "dialer",
+                    "doh",
+                    "download",
+                    "drogue",
+                    "dynamic-dns",
+                    "educational_games",
+                    "fakenews",
+                    "filehosting",
+                    "financial",
+                    "forums",
+                    "gambling",
+                    "games",
+                    "hacking",
+                    "jobsearch",
+                    "lingerie",
+                    "liste_bu",
+                    "malware",
+                    "manga",
+                    "marketingware",
+                    "mixed_adult",
+                    "mobile-phone",
+                    "phishing",
+                    "porn",
+                    "press",
+                    "publicite",
+                    "radio",
+                    "reaffected",
+                    "redirector",
+                    "remote-control",
+                    "residential-proxies",
+                    "sect",
+                    "sexual_education",
+                    "shopping",
+                    "shortener",
+                    "social_networks",
+                    "sports",
+                    "stalkerware",
+                    "strict_redirector",
+                    "strong_redirector",
+                    "translation",
+                    "tricheur",
+                    "update",
+                    "vpn",
+                    "warez",
+                    "webhosting",
+                    "webmail"
+                  ]
+                },
+                "type": "array"
+              },
+              "description": {
+                "default": "",
+                "description": "Free-form policy description.",
+                "type": "string"
+              },
+              "name": {
+                "description": "Policy name (unique; becomes the Advanced Blocking group name).",
+                "type": "string"
+              },
+              "priority": {
+                "default": 0,
+                "description": "Tie-breaker within an assignment tier — higher wins.",
+                "type": "integer"
+              },
+              "regexBlockListUrls": {
+                "default": [],
+                "description": "Custom regex-format block list URLs.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "responseType": {
+                "default": "blockingAddress",
+                "description": "Blocked-query answer: NXDOMAIN, or the blocking addresses below.\nWith the block page enabled, \"blockingAddress\" policies answer with\nthe router's LAN IP so clients land on the block page.\n",
+                "enum": [
+                  "nxdomain",
+                  "blockingAddress"
+                ]
+              },
+              "standardFilters": {
+                "default": [],
+                "description": "Standard filter catalog entries to enable (see filter-catalog.nix).",
+                "items": {
+                  "enum": [
+                    "adaway",
+                    "adguard_ads",
+                    "adguard_anti_malware",
+                    "adguard_hacked_sites",
+                    "adguard_malware",
+                    "adguard_phishing",
+                    "phishtank_openphish",
+                    "steven_black",
+                    "yoyo_adservers"
+                  ]
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
     "adminUser": {
       "additionalProperties": false,
       "properties": {
@@ -37,6 +324,144 @@
         "legacy"
       ]
     },
+    "directory": {
+      "additionalProperties": false,
+      "properties": {
+        "provider": {
+          "default": "none",
+          "description": "Identity source for policy assignment. \"sssd\" resolves users and groups\nthrough SSSD/NSS against LDAP or Active Directory. Only the names the\naccess policies reference are looked up — the directory is never\nenumerated, so directory size costs nothing.\n",
+          "enum": [
+            "none",
+            "sssd"
+          ]
+        },
+        "sssd": {
+          "additionalProperties": false,
+          "properties": {
+            "adminGroup": {
+              "default": "",
+              "description": "Empty (the default): directory identities are used for POLICY\nASSIGNMENT ONLY. SSSD runs without its PAM responder, the domain's\naccess_provider is \"deny\", and pam_sss is force-removed from every PAM\nstack — a directory user can never authenticate to the router.\n\nNon-empty: members of this directory group may log in to Cockpit and\nadminister the router. The name must contain no whitespace and must\nnot collide with a local group.\n",
+              "type": "string"
+            },
+            "adminSsh": {
+              "default": false,
+              "description": "Also let adminGroup members in over SSH. This re-enables\nkeyboard-interactive authentication for that group only; the router is\notherwise SSH-key-only. Cockpit-only is the safer default.\n",
+              "type": "boolean"
+            },
+            "baseDn": {
+              "default": "",
+              "description": "Search base DN (ldap_search_base).",
+              "type": "string"
+            },
+            "bindDn": {
+              "default": "",
+              "description": "Read-only bind DN (ldap_default_bind_dn). Empty binds anonymously.",
+              "type": "string"
+            },
+            "bindPasswordFile": {
+              "default": null,
+              "description": "Path to a root-owned file containing ONLY the bind password. It never\nenters the Nix store: a pre-start unit copies it into a 0600 env file\nwhich SSSD substitutes into its config at service start.\n",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "cacheTimeoutMinutes": {
+              "default": 90,
+              "description": "How long SSSD serves a cached entry before re-querying (entry_cache_timeout).",
+              "type": "integer"
+            },
+            "domain": {
+              "default": "",
+              "description": "Directory domain name. Names the sssd.conf [domain/<name>] section.",
+              "type": "string"
+            },
+            "groupSearchBase": {
+              "default": "",
+              "description": "Optional narrower base for group lookups (ldap_group_search_base). Empty = baseDn.",
+              "type": "string"
+            },
+            "groups": {
+              "default": [],
+              "description": "Extra directory group names to resolve and publish even when no policy\nreferences them yet. Because the directory is never enumerated, the\nCockpit directory-group picker can only offer groups it has already\nseen — list your candidates here to populate it.\n",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "idMapping": {
+              "default": true,
+              "description": "Derive POSIX uid/gid from the directory SID (ldap_id_mapping) instead\nof requiring uidNumber/gidNumber attributes. Turn this off only when\nthe directory carries real POSIX attributes.\n",
+              "type": "boolean"
+            },
+            "schema": {
+              "default": "ad",
+              "description": "Directory schema (ldap_schema). \"ad\" for Active Directory and Google\nWorkspace Secure LDAP; \"rfc2307bis\" for most OpenLDAP/389-DS\ndeployments; \"rfc2307\" for memberUid-style groups.\n",
+              "enum": [
+                "ad",
+                "rfc2307bis",
+                "rfc2307"
+              ]
+            },
+            "servers": {
+              "default": [],
+              "description": "LDAP URIs in preference order (ldap_uri). Prefer ldaps://.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "tlsCaCertFile": {
+              "default": null,
+              "description": "PEM CA bundle validating the directory server certificate\n(ldap_tls_cacert). Active Directory LDAPS certificates are usually\nissued by an enterprise CA that is not in the system trust store.\n",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tlsClientCertFile": {
+              "default": null,
+              "description": "Client certificate for mutual-TLS bind (ldap_tls_cert). Required by\nGoogle Workspace Secure LDAP, which authenticates the client by\ncertificate rather than by bind DN and password.\n",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tlsClientKeyFile": {
+              "default": null,
+              "description": "Private key matching tlsClientCertFile (ldap_tls_key).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "tlsReqCert": {
+              "default": "demand",
+              "description": "Server certificate validation (ldap_tls_reqcert).",
+              "enum": [
+                "never",
+                "allow",
+                "try",
+                "demand",
+                "hard"
+              ]
+            },
+            "userSearchBase": {
+              "default": "",
+              "description": "Optional narrower base for user lookups (ldap_user_search_base). Empty = baseDn.",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "syncIntervalMinutes": {
+          "default": 60,
+          "description": "How often to re-resolve the referenced users/groups through NSS.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
     "diskDevice": {
       "default": "/dev/sda",
       "description": "Disk device for disko partitioning",
@@ -45,140 +470,51 @@
     "dns": {
       "additionalProperties": false,
       "properties": {
-        "adguard": {
+        "technitium": {
           "additionalProperties": false,
           "properties": {
-            "allowList": {
-              "default": [],
-              "description": "List of domains or URL patterns to allow. Each entry will be converted to an AdGuard allow rule (e.g., 'example.com' becomes '@@||example.com^').",
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "blockList": {
-              "default": [],
-              "description": "List of domains or URL patterns to block. Each entry will be converted to an AdGuard block rule (e.g., 'example.com' becomes '||example.com^').",
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            "enable": {
-              "default": false,
-              "description": "Whether to enable AdGuard Home DNS filtering.",
+            "blockDoHProviders": {
+              "default": true,
+              "description": "Block public DoH resolver domains in every policy (bypass prevention).",
               "type": "boolean"
             },
-            "extraUserRules": {
-              "default": [],
-              "description": "Additional AdGuard user rules (e.g. whitelists)",
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
+            "enable": {
+              "default": true,
+              "description": "Enable Technitium DNS Server (the router's filtering resolver).",
+              "type": "boolean"
             },
             "listenPort": {
               "default": 53,
-              "description": "DNS listen port for AdGuard Home (default 53, served directly to clients)",
+              "description": "DNS listen port.",
               "maximum": 65535,
               "minimum": 0,
               "type": "integer"
             },
             "safeSearch": {
               "default": false,
-              "description": "Whether to enable SafeSearch enforcement.",
+              "description": "Enforce SafeSearch (Google, Bing, DuckDuckGo, YouTube) globally via\nprovisioned ANAME records. Technitium has no built-in SafeSearch.\n",
               "type": "boolean"
             },
-            "standardFilters": {
-              "additionalProperties": false,
-              "properties": {
-                "adaway": {
-                  "default": true,
-                  "description": "AdAway hosts list",
-                  "type": "boolean"
-                },
-                "adguard_ads": {
-                  "default": true,
-                  "description": "AdGuard Base list (ads & trackers)",
-                  "type": "boolean"
-                },
-                "adguard_anti_malware": {
-                  "default": true,
-                  "description": "Dandelion Sprout's Anti-Malware List (filter_12)",
-                  "type": "boolean"
-                },
-                "adguard_hacked_sites": {
-                  "default": true,
-                  "description": "The Big List of Hacked Malware Web Sites (filter_9)",
-                  "type": "boolean"
-                },
-                "adguard_malware": {
-                  "default": true,
-                  "description": "AdGuard Malware filter",
-                  "type": "boolean"
-                },
-                "adguard_phishing": {
-                  "default": true,
-                  "description": "AdGuard Phishing URL Blocklist (filter_18)",
-                  "type": "boolean"
-                },
-                "phishtank_openphish": {
-                  "default": true,
-                  "description": "Phishing Army list based on PhishTank + OpenPhish (filter_30)",
-                  "type": "boolean"
-                },
-                "steven_black": {
-                  "default": true,
-                  "description": "Steven Black's unified hosts file (ads + malware)",
-                  "type": "boolean"
-                },
-                "yoyo_adservers": {
-                  "default": true,
-                  "description": "Peter Lowe's ad/tracker server list (yoyo.org)",
-                  "type": "boolean"
-                }
-              },
-              "type": "object"
-            },
-            "utCapitoleCategories": {
-              "default": [],
-              "description": "UT Capitole blacklist categories to enable as AdGuard filters.\nEach category name maps to a domain list fetched from\nhttps://dsi.ut-capitole.fr/blacklists/download/<category>/domains.\nSee https://dsi.ut-capitole.fr/blacklists/index_en.php for the\nfull list of available categories (e.g. \"adult\", \"malware\",\n\"phishing\", \"gambling\", \"cryptojacking\", \"vpn\", \"dating\", etc.).\n",
+            "upstreamServers": {
+              "default": [
+                "https://dns.cloudflare.com/dns-query",
+                "https://dns.google/dns-query"
+              ],
+              "description": "Upstream DNS-over-HTTPS forwarders for Technitium.",
               "items": {
                 "type": "string"
               },
               "type": "array"
             },
             "webPort": {
-              "default": 3000,
-              "description": "Web UI port for AdGuard Home",
+              "default": 5380,
+              "description": "Web console / HTTP API port (bound to localhost).",
               "maximum": 65535,
               "minimum": 0,
               "type": "integer"
             }
           },
           "type": "object"
-        },
-        "bootstrapServers": {
-          "default": [
-            "1.1.1.1",
-            "8.8.8.8"
-          ],
-          "description": "Bootstrap DNS servers for resolving DoH hostnames",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
-        },
-        "upstreamServers": {
-          "default": [
-            "https://dns.cloudflare.com/dns-query",
-            "https://dns.google/dns-query"
-          ],
-          "description": "Upstream DNS-over-HTTPS servers for AdGuard",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
         }
       },
       "type": "object"
@@ -254,10 +590,93 @@
       },
       "type": "object"
     },
+    "hostGroups": {
+      "default": [],
+      "description": "Named device groups that access policies can target.",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "description": {
+            "default": "",
+            "description": "Free-form group description.",
+            "type": "string"
+          },
+          "name": {
+            "description": "Group name (unique; referenced by hosts and access policies).",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "type": "array"
+    },
     "hostName": {
       "default": "router",
       "description": "Hostname for the router",
       "type": "string"
+    },
+    "hosts": {
+      "default": [],
+      "description": "Persistent device registry (managed via the Cockpit Hosts & Groups page).",
+      "items": {
+        "additionalProperties": false,
+        "properties": {
+          "group": {
+            "default": null,
+            "description": "Device group (router.hostGroups name) for policy assignment.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "mac": {
+            "description": "Device MAC address (colon-separated).",
+            "type": "string"
+          },
+          "name": {
+            "description": "Human-readable device name (unique).",
+            "type": "string"
+          },
+          "network": {
+            "default": "lan",
+            "description": "Network segment that owns this device's lease.",
+            "enum": [
+              "lan",
+              "guest"
+            ]
+          },
+          "notes": {
+            "default": "",
+            "description": "Free-form administrator notes.",
+            "type": "string"
+          },
+          "staticIp": {
+            "default": null,
+            "description": "DHCP reservation for this device. Required for device-tier or\nuser-tier access policies (IP→group mapping must be stable).\nMust lie inside the declared network's subnet.\n",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "user": {
+            "default": null,
+            "description": "Directory user (id or email) this device belongs to.",
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "mac",
+          "name"
+        ],
+        "type": "object"
+      },
+      "type": "array"
     },
     "lan": {
       "additionalProperties": false,
@@ -382,6 +801,140 @@
         "type": "object"
       },
       "type": "array"
+    },
+    "reporting": {
+      "additionalProperties": false,
+      "properties": {
+        "email": {
+          "additionalProperties": false,
+          "properties": {
+            "accountId": {
+              "default": "",
+              "description": "Cloudflare account id for the Email Sending API.",
+              "type": "string"
+            },
+            "apiTokenFile": {
+              "default": null,
+              "description": "Path to a root-owned file with a Cloudflare API token (Email Routing: Edit).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "fromAddress": {
+              "default": "",
+              "description": "Sender address (must belong to a Cloudflare Email Routing domain).",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "enable": {
+          "default": true,
+          "description": "Enable scheduled report generation (router-logd runs regardless).",
+          "type": "boolean"
+        },
+        "logd": {
+          "additionalProperties": false,
+          "properties": {
+            "port": {
+              "default": 8067,
+              "description": "router-logd HTTP port. Bound on all interfaces: the block page's\nexception-request form posts here from client browsers; data endpoints\nrequire a bearer token.\n",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "retentionDays": {
+          "default": 90,
+          "description": "Query-log retention (drives router-logd pruning and engine stats retention).",
+          "type": "integer"
+        },
+        "schedules": {
+          "default": [],
+          "description": "Scheduled PDF reports.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "dayOfWeek": {
+                "default": "Mon",
+                "description": "Day of week (weekly frequency only).",
+                "enum": [
+                  "Mon",
+                  "Tue",
+                  "Wed",
+                  "Thu",
+                  "Fri",
+                  "Sat",
+                  "Sun"
+                ]
+              },
+              "frequency": {
+                "default": "weekly",
+                "description": "Report cadence.",
+                "enum": [
+                  "daily",
+                  "weekly",
+                  "monthly"
+                ]
+              },
+              "groups": {
+                "default": [],
+                "description": "Restrict group breakdowns to these host groups (empty = all).",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "name": {
+                "description": "Schedule name (unique; used in unit and file names).",
+                "type": "string"
+              },
+              "recipients": {
+                "default": [],
+                "description": "Email recipients; empty = generate the PDF only, no delivery.",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "sections": {
+                "default": [
+                  "overview",
+                  "topDomains",
+                  "topBlocked",
+                  "perGroup"
+                ],
+                "description": "Report sections to include.",
+                "items": {
+                  "enum": [
+                    "overview",
+                    "topDomains",
+                    "topBlocked",
+                    "perGroup",
+                    "perDevice",
+                    "perUser"
+                  ]
+                },
+                "type": "array"
+              },
+              "time": {
+                "default": "06:00",
+                "description": "Time of day (HH:MM, local time).",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
     },
     "stateVersion": {
       "default": "25.11",

@@ -124,6 +124,18 @@ let
       };
     };
   };
+
+  # staticLeasesFor:
+  #   DHCP reservations for registry devices (router.hosts) pinned to the
+  #   given network segment. Rendered as [DHCPServerStaticLease] sections so
+  #   the device keeps a stable IP — the anchor the access-policy compiler
+  #   uses to map a device to its filtering group.
+  staticLeasesFor =
+    network:
+    map (h: {
+      MACAddress = toLower h.mac;
+      Address = h.staticIp;
+    }) (filter (h: h.network == network && h.staticIp != null) cfg.hosts);
 in
 {
   options.router = {
@@ -251,8 +263,8 @@ in
     #     but allows LAN to access Guest (one-way) for administration.
     #   • Guest clients can reach DHCP (port 67) and DNS (port 53)
     #     on the router, but nothing else on the router itself.
-    #   • DNS is hijacked to the local resolver (same as LAN).
-    #   • DoT (port 853) is blocked to prevent DNS bypass.
+    #   • IPv4 DNS is hijacked to the local resolver (same as LAN).
+    #   • DoT (port 853) and IPv6 :53 are blocked to prevent DNS bypass.
     #   • Shorter default DHCP lease (1h) encourages address rotation.
     guest = {
       enable = mkEnableOption "guest network with client isolation";
@@ -537,6 +549,7 @@ in
             EmitDNS = true;
             EmitRouter = true;
           };
+          dhcpServerStaticLeases = staticLeasesFor "lan";
           dhcpPrefixDelegationConfig = {
             UplinkInterface = wanIf;
             SubnetId = 0;
@@ -627,6 +640,7 @@ in
             EmitDNS = true;
             EmitRouter = true;
           };
+          dhcpServerStaticLeases = staticLeasesFor "guest";
           dhcpPrefixDelegationConfig = {
             UplinkInterface = wanIf;
             SubnetId = 1;

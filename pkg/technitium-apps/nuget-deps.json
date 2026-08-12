@@ -1,0 +1,52 @@
+[
+  {
+    "pname": "Microsoft.Extensions.Configuration",
+    "version": "10.0.9",
+    "hash": "sha256-4d8r6Vyune1Qb0kwqzfGPA7BK2nvaiOenTiJedzq6sU="
+  },
+  {
+    "pname": "Microsoft.Extensions.Configuration.Abstractions",
+    "version": "10.0.1",
+    "hash": "sha256-s4PDp+vtzdxKIxnOT3+dDRoTDopyl8kqmmw4KDnkOtQ="
+  },
+  {
+    "pname": "Microsoft.Extensions.Configuration.Abstractions",
+    "version": "10.0.9",
+    "hash": "sha256-pliaksEAQdxyPURUVSlXpfF3LzJB93zHaeEDsaF5QJE="
+  },
+  {
+    "pname": "Microsoft.Extensions.Primitives",
+    "version": "10.0.9",
+    "hash": "sha256-WEPtmlEexm6QSFR4ITlBHuUD5/bqMfecOxFe5hkbAPU="
+  },
+  {
+    "pname": "Serilog",
+    "version": "4.0.0",
+    "hash": "sha256-j8hQ5TdL1TjfdGiBO9PyHJFMMPvATHWN1dtrrUZZlNw="
+  },
+  {
+    "pname": "Serilog",
+    "version": "4.2.0",
+    "hash": "sha256-7f3EpCsEbDxXgsuhE430KVI14p7oDUuCtwRpOCqtnbs="
+  },
+  {
+    "pname": "Serilog.Sinks.File",
+    "version": "7.0.0",
+    "hash": "sha256-LxZYUoUPkCjIIVarJilnXnqQiMrFNJtoRilmzTNtUjo="
+  },
+  {
+    "pname": "Serilog.Sinks.Http",
+    "version": "9.2.1",
+    "hash": "sha256-vOcouqdildA1NNq3qK7mx8xCiML2pdIAiAWqcoy5nSA="
+  },
+  {
+    "pname": "Serilog.Sinks.PeriodicBatching",
+    "version": "5.0.0",
+    "hash": "sha256-vZ8sqme8pu0CPrrlCRGfubjbTEv49xiR/bNAX3aQTu8="
+  },
+  {
+    "pname": "Serilog.Sinks.SyslogMessages",
+    "version": "4.1.0",
+    "hash": "sha256-M7MbPcSD/jIYfeET4hem5JxRiBNoTZOU33Tvc0o5NvY="
+  }
+]

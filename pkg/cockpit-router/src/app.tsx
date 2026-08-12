@@ -1,7 +1,10 @@
 import type { ReactNode } from "react";
 import { Page, PageSidebar } from "@patternfly/react-core";
 import { Suricata } from "./suricata";
-import { AdGuard } from "./adguard";
+import { AccessPolicies } from "./access-policies";
+import { Hosts } from "./hosts";
+import { Users } from "./users";
+import { Reports } from "./reports";
 import { Firewall } from "./firewall";
 import { System } from "./system";
 import { Network } from "./network";
@@ -17,9 +20,12 @@ const emptySidebar = <PageSidebar isSidebarOpen={false} />;
 // view supplies its own PageSection(s) via TabbedPage, mirroring Cockpit's native
 // pages (subnav section + content section as siblings under <Page>).
 export const views: Record<string, ReactNode> = {
+  reports: <Reports />,
+  "access-policies": <AccessPolicies />,
+  hosts: <Hosts />,
+  users: <Users />,
   network: <Network />,
   "threat-protection": <Suricata />,
-  "access-protection": <AdGuard />,
   firewall: <Firewall />,
   system: <System />,
 };

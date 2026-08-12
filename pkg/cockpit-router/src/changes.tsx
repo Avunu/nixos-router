@@ -23,6 +23,97 @@ import type { Json } from "./nix";
 
 const _ = cockpit.gettext;
 
+// ── Legacy settings migration ────────────────────────────────────────────────
+// Two stale shapes, both rejected by the generated schema (which would block
+// every save/apply until fixed):
+//   • dns.adguard      — replaced by accessPolicies + dns.technitium
+//   • dns.upstreamServers — moved under dns.technitium, since only Technitium
+//     can use them (they are DoH URLs; the resolved fallback speaks DoT)
+// Either one alone triggers the banner: a config already migrated off AdGuard
+// on this branch still carries the old upstreamServers path. The transform
+// mirrors what the NixOS module does at eval time (compatibility shim +
+// mkRenamedOptionModule), so nothing lapses in the interim.
+interface LegacyAdguard {
+  standardFilters?: Record<string, boolean>;
+  utCapitoleCategories?: string[];
+  allowList?: string[];
+  blockList?: string[];
+  extraUserRules?: string[];
+  extraFilters?: { url?: string }[];
+  listenPort?: number;
+  safeSearch?: boolean;
+}
+
+const isObj = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+export function migrateLegacyAdguard(desired: Json): Json | null {
+  if (!isObj(desired) || !isObj(desired.dns)) {
+    return null;
+  }
+  const hasAdguard = isObj(desired.dns.adguard);
+  const hasStaleUpstreams = Array.isArray(desired.dns.upstreamServers);
+  if (!hasAdguard && !hasStaleUpstreams) {
+    return null;
+  }
+  const next = structuredClone(desired) as Record<string, Json>;
+  const dns = next.dns as Record<string, Json>;
+  const upstreams = dns.upstreamServers as Json | undefined;
+  delete dns.upstreamServers;
+  delete dns.bootstrapServers; // Technitium resolves forwarders itself
+
+  if (!hasAdguard) {
+    // Only the upstream move is due; leave policies and everything else alone.
+    const tech = isObj(dns.technitium) ? (dns.technitium as Record<string, Json>) : {};
+    dns.technitium = {
+      ...tech,
+      ...(upstreams === undefined ? {} : { upstreamServers: upstreams }),
+    };
+    return next;
+  }
+
+  const ag = dns.adguard as LegacyAdguard;
+  delete dns.adguard;
+
+  const rules = ag.extraUserRules ?? [];
+  const exact = (prefix: string) =>
+    rules
+      .filter((r) => r.startsWith(prefix) && r.endsWith("^") && !r.includes("/"))
+      .map((r) => r.slice(prefix.length, -1));
+
+  dns.technitium = {
+    enable: true,
+    listenPort: ag.listenPort ?? 53,
+    safeSearch: ag.safeSearch ?? false,
+    blockDoHProviders: true,
+    ...(upstreams === undefined ? {} : { upstreamServers: upstreams }),
+  };
+  next.accessPolicies = {
+    defaultPolicy: "Base",
+    policies: [
+      {
+        name: "Base",
+        description: "Default policy (migrated from AdGuard Home settings)",
+        priority: 0,
+        standardFilters: Object.entries(ag.standardFilters ?? {})
+          .filter(([, v]) => v)
+          .map(([k]) => k)
+          .toSorted(),
+        categories: ag.utCapitoleCategories ?? [],
+        allowDomains: [...(ag.allowList ?? []), ...exact("@@||")],
+        blockDomains: [...(ag.blockList ?? []), ...exact("||").filter((d) => !d.startsWith("@@"))],
+        adblockListUrls: (ag.extraFilters ?? [])
+          .map((f) => f.url)
+          .filter((u): u is string => typeof u === "string" && u.length > 0),
+        responseType: "blockingAddress",
+        assignments: { networks: [], subnets: [], hostGroups: [], directoryGroups: [] },
+      },
+    ],
+    blockPage: { enable: false },
+  };
+  return next;
+}
+
 export const ChangesTray = () => {
   const [desired, setDesired] = useState<Json>({});
   const [applied, setApplied] = useState<Json>({});
@@ -123,13 +214,34 @@ export const ChangesTray = () => {
   };
 
   const changed = changedTopKeys(desired, applied);
+  const migrated = migrateLegacyAdguard(desired);
+  const migrate = useCallback(() => {
+    const next = migrateLegacyAdguard(desired);
+    if (next) {
+      void writeDesired(next).then(refresh);
+    }
+  }, [desired, refresh]);
 
-  if (!running && !done && changed.length === 0) {
+  if (!running && !done && changed.length === 0 && !migrated) {
     return null;
   }
 
   return (
     <PageSection hasBodyWrapper={false} className="ct-router-changes">
+      {migrated && !running && (
+        <Alert
+          variant="info"
+          isInline
+          title={_("Legacy AdGuard Home settings detected")}
+          actionLinks={<AlertActionLink onClick={migrate}>{_("Migrate settings")}</AlertActionLink>}
+        >
+          {_(
+            "AdGuard Home was replaced by Technitium DNS with access policies. " +
+              "Migrating converts the old filter settings into a 'Base' default policy; " +
+              "saving or applying other changes is blocked until then.",
+          )}
+        </Alert>
+      )}
       {changed.length > 0 && !running && (
         <Alert
           variant="warning"
