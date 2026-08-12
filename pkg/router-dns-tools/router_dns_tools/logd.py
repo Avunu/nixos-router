@@ -1,7 +1,9 @@
 """router-logd — the query-log store and portal daemon.
 
-Owns the Turso database (Turso does not support multi-process access, so
-every read and write flows through this one process):
+Owns the DuckDB database. DuckDB takes an exclusive lock on the file, so every
+read and write flows through this one process — which is already the shape of
+the system: router-report does not open the database, it queries the HTTP API
+below.
 
   • POST /ingest                 Log Exporter batches (bearer ingest token);
                                  entries are enriched with device / group /
@@ -13,8 +15,9 @@ every read and write flows through this one process):
   • GET/POST /portal/requests[...]    exception queue for the Cockpit UI
   • GET  /healthz
 
-The database is SQLite-format-compatible; `turso` (pyturso) is preferred and
-stdlib sqlite3 is the drop-in fallback."""
+DuckDB is used for its columnar/analytical engine — nearly everything asked of
+this store is an aggregate over a time range (top domains, per-group counts,
+blocked ratios) rather than a point lookup."""
 
 from __future__ import annotations
 
@@ -33,22 +36,27 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-try:
-    import turso as dbapi
+# No sqlite3 fallback. It used to be a safe hedge because Turso wrote
+# SQLite-format files, but DuckDB's storage is its own — falling back would
+# silently create a second, incompatible database at the same path rather than
+# failing where an operator can see it.
+import duckdb as dbapi
 
-    DB_ENGINE = "turso"
-except ImportError:  # hedge: same file format, same DB-API
-    import sqlite3 as dbapi
-
-    DB_ENGINE = "sqlite3"
+DB_ENGINE = "duckdb"
 
 from .compile_policies import _load_directory, compile_config
 
 BLOCKED_TYPES = ("Blocked", "UpstreamBlocked", "UpstreamBlockedCached")
 
+# DuckDB has no SQLite-style implicit rowid: `INTEGER PRIMARY KEY` is just a
+# NOT NULL column, and an INSERT that omits it fails the constraint. Ids come
+# from explicit sequences instead, which must be created before the tables that
+# default to them.
 SCHEMA = """
+CREATE SEQUENCE IF NOT EXISTS seq_query_log;
+CREATE SEQUENCE IF NOT EXISTS seq_exception_requests;
 CREATE TABLE IF NOT EXISTS query_log (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY DEFAULT nextval('seq_query_log'),
   ts TEXT NOT NULL,
   client_ip TEXT NOT NULL,
   protocol TEXT,
@@ -67,7 +75,7 @@ CREATE INDEX IF NOT EXISTS idx_log_qname ON query_log (qname);
 CREATE INDEX IF NOT EXISTS idx_log_rtype ON query_log (response_type);
 CREATE INDEX IF NOT EXISTS idx_log_policy ON query_log (policy);
 CREATE TABLE IF NOT EXISTS exception_requests (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY DEFAULT nextval('seq_exception_requests'),
   ts TEXT NOT NULL,
   domain TEXT NOT NULL,
   client_ip TEXT NOT NULL,
@@ -182,11 +190,18 @@ class LogStore:
             return cur.fetchall()
 
     def execute(self, sql: str, params: tuple = ()) -> int:
+        """Run a statement and return the number of rows it changed.
+
+        DuckDB always reports cursor.rowcount as -1; it returns the affected
+        count as a one-row result set instead. That count is load-bearing —
+        the exception-queue endpoint reports it to the UI, and prune() logs it.
+        """
         with self.lock:
             cur = self.conn.cursor()
             cur.execute(sql, params)
+            rows = cur.fetchall()
             self.conn.commit()
-            return getattr(cur, "rowcount", 0) or 0
+            return int(rows[0][0]) if rows and rows[0] else 0
 
     def prune(self):
         cutoff = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() - self.retention_days * 86400))

@@ -184,8 +184,7 @@
         "git-hooks": "git-hooks",
         "nixos-install-helper": "nixos-install-helper",
         "nixpkgs": "nixpkgs",
-        "technitium-dns": "technitium-dns",
-        "turso": "turso"
+        "technitium-dns": "technitium-dns"
       }
     },
     "technitium-dns": {
@@ -224,22 +223,6 @@
       "original": {
         "owner": "numtide",
         "repo": "treefmt-nix",
-        "type": "github"
-      }
-    },
-    "turso": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1786459567,
-        "narHash": "sha256-UOB/1HNWDtUDponrY+LKVasQ7sLzwLyKA1OZKauSBQc=",
-        "owner": "tursodatabase",
-        "repo": "turso",
-        "rev": "2225b3f6b410817392812c50fb2b4402b4608f2a",
-        "type": "github"
-      },
-      "original": {
-        "owner": "tursodatabase",
-        "repo": "turso",
         "type": "github"
       }
     }

@@ -504,6 +504,28 @@ pkgs.testers.runNixOSTest {
             r["domain"] == "kids-blocked.vmtest" and r["device"] == "lab-1" for r in reqs
         ), reqs
 
+        # Approving it is the only path that depends on the store reporting how
+        # many rows a statement changed. DuckDB always reports cursor.rowcount
+        # as -1 and returns the count as a result set instead, so this would
+        # answer {"updated": 0} — and the UI would read the approval as a
+        # no-op — if that were ever read back the SQLite way again.
+        rid = next(r["id"] for r in reqs if r["domain"] == "kids-blocked.vmtest")
+        out = json.loads(
+            router.succeed(
+                f"curl -s -X POST -H 'Authorization: Bearer {token}' "
+                "-d '{\"status\": \"approved\"}' "
+                f"http://127.0.0.1:8067/portal/requests/{rid}/status"
+            )
+        )
+        assert out == {"updated": 1}, out
+        reqs = json.loads(
+            router.succeed(
+                f"curl -s -H 'Authorization: Bearer {token}' "
+                "http://127.0.0.1:8067/portal/requests"
+            )
+        )["requests"]
+        assert next(r["status"] for r in reqs if r["id"] == rid) == "approved", reqs
+
     with subtest("a report PDF is generated offline"):
         router.succeed("systemctl start router-report-vmtest.service")
         # `".pdf" in ls` passes on a zero-byte file, or on a stack trace saved

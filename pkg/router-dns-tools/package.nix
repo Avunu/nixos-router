@@ -9,7 +9,6 @@
   lib,
   python3Packages,
   typst,
-  pyturso,
   technitiumApps,
 }:
 python3Packages.buildPythonApplication {
@@ -21,10 +20,13 @@ python3Packages.buildPythonApplication {
 
   build-system = [ python3Packages.setuptools ];
 
-  # Directory integration is stdlib-only (pwd/grp/os via NSS): SSSD owns the
-  # LDAP/AD connection, so no ldap3 / google-auth / MS Graph client is needed.
+  # duckdb backs router-logd's query-log store. It comes prebuilt from the
+  # binary cache, unlike the from-source Rust build pyturso needed.
+  #
+  # Directory integration adds nothing: it is stdlib-only (pwd/grp/os via NSS),
+  # since SSSD owns the LDAP/AD connection.
   dependencies = with python3Packages; [
-    pyturso
+    duckdb
   ];
 
   makeWrapperArgs = [

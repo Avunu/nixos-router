@@ -1,8 +1,8 @@
 # ── Reporting module ───────────────────────────────────────────────────────────
 # The query-log store and the scheduled-report machinery:
 #
-#   • router-logd — long-running daemon owning the Turso query-log database
-#     (Turso forbids multi-process access, so ALL reads/writes go through its
+#   • router-logd — long-running daemon owning the DuckDB query-log database
+#     (DuckDB locks the file exclusively, so ALL reads/writes go through its
 #     localhost HTTP API). Ingests Technitium Log Exporter batches, enriches
 #     them with device/group/policy attribution, serves log search + SQL
 #     aggregates to Cockpit and the report generator, handles the block-page

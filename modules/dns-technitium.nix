@@ -39,10 +39,10 @@ let
 
   catalog = import ./filter-catalog.nix;
 
-  # Apply the router overlay locally (it closes over the turso + technitium-dns
-  # flake inputs) rather than via nixpkgs.overlays, which conflicts when a
-  # consumer supplies nixpkgs.pkgs. router-dns-tools bundles pyturso and the
-  # from-source Technitium apps.
+  # Apply the router overlay locally (it closes over the technitium-dns flake
+  # input) rather than via nixpkgs.overlays, which conflicts when a consumer
+  # supplies nixpkgs.pkgs. router-dns-tools re-exposes the from-source
+  # Technitium apps via passthru.
   routerDnsTools = (pkgs.extend routerOverlay).router-dns-tools;
 
   stateDir = "/var/lib/router-technitium";
@@ -201,7 +201,13 @@ let
       };
 
       logd = {
-        dbPath = "/var/lib/router-logd/querylogs.db";
+        # .duckdb, not the Turso-era .db. DuckDB opens a SQLite file happily
+        # (it auto-attaches it) but then runs with SQLite storage semantics,
+        # where CREATE SEQUENCE is rejected outright — so an upgraded router
+        # would fail schema setup while a fresh one succeeded. A distinct path
+        # keeps one storage mode and one schema everywhere; the old file is left
+        # alone and ages out with its 90-day retention.
+        dbPath = "/var/lib/router-logd/querylogs.duckdb";
         listenAddress = "0.0.0.0";
         port = cfg.reporting.logd.port;
         ingestTokenFile = "${stateDir}/logd-ingest.token";

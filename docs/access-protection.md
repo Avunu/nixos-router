@@ -13,7 +13,7 @@ clients ──:53──► Technitium DNS ──► Advanced Blocking (compiled 
                      │    │              │
                      │    └─ Block Page app (:80/:443, exception form)
                      │
-                Log Exporter ──HTTP──► router-logd (Turso DB)
+                Log Exporter ──HTTP──► router-logd (DuckDB)
                                           │  ├─ /logs, /stats (Cockpit, reports)
                                           │  └─ /portal (exception requests)
                               router-report timers ──Typst──► PDF ──Cloudflare──► email
@@ -79,7 +79,7 @@ With `accessPolicies.blockPage.enable`, policies whose `responseType` is `blocki
 
 ## Reporting
 
--   `router-logd` owns the Turso query-log database (Turso does not support multi-process access — all reads/writes go through its localhost HTTP API). Entries are enriched with device/group/policy attribution at ingest. Retention: `router.reporting.retentionDays` (budget several GB for 90 busy days).
+-   `router-logd` owns the DuckDB query-log database (DuckDB takes an exclusive lock on the file — all reads/writes go through its localhost HTTP API, which is why `router-report` queries that API rather than the database). DuckDB's columnar engine suits what is asked of the store: aggregates over a time range rather than point lookups. Entries are enriched with device/group/policy attribution at ingest. Retention: `router.reporting.retentionDays` (budget several GB for 90 busy days).
 -   Scheduled reports (`router.reporting.schedules`) render a Typst PDF + CSV into `/var/lib/router-reports/` and are optionally emailed via the **Cloudflare Email Sending API** (`reporting.email.{accountId, apiTokenFile, fromAddress}`; the token needs _Email Routing: Edit_ on an Email Routing-enabled zone).
 
 ## Secrets layout
@@ -152,6 +152,26 @@ Set `directory.sssd.adminGroup` to a group name. SSSD then runs its PAM responde
 Left empty — the default — SSSD runs `services = nss` only. There is no PAM socket for `pam_sss.so` to talk to, the domain's `access_provider` is `deny`, and the module force-removes `pam_sss` from every PAM stack, so no directory user can authenticate to the router at all.
 
 The admin group name must contain no whitespace and must not collide with a local group: `/etc/nsswitch.conf` is `group: files sss`, so a local group of the same name would win every lookup. Both are enforced by assertions.
+
+## Upgrading from the Turso query-log store
+
+`router-logd` used Turso (SQLite-format) and now uses DuckDB, whose storage is
+its own format. The database path therefore changes from `querylogs.db` to
+`querylogs.duckdb`, and **existing query-log history is not carried over**.
+
+The path had to change rather than being reused. DuckDB will happily *open* a
+SQLite file — it auto-attaches it — but then runs with SQLite storage semantics,
+where `CREATE SEQUENCE` is rejected outright. An upgraded router would fail
+schema setup while a fresh one succeeded, from the same code. A distinct path
+keeps one storage mode and one schema everywhere.
+
+Nothing needs to be done: the new database is created on first start, and the
+logs are operational data on a retention window (`reporting.retentionDays`,
+90 days by default), not records. Reclaim the old file when convenient:
+
+```
+rm -f /var/lib/router-logd/querylogs.db
+```
 
 ## Migration from AdGuard Home
 
