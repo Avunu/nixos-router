@@ -166,6 +166,16 @@
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
           };
 
+          # Eval-only guard that the DNS apps and the DNS server that loads
+          # them stay on the same version. The apps' input is pinned to a tag
+          # that never moves while nixpkgs advances, so dependency automation
+          # desyncs them silently; a mismatch fails at runtime, not at build.
+          #   nix build .#checks.<system>.technitium-version
+          technitium-version = import ./tests/technitium-version.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            technitiumSrc = inputs.technitium-dns;
+          };
+
           # Eval-only guard that something always answers LAN :53 — the
           # DHCP advert and the :53 DNAT are not gated on technitium.enable.
           #   nix build .#checks.<system>.dns-fallback
@@ -252,21 +262,14 @@
               nix flake update
 
               echo
+              # Delegates to checks.technitium-version rather than repeating the
+              # comparison here: this script and CI must not be able to disagree
+              # about whether the apps and the server have drifted. Non-fatal —
+              # the regenerate step below is still useful while you fix the ref.
               echo "==> Technitium DNS Server version check"
-              nixpkgsVer=$(nix eval --raw --impure --expr \
-                '(builtins.getFlake "'"$root"'").inputs.nixpkgs.legacyPackages.${system}.technitium-dns-server.version')
-              appsRef=$(jq -r '.nodes."technitium-dns".original.ref // "unknown"' flake.lock)
-              echo "    nixpkgs technitium-dns-server: $nixpkgsVer"
-              echo "    technitium-dns input ref:      $appsRef"
-              if [ "$appsRef" != "v$nixpkgsVer" ]; then
-                echo
-                echo "    !!  Mismatch: the DNS apps compile from '$appsRef' but nixpkgs now ships"
-                echo "        technitium-dns-server $nixpkgsVer. The app DLLs must stay ABI-compatible"
-                echo "        with the server. Bump the 'technitium-dns' input in flake.nix to"
-                echo "        'v$nixpkgsVer', run 'nix flake update technitium-dns', then re-run update-deps."
-              else
-                echo "    OK: apps input matches the nixpkgs server version."
-              fi
+              nix build --no-link -L ".#checks.${system}.technitium-version" \
+                && echo "    OK: apps input matches the nixpkgs server version." \
+                || echo "    (see above; bump the technitium-dns ref in flake.nix, then re-run)"
 
               echo
               echo "==> Regenerating pkg/technitium-apps/nuget-deps.json..."

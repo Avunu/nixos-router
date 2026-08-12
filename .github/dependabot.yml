@@ -1,0 +1,35 @@
+version: 2
+
+updates:
+  # Nix flake inputs.
+  #
+  # Grouped into one PR deliberately: nixpkgs and the `technitium-dns` source
+  # input have to move together, because the DNS apps are compiled from that
+  # input and loaded by nixpkgs' technitium-dns-server. Separate PRs would each
+  # look fine in isolation and desync the pair on merge.
+  #
+  # Note that Dependabot cannot fix that drift by itself — `technitium-dns` is
+  # pinned to a TAG in flake.nix, which never moves, so a nixpkgs bump leaves it
+  # behind. The `technitium-version` check fails the PR when that happens; the
+  # fix is to bump the ref in flake.nix by hand and run `nix run .#update-deps`.
+  - package-ecosystem: nix
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+    groups:
+      nix:
+        patterns: ["*"]
+
+  # The CI that gates the above. Without this the workflow's actions silently
+  # rot while everything they check stays current.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+    groups:
+      actions:
+        patterns: ["*"]

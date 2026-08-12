@@ -1,0 +1,59 @@
+# CI for pull requests — in particular Dependabot's.
+#
+# Split into two jobs on purpose. `eval` is seconds and covers the invariants a
+# dependency bump breaks silently (above all: the Technitium apps drifting away
+# from the DNS server that loads them, which fails at runtime rather than at
+# build). `vm` boots real routers and is minutes; it catches the rest, but is
+# too slow to be the only signal on a bot PR.
+#
+# Make `eval` a required status check in branch protection — nothing here can
+# enforce that from inside the repo.
+name: checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  eval:
+    name: eval checks (fast)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+
+      # Listed individually rather than via `nix flake check` so a dependency
+      # bump gets the drift verdict in under a minute, without waiting on the
+      # VM tests in the other job.
+      - name: Technitium version drift, settings migration, DNS coverage, schema
+        run: |
+          nix build --no-link -L \
+            '.#checks.x86_64-linux.technitium-version' \
+            '.#checks.x86_64-linux.legacy-adguard' \
+            '.#checks.x86_64-linux.dns-fallback' \
+            '.#checks.x86_64-linux.router-schema-fresh'
+
+  vm:
+    name: VM tests (slow)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # NixOS VM tests need /dev/kvm, which is present on Linux runners but not
+      # world-accessible by default.
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - uses: DeterminateSystems/nix-installer-action@main
+      - name: nix flake check
+        run: nix flake check -L
