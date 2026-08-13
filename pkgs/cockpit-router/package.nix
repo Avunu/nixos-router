@@ -86,6 +86,16 @@ buildNpmPackage (finalAttrs: {
     runHook postInstall
   '';
 
+  # The exact source `npm run vendor:lib` must copy from, so a local build
+  # vendors the same cockpit as this derivation. Deliberately NOT a separate
+  # flake input: pkg/lib ships code that runs inside the page cockpit-ws serves
+  # (cockpit-dark-theme, page.scss, journal.js), and taking it from
+  # pkgs.cockpit.src keeps it in lockstep with services.cockpit.package by
+  # construction. A tag-pinned input would drift the moment nixpkgs moved, the
+  # way the technitium apps do — but there the input is unavoidable, since
+  # nixpkgs ships only the DNS server binary and never the app sources.
+  passthru.cockpitSrc = cockpit.src;
+
   # CLI tools the plugin spawns via cockpit-bridge (made available on Cockpit's
   # PATH through the module's plugin buildEnv).
   passthru.cockpitPath = [
