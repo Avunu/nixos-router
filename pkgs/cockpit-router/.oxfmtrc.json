@@ -1,0 +1,8 @@
+{
+  "ignorePatterns": [
+    "src/router-settings.schema.json",
+    "src/_generated/",
+    "pkg/lib/",
+    "dist/"
+  ]
+}

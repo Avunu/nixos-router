@@ -12,7 +12,7 @@
     "style": "error",
     "suspicious": "error"
   },
-  "ignorePatterns": ["dist", "node_modules", "pkgs/lib", "**/*.map"],
+  "ignorePatterns": ["dist", "node_modules", "pkg/lib", "**/*.map"],
   "plugins": ["import", "unicorn", "oxc", "typescript", "react"],
   "overrides": [
     {
@@ -43,6 +43,16 @@
     "eslint/no-void": ["error", { "allowAsStatement": true }],
     // Function decls hoist; module-level consts referenced from closures init before use.
     "eslint/no-use-before-define": ["error", { "functions": false, "variables": false }],
+
+    // ─── Off: style rules that arrived enabled in oxlint 1.78 ────────────────
+    // Wants `const a = 1, b = 2;` — one declaration per scope (560 sites here).
+    // Combining unrelated bindings into comma lists is the opposite of how this
+    // code reads, and makes a diff touch every neighbour of the line it changes.
+    "eslint/one-var": "off",
+    // Wants `function Foo() {}` over `const Foo = () => {}` (69 sites). The
+    // plugin uses arrow consts throughout, as Cockpit's own starter-kit does;
+    // the rule is pure style with no correctness content.
+    "react/function-component-definition": "off",
 
     // ─── Off: redundant with the TypeScript compiler ──────────────────────────
     // tsc (strict) owns undefined-identifier checking; the global `cockpit` is ambient.

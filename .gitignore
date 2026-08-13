@@ -2,8 +2,9 @@
 .direnv/
 *.iso
 result
-# Cockpit's pkgs/lib is vendored by Nix at build time (package.nix postPatch);
-# a local copy may exist for editor/tsc runs but must not be committed.
-pkgs/cockpit-router/pkgs/
+# Cockpit's pkg/lib is vendored at build time (package.nix postPatch, or
+# `npm run vendor:lib` locally); a copy may exist for editor/tsc runs but must
+# not be committed. Singular `pkg` is Cockpit's own name, not our pkgs/ tree.
+pkgs/cockpit-router/pkg/
 __pycache__/
 *.pyc

@@ -1,8 +1,8 @@
 # Dependencies
 node_modules/
 
-# Vendored Cockpit pkgs/lib (provided by the Nix build)
-pkgs/lib/
+# Vendored Cockpit pkg/lib (provided by the Nix build / npm run vendor:lib)
+pkg/lib/
 
 # Build output
 dist/

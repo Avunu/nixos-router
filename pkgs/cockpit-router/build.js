@@ -2,9 +2,14 @@
 //
 // Produces a static dist/ for /usr/share/cockpit/router/. To match Cockpit's
 // native look (theme, spacing, light/dark), imports resolve against Cockpit's
-// own `pkgs/lib` (vendored into ./pkgs/lib by the Nix derivation): the `cockpit`
+// own `pkg/lib` (vendored into ./pkg/lib by the Nix derivation): the `cockpit`
 // global is provided at runtime by ../base1/cockpit.js, while `cockpit-dark-theme`,
-// `patternfly/patternfly-6-cockpit.scss` and `page.scss` come from pkgs/lib.
+// `patternfly/patternfly-6-cockpit.scss` and `page.scss` come from pkg/lib.
+//
+// `pkg` is singular because that is Cockpit's own directory name — it is not
+// this repository's `pkgs/` tree, and a global rename must not touch it. Run
+// `npm run vendor:lib` to populate it for a local build; the Nix derivation
+// does it in postPatch.
 import fs from "node:fs";
 import esbuild from "esbuild";
 import { sassPlugin } from "esbuild-sass-plugin";
@@ -12,7 +17,7 @@ import Ajv from "ajv";
 import standaloneCode from "ajv/dist/standalone/index.js";
 
 const dev = process.env.NODE_ENV === "development";
-const nodePaths = ["pkgs/lib"];
+const nodePaths = ["pkg/lib"];
 const outdir = "dist";
 
 // ── Precompile the JSON Schema validator (Ajv standalone) ───────────────────

@@ -59,13 +59,19 @@ buildNpmPackage (finalAttrs: {
   # own warnings (esbuild's build output is on stdout and unaffected).
   npm_config_loglevel = "error";
 
-  # Vendor Cockpit's own pkgs/lib (matching the deployed cockpit version) so the
+  # Vendor Cockpit's own pkg/lib (matching the deployed cockpit version) so the
   # build resolves `cockpit-dark-theme`, `patternfly/patternfly-6-cockpit.scss`
   # and `page.scss` from it — this is what gives the plugin Cockpit's native
   # theming (light/dark, spacing, fonts) instead of stock PatternFly.
+  #
+  # NOTE the singular `pkg` on BOTH sides, and leave it alone: it is Cockpit's
+  # own directory name upstream, not this repository's `pkgs/` tree. A global
+  # pkg -> pkgs rename has already broken this once, rewriting the source path
+  # to a directory that does not exist in cockpit and failing the build at
+  # `cp: cannot stat .../pkgs/lib`.
   postPatch = ''
     mkdir -p pkg
-    cp -r ${cockpit.src}/pkgs/lib pkgs/lib
+    cp -r ${cockpit.src}/pkg/lib pkg/lib
     chmod -R u+w pkg
   '';
 
