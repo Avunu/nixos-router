@@ -69,15 +69,22 @@ export const SubNav = ({
 // (minimal space above the tabs), and the content sits in a separate filled
 // section below — the gap between tabs and content is that section's padding.
 export const TabbedPage = ({
+  header,
   subnav,
   fills = true,
   children,
 }: {
+  // Content shown ABOVE the tabs, in its own section. It needs one: PatternFly's
+  // `horizontal-subnav` Nav manages its own height and horizontal overflow and
+  // expects to be the only thing in its section — putting a banner beside it
+  // collapses the nav and clips the tab labels.
+  header?: ReactNode;
   subnav?: ReactNode;
   fills?: boolean;
   children: ReactNode;
 }) => (
   <>
+    {header ? <PageSection hasBodyWrapper={false}>{header}</PageSection> : null}
     {subnav ? (
       <PageSection hasBodyWrapper={false} className="ct-router-subnav">
         {subnav}

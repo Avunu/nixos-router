@@ -1,4 +1,4 @@
-// Pure live-discovery helpers shared by the Hosts & Groups page and the IPS
+// Pure live-discovery helpers shared by the Hosts page and the IPS
 // views: neighbor-table loading (`ip -j neigh`) consolidated per MAC, OUI
 // vendor lookup (nmap's prefix database), Avahi hostname resolution and the
 // streaming nmap port-scan parser. No React here — just cockpit calls.

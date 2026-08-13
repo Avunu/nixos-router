@@ -718,19 +718,17 @@ export const Users = () => {
 
   return (
     <TabbedPage
+      header={banner}
       subnav={
-        <>
-          {banner}
-          <SubNav
-            active={tab}
-            onSelect={setTab}
-            items={[
-              { id: "users", label: _("Users") },
-              { id: "groups", label: _("Groups") },
-              { id: "settings", label: _("Directory settings") },
-            ]}
-          />
-        </>
+        <SubNav
+          active={tab}
+          onSelect={setTab}
+          items={[
+            { id: "users", label: _("Users") },
+            { id: "groups", label: _("Groups") },
+            { id: "settings", label: _("Directory settings") },
+          ]}
+        />
       }
     >
       {tab === "users" ? (

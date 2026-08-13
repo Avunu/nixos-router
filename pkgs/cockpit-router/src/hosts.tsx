@@ -1,4 +1,4 @@
-// Hosts & Groups — the persistent device registry (settings `hosts` and
+// Hosts — the persistent device registry (settings `hosts` and
 // `hostGroups`) merged with live neighbor discovery (hosts-live.ts).
 //
 // Devices tab: one table keyed by lowercase MAC that overlays the registry on

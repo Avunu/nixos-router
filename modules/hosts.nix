@@ -115,7 +115,7 @@ in
         }
       );
       default = [ ];
-      description = "Persistent device registry (managed via the Cockpit Hosts & Groups page).";
+      description = "Persistent device registry (managed via the Cockpit Hosts page).";
     };
 
     hostGroups = mkOption {

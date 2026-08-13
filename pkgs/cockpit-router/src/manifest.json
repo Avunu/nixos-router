@@ -12,7 +12,7 @@
       "path": "access-policies.html"
     },
     "hosts": {
-      "label": "Hosts & Groups",
+      "label": "Hosts",
       "order": 30,
       "path": "hosts.html"
     },
