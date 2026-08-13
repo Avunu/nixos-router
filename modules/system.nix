@@ -539,26 +539,44 @@ in
       plugins = [ cockpitRouterPlugin ] ++ cfg.cockpit.plugins;
       openFirewall = false; # managed by nftables (LAN/WG already accepted)
       showBanner = cfg.cockpit.showBanner;
+      # BOTH schemes, deliberately. Setting WebService.Origins at all makes it
+      # the EXCLUSIVE allow-list: cockpit only falls back to accepting the
+      # request's own scheme+host when the key is absent entirely
+      # (cockpit_web_service_create_socket). Listing https:// alone while also
+      # setting AllowUnencrypted is self-contradictory — over http the browser
+      # sends `Origin: http://<host>:<port>`, which matches nothing, so the
+      # login POST succeeds and the WebSocket upgrade behind it is refused.
+      # That reads as "signed in, then bounced back to the login page".
+      #
+      # Via allowed-origins rather than settings.WebService.Origins: it is a
+      # list option the nixpkgs module folds into Origins itself, so this merges
+      # with its own default instead of mkForce discarding it.
+      allowed-origins =
+        let
+          port = toString cfg.cockpit.port;
+          hosts = [
+            lanGW
+            "${cfg.hostName}.local"
+            "${cfg.hostName}.${cfg.lan.domain}"
+          ];
+        in
+        concatMap (h: [
+          "http://${h}"
+          "http://${h}:${port}"
+          "https://${h}"
+          "https://${h}:${port}"
+        ]) hosts
+        ++ cfg.cockpit.allowedOrigins;
+
       settings = mkMerge [
         cfg.cockpit.settings
         {
-          WebService = {
-            AllowUnencrypted = true;
-            Origins = mkForce (
-              builtins.concatStringsSep " " (
-                [
-                  "https://${lanGW}"
-                  "https://${lanGW}:${toString cfg.cockpit.port}"
-                  "https://${cfg.hostName}.local"
-                  "https://${cfg.hostName}.local:${toString cfg.cockpit.port}"
-                  "https://${cfg.hostName}.${cfg.lan.domain}"
-                  "https://${cfg.hostName}.${cfg.lan.domain}:${toString cfg.cockpit.port}"
-                ]
-                ++ cfg.cockpit.allowedOrigins
-              )
-            );
-            ListenAddress = "0.0.0.0";
-          };
+          # cockpit-tls forwards plain HTTP straight to the http wsinstance
+          # instead of redirecting to https (require_https = !AllowUnencrypted).
+          # The router is reachable only from LAN/WG via nftables and ships a
+          # self-signed certificate, so an https redirect would trade a working
+          # LAN login for a certificate warning on every visit.
+          WebService.AllowUnencrypted = true;
         }
       ];
     };

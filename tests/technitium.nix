@@ -536,6 +536,27 @@ pkgs.testers.runNixOSTest {
         size = int(router.succeed(f"stat -c %s {pdf}").strip())
         assert size > 1024, f"{pdf} is only {size} bytes"
 
+    with subtest("cockpit is reachable over plain http on the LAN"):
+        # Serving the login page over http already worked before this was fixed
+        # — that is why the failure looked like "signs in, then bounces back".
+        # The bug was WebService.Origins: setting it at all makes it the
+        # exclusive allow-list, and an https-only list refuses the WebSocket
+        # upgrade that the login POST hands over to. So assert the ORIGIN list,
+        # not just that a page renders.
+        conf = router.succeed("cat /etc/cockpit/cockpit.conf")
+        origins = next(
+            (l.split("=", 1)[1] for l in conf.splitlines() if l.startswith("Origins=")), ""
+        ).split()
+        assert "http://10.48.4.1:9090" in origins, conf
+        assert re.search(r"^AllowUnencrypted\s*=\s*true$", conf, re.M | re.I), conf
+
+        # And no https redirect in front of it: cockpit-tls forwards plain HTTP
+        # to the http wsinstance only while AllowUnencrypted is set.
+        code = router.succeed(
+            "curl -sS -o /dev/null -w '%{http_code}' http://10.48.4.1:9090/"
+        ).strip()
+        assert code == "200", code
+
     with subtest("cockpit router plugin is installed with the new pages"):
         manifest = "/etc/cockpit/share/cockpit/router/manifest.json"
         router.succeed(f"test -f {manifest}")
