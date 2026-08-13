@@ -161,12 +161,45 @@ export function deepEqual(a: Json | undefined, b: Json | undefined): boolean {
 
 // A leaf is locked when the last-applied input set it but the effective config
 // Disagrees — i.e. something in Nix overrode the JSON value.
+// True when Nix OVERRODE something the settings JSON set — not merely when the
+// module supplied a default the JSON omitted.
+//
+// That distinction is the whole point: effective.json is `genAttrs effectiveKeys
+// (k: cfg.${k})`, the FULLY EVALUATED config, so it always carries defaults the
+// JSON never mentions. Comparing whole subtrees with deepEqual therefore
+// reported a lock for any section not spelled out exhaustively — which greyed
+// out the entire Access Policies page, since it is the one caller that locks on
+// a section path (`accessPolicies`) rather than a leaf. A migrated policy omits
+// blockListUrls, allowRegex, blockingAddresses and friends, so it could never
+// compare equal.
 export function isLocked(state: SettingsState, path: string): boolean {
-  const a = getPath(state.applied, path);
-  if (a === undefined) {
+  const applied = getPath(state.applied, path);
+  if (applied === undefined) {
     return false;
   }
-  return !deepEqual(a, getPath(state.effective, path));
+  return !subsumes(getPath(state.effective, path), applied);
+}
+
+// Does `effective` contain everything `applied` sets, unchanged? Extra keys in
+// `effective` are module defaults and are not overrides; a changed or missing
+// value is. Arrays must match in length — Nix adding or dropping an element is
+// a real change, not a default.
+function subsumes(effective: Json | undefined, applied: Json | undefined): boolean {
+  if (deepEqual(applied, effective)) {
+    return true;
+  }
+  if (Array.isArray(applied) || Array.isArray(effective)) {
+    return (
+      Array.isArray(applied) &&
+      Array.isArray(effective) &&
+      applied.length === effective.length &&
+      applied.every((x, i) => subsumes(effective[i], x))
+    );
+  }
+  if (isObject(applied) && isObject(effective)) {
+    return Object.keys(applied).every((k) => subsumes(effective[k], applied[k]));
+  }
+  return false;
 }
 
 // Top-level keys that differ between the saved JSON and the last applied snapshot.
