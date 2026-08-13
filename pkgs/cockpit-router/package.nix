@@ -71,8 +71,7 @@ buildNpmPackage (finalAttrs: {
   # `cp: cannot stat .../pkgs/lib`.
   postPatch = ''
     mkdir -p pkg
-    cp -r ${cockpit.src}/pkg/lib pkg/lib
-    chmod -R u+w pkg
+    ln -s ${cockpit.src}/pkg/lib pkg/lib
   '';
 
   # This is a Cockpit static package, not an npm library — install the bundled

@@ -7,9 +7,9 @@
 // `patternfly/patternfly-6-cockpit.scss` and `page.scss` come from pkg/lib.
 //
 // `pkg` is singular because that is Cockpit's own directory name — it is not
-// this repository's `pkgs/` tree, and a global rename must not touch it. Run
-// `npm run vendor:lib` to populate it for a local build; the Nix derivation
-// does it in postPatch.
+// this repository's `pkgs/` tree, and a global rename must not touch it. Both
+// the derivation (postPatch) and the dev shell symlink it from pkgs.cockpit.src,
+// so it is never a copy that can go stale.
 import fs from "node:fs";
 import esbuild from "esbuild";
 import { sassPlugin } from "esbuild-sass-plugin";
@@ -18,6 +18,18 @@ import standaloneCode from "ajv/dist/standalone/index.js";
 
 const dev = process.env.NODE_ENV === "development";
 const nodePaths = ["pkg/lib"];
+
+// Without this, a missing pkg/lib surfaces as four unrelated "Could not resolve"
+// errors for cockpit-dark-theme / patternfly-6-cockpit.scss / journal / page.scss,
+// which reads like a dependency problem rather than a missing resolution root.
+if (!fs.existsSync(nodePaths[0])) {
+  console.error(
+    `error: ${nodePaths[0]} is missing — it holds Cockpit's shared library.\n` +
+      "  Enter the dev shell, which symlinks it (and node_modules) from Nix:\n" +
+      "    cd pkgs/cockpit-router && nix develop ../..#cockpit-router",
+  );
+  process.exit(1);
+}
 const outdir = "dist";
 
 // ── Precompile the JSON Schema validator (Ajv standalone) ───────────────────

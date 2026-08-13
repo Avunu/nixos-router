@@ -7,7 +7,6 @@
   "license": "MIT",
   "scripts": {
     "build": "node build.js",
-    "vendor:lib": "chmod -R u+w pkg 2>/dev/null; rm -rf pkg/lib && mkdir -p pkg && cp -r \"${COCKPIT_SRC:-$(nix build --no-link --print-out-paths '../..#cockpit-router.cockpitSrc')}\"/pkg/lib pkg/lib && chmod -R u+w pkg/lib",
     "watch": "NODE_ENV=development node build.js",
     "format": "oxfmt src build.js",
     "format:check": "oxfmt --check src build.js",

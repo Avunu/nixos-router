@@ -284,6 +284,46 @@
             ];
             inherit (self.checks.${system}.pre-commit) shellHook;
           };
+
+          # ── Cockpit plugin shell ────────────────────────────────────────────
+          #   cd pkgs/cockpit-router && nix develop ../..#cockpit-router
+          #
+          # The closest thing npm has to a Nix-managed virtualenv, and it closes
+          # the gap that made `npm run build` fail from a clean checkout: BOTH
+          # halves of the plugin's resolution now come from this flake's pins.
+          #
+          #   • node_modules — importNpmLock.buildNodeModules resolves it from
+          #     package-lock.json, the same file the derivation's `npmDeps` uses,
+          #     and linkNodeModulesHook symlinks it in on shell entry.
+          #   • pkg/lib — Cockpit's own shared library, symlinked from
+          #     pkgs.cockpit.src, which is the same package services.cockpit
+          #     deploys. It is a resolution root (build.js `nodePaths`), not an
+          #     npm dependency, because its imports are bare specifiers that
+          #     resolve to plain files: `journal` -> journal.js.
+          #
+          # node_modules is a read-only store path here, so dependency bumps
+          # (`npm run upgrade`) need a plain `npm install` outside this shell, or
+          # `dontLinkNodeModules=1 nix develop ../..#cockpit-router`.
+          cockpit-router = pkgs.mkShell {
+            packages = [
+              pkgs.nodejs
+              pkgs.importNpmLock.hooks.linkNodeModulesHook
+            ];
+            npmDeps = pkgs.importNpmLock.buildNodeModules {
+              npmRoot = ./pkgs/cockpit-router;
+              inherit (pkgs) nodejs;
+            };
+            # Runs after linkNodeModulesHook has linked node_modules into $PWD.
+            postShellHook = ''
+              if [ ! -f package.json ] || [ ! -d src ]; then
+                echo "cockpit-router shell: run this from pkgs/cockpit-router." >&2
+              else
+                mkdir -p pkg
+                ln -sfn ${pkgs.cockpit.src}/pkg/lib pkg/lib
+                echo "cockpit-router: node_modules + pkg/lib (cockpit ${pkgs.cockpit.version}) linked from Nix."
+              fi
+            '';
+          };
         }
       );
 
