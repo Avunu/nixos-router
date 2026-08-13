@@ -34,7 +34,7 @@
   #            (GPT+BIOS boot) modes.
   # technitium-dns: Source-only input for the Technitium DNS Apps (Advanced
   #            Blocking, Log Exporter, Block Page), compiled from source by
-  #            pkg/technitium-apps. Its ref MUST equal the version of nixpkgs'
+  #            pkgs/technitium-apps. Its ref MUST equal the version of nixpkgs'
   #            technitium-dns-server so the app DLLs stay ABI-compatible with the
   #            running server — bump both together, and let
   #            `nix run .#update-deps` verify the match rather than trusting a
@@ -193,13 +193,13 @@
           # Single-source guard: the committed Cockpit schema must equal the
           # schema derived from the router.* options. Regenerate on drift:
           #   nix build .#packages.x86_64-linux.settingsSchema-router \
-          #     && jq -S . result > pkg/cockpit-router/src/router-settings.schema.json
+          #     && jq -S . result > pkgs/cockpit-router/src/router-settings.schema.json
           router-schema-fresh =
             nixpkgs.legacyPackages.${system}.runCommand "router-schema-fresh"
               { nativeBuildInputs = [ nixpkgs.legacyPackages.${system}.jq ]; }
               ''
                 if diff <(jq -S . ${self.packages.${system}.settingsSchema-router}) \
-                        <(jq -S . ${./pkg/cockpit-router/src/router-settings.schema.json}); then
+                        <(jq -S . ${./pkgs/cockpit-router/src/router-settings.schema.json}); then
                   touch "$out"
                 else
                   echo "router-settings.schema.json is stale vs router.* options — regenerate it." >&2
@@ -215,10 +215,10 @@
       # hardcoded hashes). The router NixOS module applies this overlay, so the
       # sub-modules can build them via `pkgs.router-dns-tools` etc.
       overlays.router = final: _prev: {
-        technitium-dns-apps = final.callPackage ./pkg/technitium-apps/package.nix {
+        technitium-dns-apps = final.callPackage ./pkgs/technitium-apps/package.nix {
           technitiumSrc = inputs.technitium-dns;
         };
-        router-dns-tools = final.callPackage ./pkg/router-dns-tools/package.nix {
+        router-dns-tools = final.callPackage ./pkgs/router-dns-tools/package.nix {
           technitiumApps = final.technitium-dns-apps;
         };
       };
@@ -236,7 +236,7 @@
           #      Technitium DNS Server version in the (now updated) nixpkgs — the
           #      app DLLs must stay ABI-compatible with that server, so on a
           #      mismatch the user bumps the input ref by hand;
-          #   3. regenerate pkg/technitium-apps/nuget-deps.json for the current
+          #   3. regenerate pkgs/technitium-apps/nuget-deps.json for the current
           #      technitium-dns source.
           update-deps = pkgs.writeShellApplication {
             name = "update-deps";
@@ -262,14 +262,14 @@
                 || echo "    (see above; bump the technitium-dns ref in flake.nix, then re-run)"
 
               echo
-              echo "==> Regenerating pkg/technitium-apps/nuget-deps.json..."
+              echo "==> Regenerating pkgs/technitium-apps/nuget-deps.json..."
               fetchDeps=$(nix build --no-link --print-out-paths \
                 ".#packages.${system}.technitium-dns-apps.fetch-deps")
-              "$fetchDeps" "$root/pkg/technitium-apps/nuget-deps.json"
+              "$fetchDeps" "$root/pkgs/technitium-apps/nuget-deps.json"
 
               echo
               echo "==> Done. Review with:"
-              echo "    git diff -- flake.lock pkg/technitium-apps/nuget-deps.json"
+              echo "    git diff -- flake.lock pkgs/technitium-apps/nuget-deps.json"
               echo "    and re-run: nix build .#checks.${system}.technitium-vm"
             '';
           };
@@ -299,14 +299,14 @@
           routerPkgs = pkgs.extend self.overlays.router;
         in
         {
-          cockpit-router = pkgs.callPackage ./pkg/cockpit-router/package.nix { };
+          cockpit-router = pkgs.callPackage ./pkgs/cockpit-router/package.nix { };
           inherit (routerPkgs) technitium-dns-apps router-dns-tools;
         }
         # Merge the installer artifacts on x86_64 (installerIso, guidedIso,
         # settingsSchema, …) plus the FLAT schema the Cockpit UI validates
         # against. Regenerate the committed copy after changing router options:
         #   nix build .#packages.x86_64-linux.settingsSchema-router \
-        #     && jq -S . result > pkg/cockpit-router/src/router-settings.schema.json
+        #     && jq -S . result > pkgs/cockpit-router/src/router-settings.schema.json
         // lib.optionalAttrs (system == "x86_64-linux") (
           ih.packages.x86_64-linux
           // {

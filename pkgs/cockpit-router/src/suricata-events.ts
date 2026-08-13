@@ -4,7 +4,7 @@
 // output — including the EVE "alert" stream it writes via syslog — lands in a
 // dedicated journal queried with `journalctl --namespace suricata`.
 //
-// Cockpit's journal helper (pkg/lib/journal.js) has no --namespace support, so
+// Cockpit's journal helper (pkgs/lib/journal.js) has no --namespace support, so
 // rather than hand-assemble argv we reuse its `build_cmd` (the
 // since/until/count/follow → flag translation) and splice in --namespace, then
 // run it ourselves — mirroring journal.journalctl's streaming and its "exit

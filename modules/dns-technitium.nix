@@ -7,7 +7,7 @@
 #      are read only when dns.config is absent (verified in DnsServer.cs).
 #   2. APP PRE-SEEDING: a root ExecStartPre copies the from-source DNS app
 #      payloads (Advanced Blocking, Log Exporter, Block Page — compiled by
-#      pkg/technitium-apps, re-exposed via pkg/router-dns-tools passthru) into
+#      pkgs/technitium-apps, re-exposed via pkgs/router-dns-tools passthru) into
 #      the state dir before the daemon starts, so filtering is enforced from
 #      the first second. The Block Page
 #      app also receives the Nix-generated branded wwwroot.

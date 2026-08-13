@@ -7,7 +7,7 @@
 // On a violation it prints a report to stderr and exits 2, which surfaces the
 // problem back into the session as feedback. The edit itself is left untouched.
 //
-// The lintable package lives in pkg/cockpit-router/, so the hook walks up from
+// The lintable package lives in pkgs/cockpit-router/, so the hook walks up from
 // the edited file to the nearest dir containing .oxlintrc.json (the package
 // root) and runs that package's locally-installed binaries with cwd set there
 // (so .oxlintrc.json / tsconfig.json resolve). Files outside that package — or
@@ -77,7 +77,7 @@ process.stdin.on("end", () => {
 
   // 1) Formatting drift — check only, never write.
   if (check("oxfmt", ["--check", rel]) !== null) {
-    problems.push(`• Not formatted — run \`oxfmt ${rel}\` (or \`npm run format\`) in pkg/cockpit-router.`);
+    problems.push(`• Not formatted — run \`oxfmt ${rel}\` (or \`npm run format\`) in pkgs/cockpit-router.`);
   }
 
   // 2) Lint violations — no --fix, just report. (src JS/TS only.)

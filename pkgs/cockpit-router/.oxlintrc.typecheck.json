@@ -15,7 +15,7 @@
     "style": "off",
     "suspicious": "off"
   },
-  "ignorePatterns": ["dist", "node_modules", "pkg/lib", "**/*.map"],
+  "ignorePatterns": ["dist", "node_modules", "pkgs/lib", "**/*.map"],
   "plugins": ["typescript"],
   "rules": {
     "typescript/no-floating-promises": "error",

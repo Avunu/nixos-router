@@ -40,7 +40,7 @@ export const hint = (body: string) => (
 );
 
 // Horizontal sub-navigation matching Cockpit's own page pattern (see
-// pkg/systemd/service-tabs.tsx): a `Nav variant="horizontal-subnav"` of link
+// pkgs/systemd/service-tabs.tsx): a `Nav variant="horizontal-subnav"` of link
 // buttons rather than PatternFly Tabs, so the router pages look native.
 export const SubNav = ({
   items,
@@ -64,7 +64,7 @@ export const SubNav = ({
   </Nav>
 );
 
-// Page layout mirroring Cockpit's native subnav pattern (see pkg/systemd/
+// Page layout mirroring Cockpit's native subnav pattern (see pkgs/systemd/
 // services.jsx): the SubNav sits in its own hasBodyWrapper={false} section
 // (minimal space above the tabs), and the content sits in a separate filled
 // section below — the gap between tabs and content is that section's padding.

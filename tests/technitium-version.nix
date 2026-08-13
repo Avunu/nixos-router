@@ -1,6 +1,6 @@
 # Eval-only regression check — the DNS apps must match the DNS server.
 #
-# pkg/technitium-apps compiles Advanced Blocking, Log Exporter and Block Page
+# pkgs/technitium-apps compiles Advanced Blocking, Log Exporter and Block Page
 # from the `technitium-dns` source input, but they are loaded by the
 # technitium-dns-server binary that comes from nixpkgs. Those are two
 # independently-moving pins, and the apps link against DnsServerCore — so when

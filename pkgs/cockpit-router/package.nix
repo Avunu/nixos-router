@@ -59,13 +59,13 @@ buildNpmPackage (finalAttrs: {
   # own warnings (esbuild's build output is on stdout and unaffected).
   npm_config_loglevel = "error";
 
-  # Vendor Cockpit's own pkg/lib (matching the deployed cockpit version) so the
+  # Vendor Cockpit's own pkgs/lib (matching the deployed cockpit version) so the
   # build resolves `cockpit-dark-theme`, `patternfly/patternfly-6-cockpit.scss`
   # and `page.scss` from it — this is what gives the plugin Cockpit's native
   # theming (light/dark, spacing, fonts) instead of stock PatternFly.
   postPatch = ''
     mkdir -p pkg
-    cp -r ${cockpit.src}/pkg/lib pkg/lib
+    cp -r ${cockpit.src}/pkgs/lib pkgs/lib
     chmod -R u+w pkg
   '';
 

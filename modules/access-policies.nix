@@ -2,7 +2,7 @@
 # Named DNS filtering policies (Barracuda-style), assignable to device groups,
 # directory groups, subnets, and/or networks. Policies are compiled — together
 # with the device registry (hosts.nix) and synced directory state — into the
-# Technitium Advanced Blocking app configuration by pkg/router-dns-tools
+# Technitium Advanced Blocking app configuration by pkgs/router-dns-tools
 # (`router-policy-compile`).
 #
 # One winning policy per client (Advanced Blocking maps each client to exactly

@@ -30,7 +30,7 @@ clients ──:53──► Technitium DNS ──► Advanced Blocking (compiled 
     the DoH upstreams configured here). A warning is emitted while in that mode.
 -   **modules/directory-sync.nix** — connects the router to your LDAP/Active Directory domain via **SSSD** and resolves the users and groups the policies reference through NSS into `/var/lib/router-directory/directory.json` (`router-directory-sync.timer`). SSSD owns the directory connection, its TLS, its credentials and its cache; the router only calls `getpwnam` / `getgrouplist` / `getgrnam`. Identity is used for policy assignment only — there is no admin login unless you explicitly set `directory.sssd.adminGroup`.
 -   **modules/reporting.nix** — `router-logd` (query-log store + exception portal) and `router-report-<name>` timers.
--   **pkg/router-dns-tools** — the Python package behind all runtime services.
+-   **pkgs/router-dns-tools** — the Python package behind all runtime services.
 
 ### Names are resolved on demand, never enumerated
 

@@ -12,7 +12,7 @@
     "style": "error",
     "suspicious": "error"
   },
-  "ignorePatterns": ["dist", "node_modules", "pkg/lib", "**/*.map"],
+  "ignorePatterns": ["dist", "node_modules", "pkgs/lib", "**/*.map"],
   "plugins": ["import", "unicorn", "oxc", "typescript", "react"],
   "overrides": [
     {
@@ -59,7 +59,7 @@
     // (eslint/no-shadow, kept on); the unicorn name preference conflicts with that.
     "unicorn/catch-error-name": "off",
     // Off: it can't tell prose from identifiers/paths and would force e.g.
-    // `pkg/systemd/…` or `wg0` to be capitalized in comments.
+    // `pkgs/systemd/…` or `wg0` to be capitalized in comments.
     "eslint/capitalized-comments": "off",
 
     // ─── Off: TypeScript idiom ────────────────────────────────────────────────

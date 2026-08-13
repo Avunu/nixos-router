@@ -78,7 +78,7 @@
     # Single source of truth for category ids: ut-capitole.json (shared with
     # the Cockpit category selector, which also carries the display labels).
     categories = map (c: c.id) (
-      builtins.fromJSON (builtins.readFile ../pkg/cockpit-router/src/ut-capitole.json)
+      builtins.fromJSON (builtins.readFile ../pkgs/cockpit-router/src/ut-capitole.json)
     );
   };
 

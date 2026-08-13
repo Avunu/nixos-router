@@ -87,13 +87,13 @@ interface Window {
   };
 }
 
-// Side-effect imports resolved by esbuild via pkg/lib (nodePaths) and the sass plugin.
+// Side-effect imports resolved by esbuild via pkgs/lib (nodePaths) and the sass plugin.
 declare module "cockpit-dark-theme";
 declare module "patternfly/*";
 declare module "*.scss";
 declare module "*.css";
 
-// Cockpit's journal helper (pkg/lib/journal.js), vendored into the build by
+// Cockpit's journal helper (pkgs/lib/journal.js), vendored into the build by
 // package.nix and resolved by esbuild's nodePaths. We reuse only `build_cmd`,
 // which turns match strings + an options object into a journalctl argv (the IPS
 // views splice `--namespace suricata` into the result and spawn it themselves).

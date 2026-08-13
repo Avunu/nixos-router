@@ -2,7 +2,7 @@
 # Python runtime tooling for the access-protection stack (see pyproject.toml
 # for the CLI list). The Technitium DNS app payloads consumed by
 # modules/dns-technitium.nix are the `technitiumApps` package (compiled from
-# source — pkg/technitium-apps), re-exposed here via passthru.
+# source — pkgs/technitium-apps), re-exposed here via passthru.
 #
 # `typst` is wrapped onto PATH for router-report's PDF compilation.
 {
