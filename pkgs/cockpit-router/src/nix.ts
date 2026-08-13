@@ -9,6 +9,11 @@
 // The applied snapshot is what the changes tray diffs against; effective drives
 // Default display and locked-field detection.
 import { validateSettings } from "./schema";
+import type { Json, SettingsState } from "./settings-json";
+
+// Re-exported so every existing `from "./nix"` import keeps working.
+export type { Json, JsonObject, SettingsState } from "./settings-json";
+export { changedTopKeys, deepEqual, getPath, isLocked, setPath } from "./settings-json";
 
 const cfg = (window.cockpitRouterConfig ?? {}) as {
   technitiumPort?: number;
@@ -44,12 +49,6 @@ export const APPLIED_FILE = "/var/lib/cockpit-router/applied.json";
 // `<flake>#<host>` — the rebuild target.
 export const flakeHostRef = () => `${FLAKE_PATH}#${HOST}`;
 
-export type Json = string | number | boolean | null | Json[] | { [key: string]: Json };
-export type JsonObject = Record<string, Json>;
-
-const isObject = (v: Json | undefined): v is JsonObject =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
-
 // Normalize an unknown caught value to a message string.
 export function errMsg(e: unknown): string {
   if (e instanceof Error) {
@@ -59,12 +58,6 @@ export function errMsg(e: unknown): string {
     return String((e as { message: unknown }).message);
   }
   return String(e);
-}
-
-export interface SettingsState {
-  desired: Json; // Editable JSON on disk (the saved state)
-  effective: Json; // Applied effective values (module-emitted)
-  applied: Json; // Snapshot written by the UI after the last apply
 }
 
 function readJson(path: string, superuser: "try" | "require" = "try"): Promise<Json> {
@@ -108,104 +101,3 @@ export function writeApplied(obj: Json): Promise<unknown> {
 }
 
 // ── small JSON path/equality helpers ────────────────────────────────────────
-export function getPath(obj: Json, path: string): Json | undefined {
-  let cur: Json | undefined = obj;
-  for (const k of path.split(".")) {
-    if (!isObject(cur)) {
-      return undefined;
-    }
-    cur = cur[k];
-  }
-  return cur;
-}
-
-export function setPath(obj: Json, path: string, value: Json): Json {
-  const keys = path.split(".");
-  const clone: JsonObject = isObject(obj) ? structuredClone(obj) : {};
-  let cur: JsonObject = clone;
-  for (let i = 0; i < keys.length - 1; i++) {
-    const k = keys[i]!;
-    const next = cur[k];
-    if (!isObject(next)) {
-      cur[k] = {};
-    }
-    cur = cur[k] as JsonObject;
-  }
-  cur[keys.at(-1)!] = value;
-  return clone;
-}
-
-export function deepEqual(a: Json | undefined, b: Json | undefined): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (a === null || b === null || a === undefined || b === undefined) {
-    return false;
-  }
-  if (Array.isArray(a) || Array.isArray(b)) {
-    if (!Array.isArray(a) || !Array.isArray(b) || a.length !== b.length) {
-      return false;
-    }
-    return a.every((x, i) => deepEqual(x, b[i]));
-  }
-  if (isObject(a) && isObject(b)) {
-    const ka = Object.keys(a);
-    const kb = Object.keys(b);
-    if (ka.length !== kb.length) {
-      return false;
-    }
-    return ka.every((k) => deepEqual(a[k], b[k]));
-  }
-  return false;
-}
-
-// A leaf is locked when the last-applied input set it but the effective config
-// Disagrees — i.e. something in Nix overrode the JSON value.
-// True when Nix OVERRODE something the settings JSON set — not merely when the
-// module supplied a default the JSON omitted.
-//
-// That distinction is the whole point: effective.json is `genAttrs effectiveKeys
-// (k: cfg.${k})`, the FULLY EVALUATED config, so it always carries defaults the
-// JSON never mentions. Comparing whole subtrees with deepEqual therefore
-// reported a lock for any section not spelled out exhaustively — which greyed
-// out the entire Access Policies page, since it is the one caller that locks on
-// a section path (`accessPolicies`) rather than a leaf. A migrated policy omits
-// blockListUrls, allowRegex, blockingAddresses and friends, so it could never
-// compare equal.
-export function isLocked(state: SettingsState, path: string): boolean {
-  const applied = getPath(state.applied, path);
-  if (applied === undefined) {
-    return false;
-  }
-  return !subsumes(getPath(state.effective, path), applied);
-}
-
-// Does `effective` contain everything `applied` sets, unchanged? Extra keys in
-// `effective` are module defaults and are not overrides; a changed or missing
-// value is. Arrays must match in length — Nix adding or dropping an element is
-// a real change, not a default.
-function subsumes(effective: Json | undefined, applied: Json | undefined): boolean {
-  if (deepEqual(applied, effective)) {
-    return true;
-  }
-  if (Array.isArray(applied) || Array.isArray(effective)) {
-    return (
-      Array.isArray(applied) &&
-      Array.isArray(effective) &&
-      applied.length === effective.length &&
-      applied.every((x, i) => subsumes(effective[i], x))
-    );
-  }
-  if (isObject(applied) && isObject(effective)) {
-    return Object.keys(applied).every((k) => subsumes(effective[k], applied[k]));
-  }
-  return false;
-}
-
-// Top-level keys that differ between the saved JSON and the last applied snapshot.
-export function changedTopKeys(desired: Json, applied: Json): string[] {
-  const d = isObject(desired) ? desired : {};
-  const a = isObject(applied) ? applied : {};
-  const keys = new Set([...Object.keys(d), ...Object.keys(a)]);
-  return [...keys].filter((k) => !deepEqual(d[k], a[k]));
-}

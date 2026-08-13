@@ -23,6 +23,13 @@
       }
     },
     {
+      // Unit tests run under `node --test`; node:test / node:assert are the point.
+      "files": ["**/*.test.ts"],
+      "rules": {
+        "import/no-nodejs-modules": "off"
+      }
+    },
+    {
       // build.js is a Node build script run by esbuild; node: imports and console are its job.
       "files": ["build.js"],
       "rules": {

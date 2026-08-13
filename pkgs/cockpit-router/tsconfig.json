@@ -9,6 +9,9 @@
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "noEmit": true,
+    // Unit tests run under `node --test`, whose ESM resolver requires an explicit
+    // extension; the rest of the source is bundler-resolved and stays extensionless.
+    "allowImportingTsExtensions": true,
 
     "strict": true,
     // exactOptionalPropertyTypes is intentionally NOT enabled: PatternFly's prop

@@ -14,7 +14,8 @@
     "lint:fix": "oxlint --fix src",
     "lint:typecheck": "oxlint --type-aware -c .oxlintrc.typecheck.json src",
     "typecheck": "tsc",
-    "check": "npm run format:check && npm run lint && npm run lint:typecheck && npm run typecheck",
+    "test": "node --test 'src/**/*.test.ts'",
+    "check": "npm run build && npm run format:check && npm run lint && npm run lint:typecheck && npm run typecheck && npm test",
     "upgrade": "npx npm-check-updates -u && npm install && npm audit fix"
   },
   "dependencies": {
@@ -29,6 +30,7 @@
     "victory": "^37.3.6"
   },
   "devDependencies": {
+    "@types/node": "^26.2.0",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.4",
     "esbuild": "^0.28.2",

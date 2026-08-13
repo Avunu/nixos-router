@@ -40,9 +40,14 @@ jobs:
             '.#checks.x86_64-linux.dns-fallback' \
             '.#checks.x86_64-linux.router-schema-fresh'
 
-      # The npm gate. `nix flake check` does not build packages, so without this
-      # a lockfile bump would pass the fast job untouched and only be compiled
-      # by the VM tests.
+      # The npm gate, in two halves. The PACKAGE only runs `npm run build`
+      # (npmBuildScript), so building it proves the bundle compiles but says
+      # nothing about lint, types or unit tests — the plugin's whole check suite
+      # was ungated until now, which is how a predicate that greyed out an
+      # entire page shipped green.
+      - name: Cockpit plugin checks (format, lint, tsc, unit tests)
+        run: nix build --no-link -L '.#checks.x86_64-linux.cockpit-router'
+
       - name: Build the Cockpit plugin
         run: nix build --no-link -L '.#packages.x86_64-linux.cockpit-router'
 

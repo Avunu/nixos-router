@@ -160,6 +160,40 @@
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
           };
 
+          # The Cockpit plugin's own checks — format, lint, type-aware lint,
+          # tsc, and the node --test suite. The plugin PACKAGE only runs
+          # `npm run build` (npmBuildScript), so without this none of them gate
+          # anything: a predicate that silently greyed out a whole page shipped
+          # green.
+          #   nix build .#checks.<system>.cockpit-router
+          cockpit-router =
+            nixpkgs.legacyPackages.${system}.runCommand "cockpit-router-checks"
+              {
+                nativeBuildInputs = [ nixpkgs.legacyPackages.${system}.nodejs ];
+              }
+              ''
+                cp -r ${./pkgs/cockpit-router} plugin
+                chmod -R u+w plugin
+                cd plugin
+                # A real directory of symlinks, not one symlink into the store:
+                # oxlint --type-aware resolves types through it, and against a
+                # single store symlink every import came back as an `error` type,
+                # failing ~130 rules that pass in the dev shell (whose
+                # linkNodeModulesHook also materialises a real directory).
+                cp -r ${
+                  (nixpkgs.legacyPackages.${system}.importNpmLock.buildNodeModules {
+                    npmRoot = ./pkgs/cockpit-router;
+                    inherit (nixpkgs.legacyPackages.${system}) nodejs;
+                  })
+                }/node_modules node_modules
+                chmod -R u+w node_modules
+                mkdir -p pkg
+                ln -s ${nixpkgs.legacyPackages.${system}.cockpit.src}/pkg/lib pkg/lib
+                export HOME=$TMPDIR
+                npm run check
+                touch $out
+              '';
+
           # Eval-only guard that the DNS apps and the DNS server that loads
           # them stay on the same version. The apps' input is pinned to a tag
           # that never moves while nixpkgs advances, so dependency automation
