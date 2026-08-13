@@ -26,7 +26,7 @@ jobs:
     name: drift + build (fast)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@main
 
       # Listed individually rather than via `nix flake check` so a dependency
@@ -50,7 +50,7 @@ jobs:
     name: VM tests (slow)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # NixOS VM tests need /dev/kvm, which is present on Linux runners but not
       # world-accessible by default.
