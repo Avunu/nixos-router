@@ -13,9 +13,9 @@
 #     blocks the /dev/log socket that filetype "syslog" would need).
 #
 # The "LAN client" is a network namespace wired into the LAN bridge, so the whole
-# round-trip runs on a single node: its ping is routed out a dummy egress, which
-# means it is *forwarded* through the router's NFQUEUE (the unconditional
-# `queue num 0 bypass` rule at the top of the forward chain) and inspected.
+# round-trip runs on a single node: its ping is routed out the WAN interface,
+# which means it is *forwarded* through the router's NFQUEUE (the `inet ips`
+# table, sequenced after `inet filter` forward) and inspected.
 {
   pkgs,
   routerModule,
@@ -143,11 +143,16 @@ pkgs.testers.runNixOSTest {
         router.succeed("ip -n lanclient addr add 10.48.4.50/24 dev veth-c")
         router.succeed("ip -n lanclient link set veth-c up")
         router.succeed("ip -n lanclient route add default via 10.48.4.1")
-        # A dummy egress gives the whole 203.0.113.0/24 a route, so pings to it are
+        # Route 203.0.113.0/24 out the WAN interface, so pings to it are
         # *forwarded* (through the NFQUEUE) rather than rejected as unroutable.
-        router.succeed("ip link add dummywan type dummy")
-        router.succeed("ip addr add 203.0.113.1/24 dev dummywan")
-        router.succeed("ip link set dummywan up")
+        # It has to egress the WAN specifically: the IPS table is sequenced
+        # AFTER `inet filter` forward, so only traffic that chain accepts —
+        # here via `iifname br-lan oifname eth1 accept` — reaches the queue at
+        # all. An egress the ruleset does not cover would be dropped before
+        # Suricata ever saw it. No ARP reply is needed; the forward hook (and so
+        # the inspection) happens well before neighbour resolution.
+        router.succeed("ip link set eth1 up")
+        router.succeed("ip route add 203.0.113.0/24 dev eth1")
         # Wait until suricata has loaded its rules and attached to the NFQUEUE —
         # the `queue ... bypass` flag lets packets pass uninspected until then.
         router.wait_until_succeeds(
