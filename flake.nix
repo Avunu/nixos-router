@@ -150,6 +150,24 @@
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
           };
 
+          # NixOS VM test: LAN ↔ guest segmentation across the forward chain —
+          # LAN→guest must be reachable, guest→LAN must stay one-way, both with
+          # and without Suricata attached to the chain's NFQUEUE hop.
+          #   nix build .#checks.<system>.guest-access-vm
+          guest-access-vm = import ./tests/guest-access.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
+          # The suricata-update source-index preflight, against corrupt-cache
+          # fixtures. A wedged index takes rule updates down until someone
+          # deletes the file by hand, so the self-heal needs its own guard.
+          #   nix build .#checks.<system>.suricata-update-preflight
+          suricata-update-preflight = import ./tests/suricata-update-preflight.nix {
+            pkgs = nixpkgs.legacyPackages.${system}.extend self.overlays.router;
+          };
+
           # Eval-only guard on the AdGuard Home → Technitium migration. This
           # branch switches the DNS engine for every existing deployment, so
           # the compatibility shim is the one code path they all run through.
@@ -255,6 +273,7 @@
         router-dns-tools = final.callPackage ./pkgs/router-dns-tools/package.nix {
           technitiumApps = final.technitium-dns-apps;
         };
+        suricata-update-preflight = final.callPackage ./pkgs/suricata-update-preflight/package.nix { };
       };
 
       # ── Developer Shell ──────────────────────────────────────────────────────

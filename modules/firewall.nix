@@ -108,10 +108,10 @@ let
   #        guest limited to DHCP/DNS plus replies to router-initiated
   #        flows; WAN allows established + ICMP + WireGuard ports;
   #        everything else dropped.
-  #      • Forward: optional Suricata NFQUEUE inspection; WG
-  #        bidirectional; LAN→WAN; WAN→LAN established; guest→WAN
-  #        only, plus LAN→guest one-way (guest is isolated from WG
-  #        entirely and may only answer LAN, never initiate to it).
+  #      • Forward: WG bidirectional; LAN→WAN; WAN→LAN established;
+  #        guest→WAN only, plus LAN→guest one-way (guest is isolated
+  #        from WG entirely and may only answer LAN, never initiate
+  #        to it).
   #
   #   2. `ip nat` — NAT and DNS hijacking
   #      • Prerouting: intercepts all IPv4 DNS (port 53) from
@@ -124,6 +124,12 @@ let
   #      • Runs at priority filter-1 (before the main filter) to drop
   #        DoT (:853) and IPv6 :53 from LAN/guest, on both the input
   #        and forward hooks.
+  #
+  #   4. `inet ips` — Suricata NFQUEUE hand-off (only when enabled)
+  #      • Runs at priority filter+10 (AFTER the main filter), so the
+  #        forward chain's drop policy is applied before anything is
+  #        handed to the IPS. See the table's own comment for why it
+  #        must not live inside the forward chain.
   nftRuleset = ''
     table inet filter {
       chain input {
@@ -169,9 +175,6 @@ let
 
       chain forward {
         type filter hook forward priority filter; policy drop;
-
-        # Suricata IPS inline inspection (NFQUEUE with bypass)
-        ${optionalString cfg.suricata.enable "queue num 0 bypass"}
 
         ${wgForwardRules}
 
@@ -268,6 +271,35 @@ let
         ${v6DnsDropRules}
       }
     }
+    ${optionalString cfg.suricata.enable ''
+
+      # ── Suricata IPS inline inspection ────────────────────
+      # The NFQUEUE hand-off lives in its own table at priority filter+10 —
+      # AFTER `inet filter` forward — and never inside that chain. `queue` is a
+      # terminal statement: it ends chain evaluation where it sits, so every
+      # rule below it is skipped. Both of its outcomes do so:
+      #
+      #   • Suricata attached — the packet goes to userspace, and netfilter
+      #     reinjects an accepted packet at the next registered HOOK, not the
+      #     next rule, so the remainder of the originating chain never runs.
+      #   • Suricata stopped — `bypass` accepts the packet inline (that is the
+      #     whole point of the flag: fail open rather than blackhole traffic),
+      #     which is likewise terminal for the chain.
+      #
+      # Placed at the top of the policy-drop forward chain, as it once was, that
+      # made every accept rule AND the `policy drop` itself dead code whenever
+      # the IPS was enabled: guest isolation and the WAN→LAN established-only
+      # rule silently stopped being enforced. Sequencing it as a separate,
+      # later base chain keeps the drop policy authoritative — only traffic
+      # `inet filter` has already accepted is ever handed to the IPS — while
+      # still inspecting every forwarded packet. Covered by tests/guest-access.nix.
+      table inet ips {
+        chain forward {
+          type filter hook forward priority filter + 10; policy accept;
+          queue num 0 bypass
+        }
+      }
+    ''}
   '';
 in
 {
