@@ -7,12 +7,17 @@
   config,
   lib,
   pkgs,
+  routerOverlay,
   ...
 }:
 with lib;
 let
   cfg = config.router;
   inherit (config.router._internal) homeNets;
+
+  # Applied locally rather than via nixpkgs.overlays, which conflicts when a
+  # consumer supplies nixpkgs.pkgs — same reasoning as dns-technitium.nix.
+  suricataUpdatePreflight = (pkgs.extend routerOverlay).suricata-update-preflight;
 
   # ── Suricata local rules ────────────────────────────────
   # Custom IDS/IPS signatures for policy enforcement. These run
@@ -88,9 +93,18 @@ let
     + "\n"
   );
 
+  # Where suricata-update caches the upstream source index. Fixed by the
+  # upstream module, which grants the unit /var/lib/suricata as its only
+  # writable state directory; suricata-update's own default data dir is the
+  # same, so it lands at <data-dir>/update/cache/index.yaml.
+  suricataIndexCache = "/var/lib/suricata/update/cache/index.yaml";
+
   # suricata-update invocation, overriding the upstream module's script so
   # we can also pass --drop-conf (the module only wires --disable-conf).
-  # Reproduces the module's enable-source / update-sources preamble.
+  # Reproduces the module's enable-source / update-sources preamble, ahead of
+  # which we repair the source-index cache: every subcommand below loads it
+  # first, so a corrupt one fails the unit forever rather than for one run
+  # (see pkgs/suricata-update-preflight).
   suricataUpdateScript =
     let
       python = pkgs.python3.withPackages (ps: with ps; [ pyyaml ]);
@@ -100,6 +114,7 @@ let
       ) config.services.suricata.enabledSources;
     in
     ''
+      ${suricataUpdatePreflight}/bin/suricata-update-preflight ${suricataIndexCache}
       ${enableSources}
       ${python.interpreter} ${pkg}/bin/suricata-update update-sources
       ${python.interpreter} ${pkg}/bin/suricata-update update \
