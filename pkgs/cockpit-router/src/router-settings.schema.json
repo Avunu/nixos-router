@@ -1173,6 +1173,206 @@
       "default": {},
       "description": "WireGuard tunnel interfaces (keys are interface names, e.g. wg0)",
       "type": "object"
+    },
+    "wireless": {
+      "additionalProperties": false,
+      "properties": {
+        "autoUpdate": {
+          "additionalProperties": false,
+          "properties": {
+            "dates": {
+              "default": "daily",
+              "description": "systemd calendar expression for the refresh timer.",
+              "type": "string"
+            },
+            "enable": {
+              "default": true,
+              "description": "Let podman refresh the application containers from their registry on\na timer, restarting each one and rolling back automatically if the\nnew image fails to start. Only containers carrying the\nio.containers.autoupdate label participate — notably NOT the UniFi\ndatabase, which is pinned on purpose.\n",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        },
+        "openwisp": {
+          "additionalProperties": false,
+          "properties": {
+            "database": {
+              "additionalProperties": false,
+              "properties": {
+                "name": {
+                  "default": "openwisp",
+                  "description": "PostgreSQL database name.",
+                  "type": "string"
+                },
+                "user": {
+                  "default": "openwisp",
+                  "description": "PostgreSQL role name, created as the database owner.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "domain": {
+              "default": "openwisp.home.arpa",
+              "description": "Parent domain for the dashboard and API hostnames, which become\n`dashboard.<domain>` and `api.<domain>`. Both are published in the\nlocal DNS zone pointing at the router's LAN address.\n\nThe default is under `home.arpa` for a specific reason: OpenWISP\nderives its session and CSRF cookie domains by running the parent\nthrough the Public Suffix List, and `.lan`, `.local` and `.internal`\nare not in that list. With those, the cookie domain collapses to\n\".\" and every request fails — first as a rejected Host header, then\nas a rejected CSRF referer. `home.arpa` is in the list, so use it or\na real domain you own.\n",
+              "type": "string"
+            },
+            "enable": {
+              "default": false,
+              "description": "Run a core OpenWISP deployment on this router: the nginx, dashboard,\napi, websocket, celery and celerybeat containers, backed by the\nrouter's own PostgreSQL (with PostGIS) and Redis.\n\nMonitoring, RADIUS, firmware upgrades, network topology, the\nmanagement OpenVPN and Postfix are all left out — they add five more\ncontainers plus InfluxDB, and none of them are needed to configure\nAPs that sit on the router's own LAN.\n",
+              "type": "boolean"
+            },
+            "httpPort": {
+              "default": 8081,
+              "description": "Host port for OpenWISP's plain HTTP listener, published on the LAN\naddress. Not 80, which the Technitium block page binds on all\ninterfaces whenever `router.accessPolicies.blockPage.enable` is set.\n",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "httpsPort": {
+              "default": 8444,
+              "description": "Host port for OpenWISP's HTTPS listener, published on the LAN\naddress. Not 443, for the same reason as `httpPort`. This port is\npart of the dashboard URL and of the CSRF trusted origins, so\nchanging it after devices are provisioned means re-pointing them.\n",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "image": {
+              "default": "openwisp",
+              "description": "Image repository prefix. Each container appends its own name, e.g.\n`openwisp/openwisp-dashboard`.\n",
+              "type": "string"
+            },
+            "network": {
+              "additionalProperties": false,
+              "properties": {
+                "gateway": {
+                  "default": "10.89.0.1",
+                  "description": "Host address on the container bridge. Native services (PostgreSQL,\nRedis) bind here so containers can reach them, and it is the address\ncontainers use for host-provided services.\n",
+                  "type": "string"
+                },
+                "interface": {
+                  "default": "br-openwisp",
+                  "description": "Host-side bridge interface name for this container network. Pinned\nrather than left to podman's sequential naming, because the nftables\nruleset in modules/firewall.nix refers to it by name and because the\nbridge is created ahead of podman by systemd-networkd (see below).\n\nKeep the `br-` prefix: the Cockpit UI filters interfaces by it when\noffering NICs to assign, and a container bridge is not assignable.\n",
+                  "type": "string"
+                },
+                "subnet": {
+                  "default": "10.89.0.0/24",
+                  "description": "CIDR for the container network. Must be a /24 and must not overlap the\nLAN or guest subnets. Change it if your LAN collides.\n",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "version": {
+              "default": "latest",
+              "description": "Image tag. `latest` is a moving alias for the newest stable release.\nDo NOT use `edge` — that is upstream's master branch.\n",
+              "type": "string"
+            }
+          },
+          "type": "object"
+        },
+        "unifi": {
+          "additionalProperties": false,
+          "properties": {
+            "database": {
+              "additionalProperties": false,
+              "properties": {
+                "cacheSizeGB": {
+                  "default": "0.5",
+                  "description": "WiredTiger cache size in GB. MongoDB otherwise defaults to half of\n(RAM - 1 GB), which is far too much for a router.\n",
+                  "type": "string"
+                },
+                "image": {
+                  "default": "docker.io/library/mongo:4.4.30",
+                  "description": "MongoDB image, deliberately pinned to 4.4 — DO NOT BUMP THE MAJOR.\n\nMongoDB 5.0 and newer require AVX on x86_64 and abort with SIGILL\nwithout it; 4.4 is the last release that runs on CPUs that lack it\n(for example the Atom C2558 this module was developed against).\nUniFi's own supported floor is still MongoDB 3.6, so 4.4 remains\ninside the supported window for current 10.x controllers.\n\n4.4 reached end of life in February 2024 but still receives\nout-of-band fixes: 4.4.30 patches the actively exploited\nCVE-2025-14847, and 4.4 predates time-series collections so it is\nnot affected by CVE-2026-8053. The residual risk is managed by\nreachability — the container publishes no ports, sits alone on its\nown network, and modules/firewall.nix deliberately has no forward\nrule to it, so nothing off-host can reach it.\n\nThis image is excluded from `router.wireless.autoUpdate` because\nMongoDB refuses to start on a data directory written by a newer\nmajor, which would make a routine reboot unrecoverable.\n",
+                  "type": "string"
+                },
+                "name": {
+                  "default": "unifi",
+                  "description": "Database name. The controller also uses `<name>_stat`,\n`<name>_audit` and `<name>_restore`.\n",
+                  "type": "string"
+                },
+                "user": {
+                  "default": "unifi",
+                  "description": "Database user the controller authenticates as, created on first start.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "dhcpOption43": {
+              "default": true,
+              "description": "Advertise this router as the UniFi controller in DHCP option 43 on\nthe LAN, so factory-default APs adopt without being told where to\nlook. Emitted by systemd-networkd's DHCP server as vendor suboption\n1 (a 4-byte IPv4 address), i.e. option 43 = `01 04 <lan address>`.\n",
+              "type": "boolean"
+            },
+            "dnsName": {
+              "default": "unifi",
+              "description": "Hostname to publish in the local DNS zone pointing at the\ncontroller, as a secondary adoption path — a factory-default device\ninforms to `http://unifi:8080/inform`. Note this only helps clients\nthat append the local search domain, which the DHCP server does not\ncurrently advertise; DHCP option 43 is the primary mechanism. Set to\nnull to publish no record.\n",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "enable": {
+              "default": false,
+              "description": "Run Ubiquiti's UniFi Network Application on this router, in a\ncontainer on the host network, backed by a MongoDB container that is\nreachable only from the host.\n\nThe controller needs roughly 1.5 GB of RSS at the default heap plus\nthe database on top, so budget at least 2 GB of RAM for the pair\nbeyond whatever Suricata, Technitium and OpenWISP already use.\n",
+              "type": "boolean"
+            },
+            "guestPortal": {
+              "default": false,
+              "description": "Expose the guest hotspot portal ports (8880 HTTP, 8843 HTTPS).",
+              "type": "boolean"
+            },
+            "image": {
+              "default": "lscr.io/linuxserver/unifi-network-application:latest",
+              "description": "Controller image. Floats on a moving tag and is refreshed by\n`router.wireless.autoUpdate`; pin a specific tag here to freeze it.\n",
+              "type": "string"
+            },
+            "l2Discovery": {
+              "default": false,
+              "description": "Make the controller discoverable over L2 via SSDP on 1900/udp, for\nthe mobile app and the Discovery Utility. Off by default because it\ncollides with miniupnpd when `router.upnp.enable` is set.\n",
+              "type": "boolean"
+            },
+            "memoryLimit": {
+              "default": 1024,
+              "description": "JVM maximum heap (-Xmx) in MB.",
+              "type": "integer"
+            },
+            "memoryStartup": {
+              "default": 1024,
+              "description": "JVM initial heap (-Xms) in MB.",
+              "type": "integer"
+            },
+            "network": {
+              "additionalProperties": false,
+              "properties": {
+                "gateway": {
+                  "default": "10.90.0.1",
+                  "description": "Host address on the container bridge. Native services (PostgreSQL,\nRedis) bind here so containers can reach them, and it is the address\ncontainers use for host-provided services.\n",
+                  "type": "string"
+                },
+                "interface": {
+                  "default": "br-unifi",
+                  "description": "Host-side bridge interface name for this container network. Pinned\nrather than left to podman's sequential naming, because the nftables\nruleset in modules/firewall.nix refers to it by name and because the\nbridge is created ahead of podman by systemd-networkd (see below).\n\nKeep the `br-` prefix: the Cockpit UI filters interfaces by it when\noffering NICs to assign, and a container bridge is not assignable.\n",
+                  "type": "string"
+                },
+                "subnet": {
+                  "default": "10.90.0.0/24",
+                  "description": "CIDR for the container network. Must be a /24 and must not overlap the\nLAN or guest subnets. Change it if your LAN collides.\n",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "speedTest": {
+              "default": false,
+              "description": "Expose the mobile speed-test port (6789/tcp).",
+              "type": "boolean"
+            }
+          },
+          "type": "object"
+        }
+      },
+      "type": "object"
     }
   },
   "type": "object"

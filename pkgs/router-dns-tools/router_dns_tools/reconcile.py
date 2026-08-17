@@ -128,6 +128,13 @@ def main() -> None:
     _ensure_zone(client, zones, local["zone"])
     client.add_record(local["zone"], local["zone"], "A", ipAddress=local["address"])
 
+    # Extra records contributed by other modules (e.g. the wireless controllers'
+    # `unifi.<lan domain>` and `dashboard.<domain>`). Each names its own zone,
+    # since these sit outside the router's `<host>.<domain>` zone.
+    for record in local.get("records", []):
+        _ensure_zone(client, zones, record["zone"])
+        client.add_record(record["zone"], record["name"], "A", ipAddress=record["address"])
+
     _reconcile_safesearch(client, cfg, zones)
 
     # The Log Exporter config carries the logd ingest token, which is generated

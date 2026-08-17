@@ -38,6 +38,7 @@ jobs:
             '.#checks.x86_64-linux.technitium-version' \
             '.#checks.x86_64-linux.legacy-adguard' \
             '.#checks.x86_64-linux.dns-fallback' \
+            '.#checks.x86_64-linux.wireless-eval' \
             '.#checks.x86_64-linux.router-schema-fresh'
 
       # The npm gate, in two halves. The PACKAGE only runs `npm run build`

@@ -91,6 +91,7 @@ await esbuild.build({
           "network.html",
           "threat-protection.html",
           "firewall.html",
+          "wireless.html",
           "system.html",
         ];
         build.onEnd((result) => {

@@ -24,6 +24,12 @@ let
     wgNames
     ;
 
+  # Container bridge for the OpenWISP stack (modules/wireless-openwisp.nix).
+  # The interface name is pinned in the netavark network definition precisely so
+  # it can be named here.
+  owIF = config.router._wirelessInternal.openwisp.interface;
+  owEnabled = cfg.wireless.openwisp.enable;
+
   # ── nftables ruleset generation ─────────────────────────
   # The firewall ruleset is generated as a Nix multi-line string
   # and passed to `networking.nftables.ruleset`. It's built from
@@ -159,6 +165,26 @@ let
           ''}
         ''}
 
+        ${optionalString owEnabled ''
+          # Replies to router-initiated traffic. Needed because a published
+          # container port reached from the router itself is DNAT'd in the
+          # output hook, so the container's answer arrives here on the bridge
+          # with an ephemeral destination port that matches no rule below.
+          # Stateful only — containers still cannot open new connections to the
+          # router beyond the datastore ports.
+          iifname "${owIF}" ct state { established, related } accept
+
+          # OpenWISP containers reach the router's own PostgreSQL and Redis on
+          # the bridge gateway address. Nothing else on this bridge is allowed
+          # to the router.
+          #
+          # Note there is deliberately NO equivalent rule for the UniFi
+          # database bridge: that container is reached only from the host
+          # network namespace, where the controller runs, so it needs no input
+          # rule at all. See the forward chain for the other half.
+          iifname "${owIF}" tcp dport { 5432, 6379 } accept comment "OpenWISP containers → PostgreSQL/Redis"
+        ''}
+
         # mDNS (multicast DNS) for hostname resolution
         udp dport 5353 accept comment "Allow mDNS queries"
 
@@ -196,6 +222,37 @@ let
           # Static inbound port forwards: allow WAN traffic destined
           # for the configured internal hosts/ports (DNAT'd above).
           ${portForwardFilterRules}
+        ''}
+
+        ${optionalString owEnabled ''
+          # LAN → a PUBLISHED container port. netavark installs the DNAT in its
+          # own `inet netavark` table, which cannot override this chain's drop
+          # policy, so the redirected packets need an accept here. Matching on
+          # `ct status dnat` keeps that narrow: a LAN client can reach the
+          # dashboard on its published port, but not any container directly on
+          # its address. Same idea as the UPnP rule above.
+          iifname "${brLAN}" oifname "${owIF}" ct status dnat accept
+
+          # OpenWISP containers → LAN: celery opens SSH connections to the
+          # access points it manages, which live on the LAN.
+          iifname "${owIF}" oifname "${brLAN}" accept
+          iifname "${brLAN}" oifname "${owIF}" ct state { established, related } accept
+
+          # OpenWISP containers → WAN. The postrouting masquerade below already
+          # covers the source NAT for this subnet, so no NAT rule is needed.
+          iifname "${owIF}" oifname "${wanIf}" accept
+          iifname "${wanIf}" oifname "${owIF}" ct state { established, related } accept
+        ''}
+
+        ${optionalString cfg.wireless.unifi.enable ''
+          # NOTE: the UniFi database bridge (router.wireless.unifi.network) gets
+          # NO rule in this chain, on purpose. With policy drop, that absence is
+          # what makes MongoDB unreachable from the LAN, the guest network and
+          # the WAN — only the host itself, where the controller runs on the
+          # host network namespace, can talk to it. The database image is pinned
+          # to MongoDB 4.4 (the last release that runs without AVX) which is
+          # past end of life, and this isolation is the control that covers it.
+          # Do not "fix" this by adding a rule.
         ''}
 
         ${optionalString cfg.guest.enable ''
@@ -446,12 +503,48 @@ in
       '';
     };
 
-    systemd.services = mkIf cfg.upnp.enable {
-      miniupnpd = {
-        after = [ "nftables.service" ];
-        partOf = [ "nftables.service" ];
-        serviceConfig.StateDirectory = "miniupnpd";
-      };
-    };
+    systemd.services = mkMerge [
+      (mkIf cfg.upnp.enable {
+        miniupnpd = {
+          after = [ "nftables.service" ];
+          partOf = [ "nftables.service" ];
+          serviceConfig.StateDirectory = "miniupnpd";
+        };
+      })
+
+      # ── Podman / netavark rule restoration ────────────
+      # Same hazard as miniupnpd above, but with worse consequences and a
+      # different trigger. When containers are running, podman's NixOS module
+      # points netavark at the nftables firewall driver, so netavark installs
+      # its own `inet netavark` table carrying published-port DNAT and the
+      # container subnets' forwarding. The monolithic ruleset here flushes
+      # everything on load, so those rules vanish and published ports go dead.
+      #
+      # `partOf` alone — the miniupnpd mitigation — is NOT enough here: the
+      # nftables unit sets reloadIfChanged and defines ExecReload, so a
+      # `nixos-rebuild switch` RELOADS it, and partOf only propagates across
+      # stop/restart. ReloadPropagatedFrom covers the reload path, and partOf
+      # still covers a genuine restart. `podman network reload --all`
+      # reinstalls the rules for every running container without restarting
+      # any of them.
+      (mkIf (cfg.wireless.unifi.enable || cfg.wireless.openwisp.enable) {
+        podman-network-reload = {
+          description = "Reinstall podman/netavark firewall rules after an nftables reload";
+          after = [
+            "nftables.service"
+            "podman.service"
+          ];
+          partOf = [ "nftables.service" ];
+          unitConfig.ReloadPropagatedFrom = [ "nftables.service" ];
+          wantedBy = [ "multi-user.target" ];
+          serviceConfig = {
+            Type = "oneshot";
+            RemainAfterExit = true;
+            ExecStart = "${config.virtualisation.podman.package}/bin/podman network reload --all";
+            ExecReload = "${config.virtualisation.podman.package}/bin/podman network reload --all";
+          };
+        };
+      })
+    ];
   };
 }

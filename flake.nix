@@ -231,6 +231,29 @@
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
           };
 
+          # Eval-only guard on the wireless controllers. Most of what matters
+          # there fails silently: DHCP option 43 is merged into a networkd unit
+          # another module owns, the UniFi database's isolation is the ABSENCE
+          # of an nftables rule, and OpenWISP crashes on import if any of four
+          # env vars is missing from any of five containers.
+          #   nix build .#checks.<system>.wireless-eval
+          wireless-eval = import ./tests/wireless-eval.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
+          # NixOS VM test: the podman substrate itself — static IPs on the
+          # container bridge, host-service reachability from a container, a
+          # published port on the LAN address, and that all of it survives the
+          # nftables reload a `nixos-rebuild switch` performs.
+          #   nix build .#checks.<system>.wireless-podman-vm
+          wireless-podman-vm = import ./tests/wireless-podman.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
           pre-commit = inputs.git-hooks.lib.${system}.run {
             src = ./.;
             hooks = {
@@ -448,6 +471,11 @@
       #    • directory-sync.nix    — SSSD (LDAP/AD) user+group resolution.
       #    • reporting.nix         — router-logd query-log store + PDF reports.
       #    • firewall.nix          — nftables ruleset, NAT, port-forwards, UPnP.
+      #    • wireless.nix          — podman substrate + `router.wireless.*`
+      #                              options shared by the two controllers.
+      #    • wireless-unifi.nix    — UniFi Network Application + MongoDB +
+      #                              DHCP option 43 adoption.
+      #    • wireless-openwisp.nix — OpenWISP core stack + PostgreSQL/Redis.
       #    • system.nix            — boot/disko, kernel, packages, hardening,
       #                              Cockpit, maintenance, effective.json.
       # ════════════════════════════════════════════════════════════════════════
@@ -463,6 +491,9 @@
           ./modules/directory-sync.nix
           ./modules/reporting.nix
           ./modules/firewall.nix
+          ./modules/wireless.nix
+          ./modules/wireless-unifi.nix
+          ./modules/wireless-openwisp.nix
           ./modules/system.nix
         ];
         # Hand the overlay (which closes over the technitium-dns flake

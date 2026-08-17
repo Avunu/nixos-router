@@ -8,6 +8,7 @@ import { Reports } from "./reports";
 import { Firewall } from "./firewall";
 import { System } from "./system";
 import { Network } from "./network";
+import { Wireless } from "./wireless";
 import { ChangesTray } from "./changes";
 
 // Hide the PatternFly 6 Page sidebar area (the Cockpit shell provides the real
@@ -27,6 +28,7 @@ export const views: Record<string, ReactNode> = {
   network: <Network />,
   "threat-protection": <Suricata />,
   firewall: <Firewall />,
+  wireless: <Wireless />,
   system: <System />,
 };
 

@@ -36,9 +36,14 @@
       "order": 34,
       "path": "firewall.html"
     },
+    "wireless": {
+      "label": "Wireless",
+      "order": 35,
+      "path": "wireless.html"
+    },
     "system": {
       "label": "System",
-      "order": 35,
+      "order": 36,
       "path": "system.html"
     }
   }

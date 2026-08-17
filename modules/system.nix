@@ -76,6 +76,7 @@ let
     "upnp"
     "portForwards"
     "adminUser"
+    "wireless"
   ];
 
   # ── Network topology (continued) ────────────────────────

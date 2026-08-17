@@ -138,6 +138,12 @@ let
       localZone = {
         zone = localZone;
         address = lanGW;
+        # Extra A records contributed by other modules via
+        # `router._localDnsRecords` (see modules/wireless.nix). Each carries its
+        # own zone rather than living under the router's `<host>.<domain>` zone,
+        # because the names that matter — `unifi.lan`, `dashboard.<domain>` —
+        # are not below it.
+        records = cfg._localDnsRecords;
       };
 
       safeSearch = {
