@@ -127,19 +127,19 @@ export const ChangesTray = () => {
   const refresh = useCallback(() => {
     void loadState().then((s) => {
       setDesired(s.desired || {});
-      // First run with no snapshot yet: assume the running system matches the
-      // On-disk JSON (true right after deploy) and seed the applied baseline.
-      if (
-        !seeded.current &&
-        Object.keys(s.applied || {}).length === 0 &&
-        Object.keys(s.desired || {}).length > 0
-      ) {
+      setApplied(s.applied || {});
+      // Persist a baseline the UI had to supply itself, so it also holds once
+      // the JSON is edited again and loadState can no longer derive it:
+      //   • no snapshot yet — assume the running system matches the on-disk
+      //     JSON (true right after deploy) and seed it;
+      //   • snapshotStale — a rebuild landed outside this tray (the shell, the
+      //     nightly nixos-upgrade, or an apply whose rebuild reported failure),
+      //     and loadState already fell back to the on-disk JSON.
+      const unseeded =
+        Object.keys(s.applied || {}).length === 0 && Object.keys(s.desired || {}).length > 0;
+      if (!seeded.current && (s.snapshotStale || unseeded)) {
         seeded.current = true;
-        writeApplied(s.desired)
-          .then(() => setApplied(s.desired))
-          .catch(() => setApplied(s.desired));
-      } else {
-        setApplied(s.applied || {});
+        void writeApplied(s.desired).catch(() => null);
       }
     });
   }, []);

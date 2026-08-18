@@ -357,10 +357,13 @@ in
 
         image = mkOption {
           type = types.str;
-          default = "openwisp";
+          default = "docker.io/openwisp";
           description = ''
             Image repository prefix. Each container appends its own name, e.g.
-            `openwisp/openwisp-dashboard`.
+            `docker.io/openwisp/openwisp-dashboard`. Keep the registry host:
+            NixOS ships no `unqualified-search-registries`, so a bare
+            `openwisp/...` name makes every pull fail with "short-name ... did
+            not resolve to an alias".
           '';
         };
 
