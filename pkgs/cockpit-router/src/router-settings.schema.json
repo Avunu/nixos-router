@@ -1237,8 +1237,8 @@
               "type": "integer"
             },
             "image": {
-              "default": "openwisp",
-              "description": "Image repository prefix. Each container appends its own name, e.g.\n`openwisp/openwisp-dashboard`.\n",
+              "default": "docker.io/openwisp",
+              "description": "Image repository prefix. Each container appends its own name, e.g.\n`docker.io/openwisp/openwisp-dashboard`. Keep the registry host:\nNixOS ships no `unqualified-search-registries`, so a bare\n`openwisp/...` name makes every pull fail with \"short-name ... did\nnot resolve to an alias\".\n",
               "type": "string"
             },
             "network": {
