@@ -617,39 +617,65 @@ in
         # rebuild blocked). Targets the router's configured flake path and
         # host by default; override as `system-upgrade [FLAKE] [HOST]`.
         # Also invoked by the Cockpit System page ("Update system").
-        (writeShellScriptBin "system-upgrade" ''
-          set -euo pipefail
+        #
+        # writeShellApplication, not writeShellScriptBin: it pins PATH to
+        # runtimeInputs instead of inheriting whatever the caller's shell
+        # has. `nix flake update` shells out to `git` to stage the rewritten
+        # flake.lock whenever the flake lives in a git tree — /etc/nixos is
+        # one — and nothing here installs git system-wide, so from a login
+        # shell the update died with `executing "git": No such file or
+        # directory` *after* it had already rewritten the lock. The same
+        # reason flake-update.service carries git on its own `path`.
+        # writeShellApplication also runs shellcheck at build time.
+        (writeShellApplication {
+          name = "system-upgrade";
+          runtimeInputs = [
+            coreutils
+            gitMinimal
+            nix
+            nixos-rebuild
+            systemd
+          ];
+          text = ''
+            # One password prompt for the whole run rather than one per
+            # privileged step. By absolute path: the setuid wrapper is the
+            # only sudo that works, and it is not on the PATH set above.
+            # Cockpit's "Update system" already runs as root and skips this.
+            if [ "$(id -u)" -ne 0 ]; then
+              exec /run/wrappers/bin/sudo "$0" "$@"
+            fi
 
-          FLAKE="''${1:-${cfg.cockpit.flakePath}}"
-          HOST="''${2:-${cfg.hostName}}"
+            FLAKE="''${1:-${cfg.cockpit.flakePath}}"
+            HOST="''${2:-${cfg.hostName}}"
 
-          # Run privileged steps via sudo from an admin shell; when already
-          # root (e.g. invoked from Cockpit) run them directly so there is
-          # no password prompt.
-          as_root() {
-            if [ "$(id -u)" -eq 0 ]; then "$@"; else sudo "$@"; fi
-          }
+            echo ":: Clearing any hung rebuild/upgrade units"
+            for unit in nixos-rebuild-switch-to-configuration.service nixos-upgrade.service; do
+              systemctl stop "$unit" 2>/dev/null || true
+              systemctl reset-failed "$unit" 2>/dev/null || true
+            done
+            systemctl daemon-reload
 
-          echo ":: Clearing any hung rebuild/upgrade units"
-          for unit in nixos-rebuild-switch-to-configuration.service nixos-upgrade.service; do
-            as_root systemctl stop "$unit" 2>/dev/null || true
-            as_root systemctl reset-failed "$unit" 2>/dev/null || true
-          done
-          as_root systemctl daemon-reload
+            # Compare the lock around the update: with nothing to switch to,
+            # a rebuild is minutes of eval for a generation identical to the
+            # running one. Only inputs count here — a settings-only edit is
+            # applied by Cockpit's "Apply configuration" (or `nixos-rebuild
+            # switch` by hand), not by this command.
+            echo ":: Updating flake inputs in $FLAKE"
+            BEFORE=$(sha256sum "$FLAKE/flake.lock" 2>/dev/null || echo "")
+            nix flake update --flake "$FLAKE"
+            AFTER=$(sha256sum "$FLAKE/flake.lock" 2>/dev/null || echo "")
 
-          echo ":: Updating flake inputs in $FLAKE"
-          as_root nix flake update --flake "$FLAKE"
+            if [ "$BEFORE" = "$AFTER" ]; then
+              echo ":: Flake lock unchanged, skipping rebuild"
+              exit 0
+            fi
 
-          echo ":: Rebuilding and switching to $FLAKE#$HOST"
-          as_root nixos-rebuild switch --flake "$FLAKE#$HOST" --impure
+            echo ":: Rebuilding and switching to $FLAKE#$HOST"
+            nixos-rebuild switch --flake "$FLAKE#$HOST" --impure
 
-          echo ":: system-upgrade complete"
-        '')
-        # migrate script to convert legacy router configs to the new flake-based format
-        (writeShellScriptBin "migrate-router-config" ''
-          set -euo pipefail
-          nix eval --impure --json --expr '(removeAttrs (import /etc/nixos/router-settings.nix).router [ "extraPackages" "cockpit" ])' | jq . > /etc/nixos/router-settings.json
-        '')
+            echo ":: system-upgrade complete"
+          '';
+        })
       ]
       ++ optional cfg.suricata.enable suricata
       ++ optional (cfg.wireguard != { }) wireguard-tools
