@@ -7,13 +7,23 @@
 //   • /etc/router/effective.json      — the *applied* effective values (module-emitted)
 //   • /var/lib/cockpit-router/applied.json — snapshot the UI writes after each apply
 // The applied snapshot is what the changes tray diffs against; effective drives
-// Default display and locked-field detection.
+// Default display and locked-field detection. Only a UI apply writes the
+// snapshot, so loadState falls back to the settings file whenever the running
+// generation is newer than it — see appliedBaseline.
 import { validateSettings } from "./schema";
+import { appliedBaseline } from "./settings-json";
 import type { Json, SettingsState } from "./settings-json";
 
 // Re-exported so every existing `from "./nix"` import keeps working.
 export type { Json, JsonObject, SettingsState } from "./settings-json";
-export { changedTopKeys, deepEqual, getPath, isLocked, setPath } from "./settings-json";
+export {
+  appliedBaseline,
+  changedTopKeys,
+  deepEqual,
+  getPath,
+  isLocked,
+  setPath,
+} from "./settings-json";
 
 const cfg = (window.cockpitRouterConfig ?? {}) as {
   technitiumPort?: number;
@@ -45,6 +55,7 @@ export const FLAKE_PATH = cfg.flakePath ?? "/etc/nixos";
 export const SETTINGS_FILE = cfg.settingsFile ?? "/etc/nixos/router-settings.json";
 export const EFFECTIVE_FILE = "/etc/router/effective.json";
 export const APPLIED_FILE = "/var/lib/cockpit-router/applied.json";
+export const CURRENT_SYSTEM = "/run/current-system";
 
 // `<flake>#<host>` — the rebuild target.
 export const flakeHostRef = () => `${FLAKE_PATH}#${HOST}`;
@@ -68,12 +79,37 @@ function readJson(path: string, superuser: "try" | "require" = "try"): Promise<J
     .catch((): Json => ({}));
 }
 
-export function loadState(): Promise<SettingsState> {
+// Modification time in epoch seconds, or null when it cannot be read. `stat`
+// does not follow symlinks, so /run/current-system reports when the generation
+// was activated rather than its store path's 1970 timestamp.
+function mtime(path: string): Promise<number | null> {
+  return cockpit
+    .spawn(["stat", "-c", "%Y", path], { err: "ignore" })
+    .then((out: string): number | null => {
+      const secs = Number(out.trim());
+      return Number.isFinite(secs) ? secs : null;
+    })
+    .catch((): number | null => null);
+}
+
+export interface LoadedState extends SettingsState {
+  // The snapshot on disk lagged the running system and `applied` above was
+  // taken from the settings JSON instead (see appliedBaseline). The changes
+  // tray persists the correction so it survives the next edit.
+  snapshotStale: boolean;
+}
+
+export function loadState(): Promise<LoadedState> {
   return Promise.all([
     readJson(SETTINGS_FILE),
     readJson(EFFECTIVE_FILE),
     readJson(APPLIED_FILE),
-  ]).then(([desired, effective, applied]) => ({ desired, effective, applied }));
+    mtime(SETTINGS_FILE),
+    mtime(CURRENT_SYSTEM),
+  ]).then(([desired, effective, snapshot, settingsAt, systemAt]) => {
+    const { applied, stale } = appliedBaseline(desired, snapshot, settingsAt, systemAt);
+    return { desired, effective, applied, snapshotStale: stale };
+  });
 }
 
 export function writeDesired(obj: Json): Promise<unknown> {

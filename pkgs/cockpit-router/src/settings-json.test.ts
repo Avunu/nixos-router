@@ -12,7 +12,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 import type { Json, SettingsState } from "./settings-json.ts";
-import { changedTopKeys, deepEqual, getPath, isLocked, setPath } from "./settings-json.ts";
+import {
+  appliedBaseline,
+  changedTopKeys,
+  deepEqual,
+  getPath,
+  isLocked,
+  setPath,
+} from "./settings-json.ts";
 
 const state = (effective: Json, applied: Json): SettingsState => ({
   desired: applied,
@@ -137,6 +144,63 @@ void test("isLocked: leaf paths behave the same as before", () => {
       state({ lan: { address: "10.9.9.9" } }, { lan: { address: "10.0.0.1" } }),
       "lan.address",
     ),
+    true,
+  );
+});
+
+// appliedBaseline exists because the snapshot it guards is written by exactly
+// one code path (a successful apply from the changes tray) and is read as
+// gospel by isLocked. Every rebuild that skips the tray desynchronises it, and
+// a desynchronised baseline is indistinguishable from a Nix override.
+const NEW_INTERFACES: Json = { lan: { interfaces: ["enp1s0", "enp2s0"] } };
+const OLD_INTERFACES: Json = { lan: { interfaces: ["enp1s0"] } };
+
+void test("appliedBaseline: a snapshot older than the running system is replaced", () => {
+  // Rebuilt at 2000 from a JSON last written at 1000: the JSON is what runs.
+  const { applied, stale } = appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 1000, 2000);
+  assert.deepEqual(applied, NEW_INTERFACES);
+  assert.equal(stale, true);
+  // …so the interface list no longer reads as a Nix override.
+  assert.equal(
+    isLocked({ desired: NEW_INTERFACES, effective: NEW_INTERFACES, applied }, "lan"),
+    false,
+  );
+});
+
+void test("appliedBaseline: unapplied edits keep the snapshot", () => {
+  // JSON written at 3000, system last activated at 2000 — the edits are pending.
+  const { applied, stale } = appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 3000, 2000);
+  assert.deepEqual(applied, OLD_INTERFACES);
+  assert.equal(stale, false);
+});
+
+void test("appliedBaseline: an in-sync snapshot needs no rewrite", () => {
+  const { applied, stale } = appliedBaseline(
+    NEW_INTERFACES,
+    structuredClone(NEW_INTERFACES),
+    1000,
+    2000,
+  );
+  assert.deepEqual(applied, NEW_INTERFACES);
+  assert.equal(stale, false);
+});
+
+void test("appliedBaseline: unreadable timestamps fall back to the snapshot", () => {
+  assert.deepEqual(
+    appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, null, 2000).applied,
+    OLD_INTERFACES,
+  );
+  assert.deepEqual(
+    appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 1000, null).applied,
+    OLD_INTERFACES,
+  );
+});
+
+void test("appliedBaseline: a real Nix override still locks", () => {
+  // The JSON asks for two ports, the evaluated config carries one: Nix won.
+  const { applied } = appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 1000, 2000);
+  assert.equal(
+    isLocked({ desired: NEW_INTERFACES, effective: OLD_INTERFACES, applied }, "lan.interfaces"),
     true,
   );
 });
