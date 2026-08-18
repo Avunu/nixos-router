@@ -146,10 +146,9 @@ let
       imageName,
       extraEnv ? { },
       volumes ? [ ],
-      dependsOn ? [ ],
     }:
     {
-      inherit dependsOn volumes;
+      inherit volumes;
       image = image imageName;
       pull = "missing";
       labels."io.containers.autoupdate" = mkIf cfg.wireless.autoUpdate.enable "registry";
@@ -159,9 +158,20 @@ let
       environmentFiles = [ "${w.stateDir}/openwisp.env" ];
     };
 
+  # The `:U` suffix is load-bearing, not decoration. The images run as
+  # `openwisp:root` (uid 1001, gid 0) and create these directories owned by that
+  # user, but a named podman volume mounted over them is created root-owned — so
+  # the dashboard dies partway through startup with
+  #   PermissionError: [Errno 13] Permission denied: '/opt/openwisp/static/gis'
+  # from collectstatic. `:U` tells podman to chown the volume to the container's
+  # uid/gid on mount, which is exactly what this is for.
+  #
+  # Only the containers that WRITE a volume carry `:U`. nginx mounts the same
+  # volumes read-only and runs as root, so it reads them regardless; giving it
+  # `:U` as well would chown them back to root and re-break the writers.
   mediaVolumes = [
-    "openwisp_media:/opt/openwisp/media"
-    "openwisp_private_storage:/opt/openwisp/private"
+    "openwisp_media:/opt/openwisp/media:U"
+    "openwisp_private_storage:/opt/openwisp/private:U"
   ];
 
   # Runs as the postgres superuser after the stock setup unit has created the
@@ -262,9 +272,20 @@ mkIf wcfg.enable {
       };
     };
   }
-  # Every container needs the generated secrets and the datastores; the
-  # dependsOn graph on the containers themselves only covers
-  # container-to-container ordering.
+  # Ordering for the container units.
+  #
+  # These are `after` WITHOUT a matching `requires` on the dashboard, and that
+  # distinction is the whole point. oci-containers turns its `dependsOn` option
+  # into BOTH After= and Requires=, and Requires= propagates failure: when the
+  # dashboard container exited non-zero, systemd stopped api, websocket, celery,
+  # celerybeat and nginx along with it, so one failing container took the whole
+  # stack down and held it in a restart cycle.
+  #
+  # Nothing here needs that coupling. Every Django container blocks on its own
+  # `services.py database redis dashboard` wait loop until the dashboard really
+  # is serving, and nginx resolves its upstreams statically via --add-host and
+  # simply answers 502 until they come up. Ordering alone gives a tidy cold
+  # boot; failure isolation is what stops one crash from cascading.
   // listToAttrs (
     map
       (
@@ -274,7 +295,8 @@ mkIf wcfg.enable {
             "router-wireless-secrets.service"
             "openwisp-postgres-setup.service"
             "redis-openwisp.service"
-          ];
+          ]
+          ++ optional (n != "dashboard") "podman-openwisp-dashboard.service";
           requires = [ "router-wireless-secrets.service" ];
         }
       )
@@ -294,8 +316,8 @@ mkIf wcfg.enable {
       name = "dashboard";
       imageName = "dashboard";
       volumes = [
-        "openwisp_static:/opt/openwisp/static"
-        "openwisp_ssh:/home/openwisp/.ssh"
+        "openwisp_static:/opt/openwisp/static:U"
+        "openwisp_ssh:/home/openwisp/.ssh:U"
       ]
       ++ mediaVolumes;
     };
@@ -303,31 +325,27 @@ mkIf wcfg.enable {
     openwisp-api = mkDjangoContainer {
       name = "api";
       imageName = "api";
-      dependsOn = [ "openwisp-dashboard" ];
       volumes = mediaVolumes;
     };
 
     openwisp-websocket = mkDjangoContainer {
       name = "websocket";
       imageName = "websocket";
-      dependsOn = [ "openwisp-dashboard" ];
     };
 
     # Same image as the dashboard; MODULE_NAME selects the role.
     openwisp-celery = mkDjangoContainer {
       name = "celery";
       imageName = "dashboard";
-      dependsOn = [ "openwisp-dashboard" ];
       extraEnv.MODULE_NAME = "celery";
       # The SSH key is what this container uses to reach devices, so it needs
       # the same volume the dashboard generated it into.
-      volumes = [ "openwisp_ssh:/home/openwisp/.ssh" ] ++ mediaVolumes;
+      volumes = [ "openwisp_ssh:/home/openwisp/.ssh:U" ] ++ mediaVolumes;
     };
 
     openwisp-celerybeat = mkDjangoContainer {
       name = "celerybeat";
       imageName = "dashboard";
-      dependsOn = [ "openwisp-dashboard" ];
       extraEnv.MODULE_NAME = "celerybeat";
     };
 
@@ -336,15 +354,10 @@ mkIf wcfg.enable {
       pull = "missing";
       labels."io.containers.autoupdate" = mkIf cfg.wireless.autoUpdate.enable "registry";
       networks = [ "openwisp" ];
-      # nginx resolves its upstreams at config-parse time with no `resolver`
-      # directive, so it exits outright if a name does not resolve. --add-host
-      # makes that static, but the ordering below still avoids a pointless
-      # restart cycle on a cold boot.
-      dependsOn = [
-        "openwisp-dashboard"
-        "openwisp-api"
-        "openwisp-websocket"
-      ];
+      # Deliberately NO dependsOn — see the systemd block above. nginx resolves
+      # its upstreams from --add-host, which is static, so it has no runtime
+      # dependency on the other containers being up: it just answers 502 until
+      # they are.
       extraOptions = [ "--ip=${addr.nginx}" ] ++ addHosts;
       # Published on the LAN address only, so nothing is offered on the WAN.
       ports = [

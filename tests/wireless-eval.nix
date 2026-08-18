@@ -196,6 +196,52 @@ let
       detail = "the MongoDB container carries an auto-update label; a major bump would brick it";
     }
     {
+      # The images run as uid 1001 but a named podman volume is created
+      # root-owned, so without `:U` the dashboard dies in collectstatic with
+      # EACCES on /opt/openwisp/static and takes its startup with it.
+      name = "writable-volumes-are-chowned-to-the-container-user";
+      ok =
+        let
+          writers = [
+            "openwisp-dashboard"
+            "openwisp-api"
+            "openwisp-celery"
+          ];
+          rw = lib.concatMap (
+            n: lib.filter (v: !(lib.hasSuffix ":ro" v)) (containers.${n}.volumes or [ ])
+          ) writers;
+        in
+        rw != [ ] && lib.all (v: lib.hasSuffix ":U" v) rw;
+      detail = ''
+        every read-write volume on the dashboard/api/celery containers must end
+        in :U so podman chowns it to uid 1001; without it collectstatic fails
+        with EACCES and the container exits under `set -e`
+      '';
+    }
+    {
+      # oci-containers' dependsOn emits Requires= as well as After=, and
+      # Requires= propagates failure — one container exiting non-zero stopped
+      # the whole stack and held it in a restart cycle.
+      name = "container-units-are-not-coupled-by-requires";
+      ok =
+        let
+          units = map (n: "podman-openwisp-${n}") [
+            "dashboard"
+            "api"
+            "websocket"
+            "celery"
+            "celerybeat"
+            "nginx"
+          ];
+          reqs = lib.concatMap (u: both.systemd.services.${u}.requires or [ ]) units;
+        in
+        !(lib.any (r: lib.hasPrefix "podman-openwisp-" r) reqs);
+      detail = ''
+        a container unit Requires= another container unit, so one crash will
+        stop the rest of the stack instead of letting it retry
+      '';
+    }
+    {
       name = "openwisp-env-complete-on-every-django-container";
       ok = missingEnv == [ ];
       detail = ''
