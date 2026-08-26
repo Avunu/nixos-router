@@ -87,6 +87,7 @@ await esbuild.build({
           "reports.html",
           "access-policies.html",
           "hosts.html",
+          "dns.html",
           "users.html",
           "network.html",
           "threat-protection.html",

@@ -15,6 +15,12 @@
 #   • the Log Exporter → router-logd ingest pipeline records the blocked query
 #     WITH group attribution;
 #   • the block page is served and the exception-request portal round-trips;
+#   • split-horizon DNS: overrides answer locally, a name inside an overridden
+#     domain that was NOT overridden still falls through to the forwarder
+#     rather than going NXDOMAIN (the one thing an eval check cannot pin), a
+#     conditional forward zone reaches an internal DNS server, static
+#     reservations get forward and reverse names, and removing an override
+#     reaps its zone;
 #   • a report service produces a PDF offline (Typst).
 {
   pkgs,
@@ -129,6 +135,53 @@ pkgs.testers.runNixOSTest {
             };
           };
 
+          # ── Split-horizon DNS ──────────────────────────────
+          # The one thing an eval check cannot pin: what Technitium actually
+          # does with a Forwarder zone that also holds records. The whole
+          # design rests on a name inside an overridden domain that is NOT
+          # declared here falling THROUGH to the forwarder rather than being
+          # answered NXDOMAIN by the zone.
+          router.dns.overrides = [
+            {
+              name = "nas.example.vmtest";
+              value = "10.48.4.20";
+            }
+            # A registrable apex — under a Primary zone this would blackhole
+            # every other name in the domain.
+            {
+              name = "example.vmtest";
+              value = "10.48.4.21";
+            }
+            {
+              # CNAME is illegal at a zone apex, which is what an unrooted
+              # override always is.
+              name = "alias.example.vmtest";
+              type = "ANAME";
+              value = "nas.example.vmtest";
+            }
+            {
+              name = "txt.example.vmtest";
+              type = "TXT";
+              value = "split-horizon-ok";
+            }
+            {
+              # Under the LAN domain, which registerStaticHosts declares as a
+              # root — so this also proves records join a declared zone instead
+              # of each getting one of their own (and avoids a zone name that
+              # starts with an underscore).
+              name = "_sip._udp.lan";
+              type = "SRV";
+              value = "10 5 5060 nas.example.vmtest";
+            }
+          ];
+
+          router.dns.forwardZones = [
+            {
+              zone = "corp.vmtest";
+              forwarders = [ "127.0.0.1:5354" ];
+            }
+          ];
+
           router.reporting.schedules = [
             {
               name = "vmtest";
@@ -228,6 +281,28 @@ pkgs.testers.runNixOSTest {
               memberUid: jdoe
             '';
           };
+          # Stand-in "internal DNS server" for the conditional-forwarder test.
+          # Hermetic: it is authoritative for corp.vmtest and nothing else, so
+          # an answer from it can only have come through the forward zone.
+          systemd.services.vmtest-internal-dns = {
+            description = "Stand-in internal DNS server (conditional forwarding fixture)";
+            wantedBy = [ "multi-user.target" ];
+            before = [ "technitium-reconcile.service" ];
+            serviceConfig = {
+              ExecStart = toString [
+                "${pkgs.dnsmasq}/bin/dnsmasq"
+                "--keep-in-foreground"
+                "--port=5354"
+                "--listen-address=127.0.0.1"
+                "--bind-interfaces"
+                "--no-resolv"
+                "--no-hosts"
+                "--address=/corp.vmtest/10.9.9.9"
+              ];
+              Restart = "on-failure";
+            };
+          };
+
           environment.systemPackages = [
             pkgs.iproute2
             pkgs.dnsutils
@@ -561,5 +636,90 @@ pkgs.testers.runNixOSTest {
         manifest = "/etc/cockpit/share/cockpit/router/manifest.json"
         router.succeed(f"test -f {manifest}")
         router.succeed(f"grep -q access-policies {manifest}")
+        router.succeed(f"grep -q dns.html {manifest}")
+
+    # ── Split-horizon DNS ────────────────────────────────────────────────
+    # Queried from a LAN client netns, not the router itself, so the answers
+    # are the ones a real client gets through the :53 DNAT.
+    with subtest("overrides answer locally"):
+        assert router.succeed(
+            dig_short.format(ns="guestpc", name="nas.example.vmtest")
+        ).strip() == "10.48.4.20"
+        # The apex of a domain the router does not own end-to-end.
+        assert router.succeed(
+            dig_short.format(ns="guestpc", name="example.vmtest")
+        ).strip() == "10.48.4.21"
+        # ANAME: Technitium resolves the target and answers with its address.
+        assert router.succeed(
+            dig_short.format(ns="guestpc", name="alias.example.vmtest")
+        ).strip() == "10.48.4.20"
+        txt = router.succeed(dig_short.format(ns="guestpc", name="txt.example.vmtest TXT"))
+        assert "split-horizon-ok" in txt, txt
+        srv = router.succeed(dig_short.format(ns="guestpc", name="_sip._udp.lan SRV"))
+        assert "5060" in srv and "nas.example.vmtest" in srv, srv
+
+    with subtest("the public horizon survives an override"):
+        # THE assertion the whole zone model rests on. A Primary zone would
+        # answer this NXDOMAIN authoritatively and silently black-hole every
+        # other name in the domain; a Forwarder zone carrying the override
+        # sends it upstream instead. Upstream is unreachable in this hermetic
+        # VM, so "tried to forward" reads as SERVFAIL — what matters is that
+        # the router did NOT claim the name for itself.
+        out = router.succeed(dig.format(ns="guestpc", name="www.example.vmtest"))
+        assert "NXDOMAIN" not in out, out
+
+        # And the zone really is a forwarder carrying the global upstreams,
+        # rather than something that merely behaves like one today.
+        token = router.succeed("cat /var/lib/cockpit-router/technitium-token").strip()
+        zones = json.loads(
+            router.succeed(
+                f"curl -sS -H 'Authorization: Bearer {token}' "
+                "'http://127.0.0.1:5380/api/zones/list'"
+            )
+        )["response"]["zones"]
+        by_name = {z["name"]: z for z in zones}
+        assert by_name["example.vmtest"]["type"] == "Forwarder", zones
+        records = json.loads(
+            router.succeed(
+                f"curl -sS -H 'Authorization: Bearer {token}' "
+                "'http://127.0.0.1:5380/api/zones/records/get"
+                "?domain=example.vmtest&zone=example.vmtest&listZone=true'"
+            )
+        )["response"]["records"]
+        assert any(r["type"] == "FWD" for r in records), records
+
+    with subtest("a forward zone reaches the internal DNS server"):
+        assert router.succeed(
+            dig_short.format(ns="guestpc", name="anything.corp.vmtest")
+        ).strip() == "10.9.9.9"
+
+    with subtest("static reservations get names and reverse lookups"):
+        assert router.succeed(dig_short.format(ns="kid", name="lab-1.lan")).strip() == "10.48.4.50"
+        assert "lab-1.lan" in router.succeed(
+            "ip netns exec kid dig +short +time=10 +tries=1 @10.48.4.1 -x 10.48.4.50"
+        )
+
+    with subtest("removing an override reaps its zone"):
+        # Reconcile is idempotent but it is also the only thing that DELETES;
+        # a removal that leaves the zone behind keeps answering forever, which
+        # is the failure mode an admin cannot see from the settings file.
+        unit = router.succeed("systemctl cat technitium-reconcile.service")
+        cmd = next(l for l in unit.splitlines() if l.startswith("ExecStart="))
+        binary, _, cfg_path = cmd[len("ExecStart=") :].partition(" --config ")
+        router.succeed(
+            "jq --arg z nas.example.vmtest "
+            "'.localDns.zones |= map(select(.zone != $z))' "
+            f"{cfg_path.strip()} > /tmp/reduced.json"
+        )
+        router.succeed(f"{binary} --config /tmp/reduced.json")
+        zones = json.loads(
+            router.succeed(
+                f"curl -sS -H 'Authorization: Bearer {token}' "
+                "'http://127.0.0.1:5380/api/zones/list'"
+            )
+        )["response"]["zones"]
+        assert "nas.example.vmtest" not in {z["name"] for z in zones}, zones
+        # The rest of the set is untouched.
+        assert "example.vmtest" in {z["name"] for z in zones}, zones
   '';
 }

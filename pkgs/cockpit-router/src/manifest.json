@@ -16,34 +16,39 @@
       "order": 30,
       "path": "hosts.html"
     },
+    "dns": {
+      "label": "DNS",
+      "order": 31,
+      "path": "dns.html"
+    },
     "users": {
       "label": "Users",
-      "order": 31,
+      "order": 32,
       "path": "users.html"
     },
     "network": {
       "label": "Network",
-      "order": 32,
+      "order": 33,
       "path": "network.html"
     },
     "threat-protection": {
       "label": "Threat Protection",
-      "order": 33,
+      "order": 34,
       "path": "threat-protection.html"
     },
     "firewall": {
       "label": "Firewall",
-      "order": 34,
+      "order": 35,
       "path": "firewall.html"
     },
     "wireless": {
       "label": "Wireless",
-      "order": 35,
+      "order": 36,
       "path": "wireless.html"
     },
     "system": {
       "label": "System",
-      "order": 36,
+      "order": 37,
       "path": "system.html"
     }
   }

@@ -19,6 +19,24 @@ export interface HostGroup {
   description?: string;
 }
 
+export type DnsRecordType = "A" | "AAAA" | "CNAME" | "ANAME" | "TXT" | "SRV";
+
+export interface DnsOverride {
+  name: string;
+  type?: DnsRecordType;
+  value: string;
+  ttl?: number;
+  notes?: string;
+}
+
+export interface DnsForwardZone {
+  zone: string;
+  forwarders: string[];
+  protocol?: "Udp" | "Tcp" | "Tls" | "Https" | "Quic";
+  dnssecValidation?: boolean;
+  notes?: string;
+}
+
 export interface PolicyAssignments {
   networks?: ("lan" | "guest" | "wireguard")[];
   subnets?: string[];

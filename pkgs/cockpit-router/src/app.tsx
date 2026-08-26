@@ -3,6 +3,7 @@ import { Page, PageSidebar } from "@patternfly/react-core";
 import { Suricata } from "./suricata";
 import { AccessPolicies } from "./access-policies";
 import { Hosts } from "./hosts";
+import { Dns } from "./dns";
 import { Users } from "./users";
 import { Reports } from "./reports";
 import { Firewall } from "./firewall";
@@ -24,6 +25,7 @@ export const views: Record<string, ReactNode> = {
   reports: <Reports />,
   "access-policies": <AccessPolicies />,
   hosts: <Hosts />,
+  dns: <Dns />,
   users: <Users />,
   network: <Network />,
   "threat-protection": <Suricata />,

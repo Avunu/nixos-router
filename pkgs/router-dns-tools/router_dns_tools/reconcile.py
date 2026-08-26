@@ -2,9 +2,10 @@
 
 Runs after the technitium-dns-server unit (and again on every nixos-rebuild
 whose generated desired state changed). Asserts the desired configuration via
-the HTTP API: server settings, the router's local zone, SafeSearch zones,
-DNS app configs (Log Exporter, Block Page, compiled Advanced Blocking), and
-the read-only Cockpit dashboard user/token.
+the HTTP API: server settings, the router's local zone, the split-horizon
+zones (see local_dns.py), SafeSearch zones, DNS app configs (Log Exporter,
+Block Page, compiled Advanced Blocking), and the read-only Cockpit dashboard
+user/token.
 
 All inputs come from one Nix-generated runtime config JSON (--config), so the
 unit is a thin `router-technitium-reconcile --config /nix/store/….json`.
@@ -21,6 +22,7 @@ import time
 from pathlib import Path
 
 from .compile_policies import _load_directory, compile_config
+from .local_dns import reconcile_local_dns
 from .technitium_api import TechnitiumClient, TechnitiumError
 
 
@@ -46,13 +48,15 @@ def _login(client: TechnitiumClient, user: str, password: str) -> None:
     print("rotated factory-default admin password", file=sys.stderr)
 
 
-def _ensure_zone(client: TechnitiumClient, existing: set[str], zone: str) -> None:
+def _ensure_zone(client: TechnitiumClient, existing: dict[str, str], zone: str) -> None:
+    """Ensure a Primary zone exists. `existing` maps zone name → zone type; the
+    type matters to the split-horizon reconciler, which shares this view."""
     if zone not in existing:
         client.create_zone(zone, "Primary")
-        existing.add(zone)
+        existing[zone] = "Primary"
 
 
-def _reconcile_safesearch(client: TechnitiumClient, cfg: dict, zones: set[str]) -> None:
+def _reconcile_safesearch(client: TechnitiumClient, cfg: dict, zones: dict[str, str]) -> None:
     managed_file = Path(cfg["managedZonesFile"])
     previous = set(json.loads(managed_file.read_text())) if managed_file.exists() else set()
     desired = dict(cfg["safeSearch"]["records"]) if cfg["safeSearch"]["enable"] else {}
@@ -63,7 +67,7 @@ def _reconcile_safesearch(client: TechnitiumClient, cfg: dict, zones: set[str]) 
     for stale in sorted(previous - set(desired)):
         if stale in zones:
             client.delete_zone(stale)
-            zones.discard(stale)
+            zones.pop(stale, None)
 
     managed_file.parent.mkdir(parents=True, exist_ok=True)
     managed_file.write_text(json.dumps(sorted(desired)))
@@ -123,7 +127,7 @@ def main() -> None:
 
     client.set_settings(cfg["settings"])
 
-    zones = {z["name"] for z in client.list_zones()}
+    zones = {z["name"]: z.get("type", "Primary") for z in client.list_zones()}
     local = cfg["localZone"]
     _ensure_zone(client, zones, local["zone"])
     client.add_record(local["zone"], local["zone"], "A", ipAddress=local["address"])
@@ -134,6 +138,10 @@ def main() -> None:
     for record in local.get("records", []):
         _ensure_zone(client, zones, record["zone"])
         client.add_record(record["zone"], record["name"], "A", ipAddress=record["address"])
+
+    # Split-horizon zones. Runs before SafeSearch only so a misconfigured
+    # override surfaces early; the two own disjoint managed-state files.
+    reconcile_local_dns(client, cfg, zones)
 
     _reconcile_safesearch(client, cfg, zones)
 

@@ -22,7 +22,9 @@ clients ──:53──► Technitium DNS ──► Advanced Blocking (compiled 
 -   **modules/filter-catalog.nix** — filter/category catalog (format-tagged), DoH-provider list, SafeSearch record map.
 -   **modules/hosts.nix** — device registry (`router.hosts`) and groups; devices with a `staticIp` get a systemd-networkd DHCP reservation, the anchor for device-tier policies.
 -   **modules/access-policies.nix** — `router.accessPolicies`; emits `router-policy-static.json` for the runtime compiler.
--   **modules/dns-technitium.nix** — engine provisioning (see below). Setting
+-   **modules/dns-technitium.nix** — engine provisioning (see below) and
+    split-horizon DNS (`dns.overrides`, `dns.forwardZones`,
+    `dns.registerStaticHosts`). Setting
     `dns.technitium.enable = false` means *no filtering*, not *no DNS*: the DHCP
     advert and the :53 DNAT both point clients at the router regardless, so
     systemd-resolved takes over the gateway addresses and forwards queries
@@ -56,9 +58,46 @@ Technitium's main config (`dns.config`) is binary, so it cannot be generated dec
 
 1.  **First boot** — `DNS_SERVER_*` environment variables seed the config (admin password from `/var/lib/router-technitium/admin.pass`, forwarders, ports). They are read only when `dns.config` is absent.
 2.  **App pre-seeding** — pinned official app zips (Advanced Blocking, Log Exporter, Block Page) are copied into `/var/lib/technitium-dns-server/apps/<Name>/` before the daemon starts, so filtering is active from the first second. The Block Page app also gets the Nix-generated branded `wwwroot`.
-3.  **Reconcile** — `technitium-reconcile.service` (idempotent, re-run by every rebuild whose desired state changed) asserts settings, the router's local zone, SafeSearch ANAME zones, app configs (including the compiled Advanced Blocking policy config), and the read-only Cockpit API token.
+3.  **Reconcile** — `technitium-reconcile.service` (idempotent, re-run by every rebuild whose desired state changed) asserts settings, the router's local zone, the split-horizon zones, SafeSearch ANAME zones, app configs (including the compiled Advanced Blocking policy config), and the read-only Cockpit API token.
 
 `router-policy-push.service` re-pushes only the compiled policy config; a path unit triggers it whenever directory sync updates `directory.json`, so IdP changes apply without a rebuild.
+
+## Split-horizon DNS
+
+Names the router answers itself, so internal clients reach a service by its real name over the LAN instead of hairpinning through the WAN address. Edited in Cockpit → DNS, or in the settings JSON:
+
+```nix
+router.dns.overrides = [
+  { name = "nas.example.com"; value = "10.48.4.20"; }
+  { name = "vault.example.com"; type = "ANAME"; value = "nas.example.com"; }
+];
+
+router.dns.forwardZones = [
+  { zone = "corp.example.com"; forwarders = [ "10.48.4.5" ]; }
+];
+
+router.dns.registerStaticHosts = true; # the default
+```
+
+-   **`overrides`** — one record each: `A`, `AAAA`, `CNAME`, `ANAME`, `TXT` or `SRV`. A `CNAME` is illegal at the top of a zone, so an alias that owns its own name must use `ANAME` (Technitium resolves the target and answers with its addresses).
+-   **`forwardZones`** — hands a whole domain to an internal DNS server (an Active Directory controller, say). Because the entire subtree is forwarded, an `override` for a name inside a forward zone is rejected rather than silently ignored.
+-   **`registerStaticHosts`** — publishes every `router.hosts` entry that has a `staticIp` as `<name>.<lan.domain>` with a reverse `PTR`. Device names allow spaces, dots and underscores, so they are slugified into DNS labels; names that collide after slugification are skipped with a warning rather than one of them silently winning. The DHCP server also advertises `lan.domain` as the search domain, so a bare `nas` resolves.
+
+### How the horizon stays split
+
+Technitium answers a name locally only if an authoritative zone covers it, and a *Primary* zone blackholes everything else under it — a `Primary` zone for `example.com` carrying one record would turn every other name in the domain into NXDOMAIN on the LAN. So every zone this feature creates is a **Forwarder zone** carrying an apex `FWD` record that mirrors `dns.technitium.upstreamServers`: a declared name is answered locally, and anything else in the zone falls through to the real upstream. That is what makes an override at a registrable apex (`example.com` itself) safe.
+
+Zone grouping is computed in Nix, so the reconciler only executes a list:
+
+1.  Declared roots are the `forwardZones` zones, plus `lan.domain` when `registerStaticHosts` is on.
+2.  A record joins the **longest** declared root that is a suffix of its name.
+3.  A record matching no root gets a zone named exactly after itself — the narrowest zone that can answer it, so a neighbouring name is never caught in the blast radius.
+
+The router's own `<hostName>.<lan.domain>` zone stays Primary and is untouched.
+
+The public horizon is untouched in the other direction too: nothing outside sees these answers, because `modules/firewall.nix` drops :53 from the WAN and recursion is limited to internal networks.
+
+Removals are reaped. `router-technitium-reconcile` records everything it created in `/var/lib/router-technitium/managed-local-dns.json` and deletes only those records and zones — a zone an operator added by hand in Technitium's own console is left alone, and a zone whose type drifted is only recreated if the router made it.
 
 ## Policy resolution
 
@@ -189,4 +228,7 @@ Old AdGuard state can be removed manually: `rm -rf /var/lib/AdGuardHome`.
 -   **Dashboards empty** — check `/var/lib/cockpit-router/technitium-token` exists and `router-logd.service` is running (`curl http://127.0.0.1:8067/healthz`).
 -   **Directory sync errors** — Cockpit → Users shows the last error and the list of unresolved names. Debug layer by layer: `systemctl status sssd` → `sssctl config-check` → `sssctl domain-status <domain>` → `getent passwd <name>` → `id -Gn <name>` → `journalctl -u router-directory-sync`. A name that is right in the directory but wrong here is usually a stale cache: `sss_cache -E` clears SSSD's and `systemctl restart nscd` clears the NSS cache. Policies keep working on last-good data; a missing or stale directory only disables the user tier.
 -   **`getent passwd` returns nothing** — expected. See _Names are resolved on demand, never enumerated_.
+-   **An override does not resolve** — check the zone exists and is a `Forwarder`: Cockpit → DNS shows what is configured, and Technitium's own Zones page shows what was created. A record inside a `forwardZones` zone never applies; the rebuild rejects that combination.
+-   **A device has no DNS name** — only reservations are published. Check `router.hosts` has a `staticIp`, and look for a slug-collision warning from the last rebuild (two device names that reduce to the same DNS label are both skipped).
+-   **Every name in a domain went NXDOMAIN** — a zone for it exists as `Primary` rather than `Forwarder`, which the router only leaves alone when it did not create it. Delete the hand-made zone in Technitium and re-run `systemctl start technitium-reconcile`.
 -   **Block page not appearing** — only `blockingAddress` policies show it; check the Block Page app is bound (`journalctl -u technitium-dns-server | grep "Web server"`) and ports 80/443 are allowed from the client's network.

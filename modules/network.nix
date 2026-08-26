@@ -548,6 +548,10 @@ in
             DNS = [ lanGW ];
             EmitDNS = true;
             EmitRouter = true;
+            # Search domain, so a bare "nas" resolves to nas.<lan.domain> —
+            # the names router.dns.registerStaticHosts and router.dns.overrides
+            # publish are otherwise only reachable fully qualified.
+            Domains = [ cfg.lan.domain ];
           };
           dhcpServerStaticLeases = staticLeasesFor "lan";
           dhcpPrefixDelegationConfig = {
@@ -639,6 +643,7 @@ in
             DNS = [ guestGW ];
             EmitDNS = true;
             EmitRouter = true;
+            Domains = [ cfg.lan.domain ];
           };
           dhcpServerStaticLeases = staticLeasesFor "guest";
           dhcpPrefixDelegationConfig = {
