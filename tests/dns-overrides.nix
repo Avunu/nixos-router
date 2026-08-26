@@ -120,7 +120,8 @@ let
   zones = base.router._localDnsZones;
   zoneNames = map (z: z.zone) zones;
   zoneOf = name: lib.findFirst (z: z.zone == name) null zones;
-  recordNames = z: lib.sort (a: b: a < b) (map (r: r.name) (if z == null then [ ] else z.records));
+  recordsOf = z: if z == null then [ ] else z.records;
+  recordNames = z: lib.sort (a: b: a < b) (map (r: r.name) (recordsOf z));
 
   # An assertion/warning is only useful if it FIRES; evaluate a deliberately
   # broken config and look for the message rather than trusting the code path.
@@ -198,7 +199,7 @@ let
     }
     {
       name = "static-host-records-carry-a-ptr";
-      ok = lib.any (r: r.name == "nas.example.test" && r.ptr) (zoneOf "example.test").records;
+      ok = lib.any (r: r.name == "nas.example.test" && r.ptr) (recordsOf (zoneOf "example.test"));
       detail = "reverse lookups for reservations were not requested";
     }
     {
@@ -274,9 +275,18 @@ let
       detail = "the zone model is gated on dns.technitium.enable";
     }
     {
+      # [DHCPServer] Domain=, singular, with EmitDomain= explicitly on (it
+      # defaults to no). The plural EmitDomains=/Domains= pair is an
+      # [IPv6SendRA] directive; nixpkgs rejects it in this section, which is
+      # exactly the mistake this check exists to catch.
       name = "lan-clients-get-the-search-domain";
       ok =
-        (base.systemd.network.networks."40-br-lan".dhcpServerConfig.Domains or [ ]) == [ "example.test" ];
+        let
+          dhcp = net: base.systemd.network.networks.${net}.dhcpServerConfig;
+        in
+        ((dhcp "40-br-lan").Domain or null) == "example.test"
+        && ((dhcp "40-br-lan").EmitDomain or false)
+        && ((dhcp "41-br-guest").Domain or null) == "example.test";
       detail = "DHCP does not advertise the LAN domain, so bare hostnames will not resolve";
     }
     {
