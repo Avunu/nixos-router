@@ -40,6 +40,7 @@ python3Packages.buildPythonApplication {
   pythonImportsCheck = [
     "router_dns_tools.compile_policies"
     "router_dns_tools.technitium_api"
+    "router_dns_tools.local_dns"
     "router_dns_tools.directory_sync.sssd"
   ];
 

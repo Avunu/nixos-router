@@ -470,6 +470,103 @@
     "dns": {
       "additionalProperties": false,
       "properties": {
+        "forwardZones": {
+          "default": [],
+          "description": "Domains resolved by an internal DNS server instead of the upstream forwarders.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "dnssecValidation": {
+                "default": false,
+                "description": "Validate DNSSEC on answers from these forwarders.",
+                "type": "boolean"
+              },
+              "forwarders": {
+                "description": "DNS servers to forward this zone to, as an address, \"address:port\"\nor a DoH/DoT URL. Queried in the order given.\n",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "notes": {
+                "default": "",
+                "description": "Free-form administrator notes.",
+                "type": "string"
+              },
+              "protocol": {
+                "default": "Udp",
+                "description": "Transport used to reach the forwarders.",
+                "enum": [
+                  "Udp",
+                  "Tcp",
+                  "Tls",
+                  "Https",
+                  "Quic"
+                ]
+              },
+              "zone": {
+                "description": "Domain to forward (no trailing dot). Applies to the whole subtree.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "forwarders",
+              "zone"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "overrides": {
+          "default": [],
+          "description": "Split-horizon DNS records the router answers for internal clients.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "description": "Fully-qualified name this record answers for (no trailing dot).",
+                "type": "string"
+              },
+              "notes": {
+                "default": "",
+                "description": "Free-form administrator notes.",
+                "type": "string"
+              },
+              "ttl": {
+                "default": 300,
+                "description": "Record TTL in seconds.",
+                "type": "integer"
+              },
+              "type": {
+                "default": "A",
+                "description": "Record type. A CNAME is illegal at a zone apex, so an alias\nthat owns its zone must use ANAME (Technitium resolves it and\nanswers with the target's addresses).\n",
+                "enum": [
+                  "A",
+                  "AAAA",
+                  "CNAME",
+                  "ANAME",
+                  "TXT",
+                  "SRV"
+                ]
+              },
+              "value": {
+                "description": "Record data: an IP address for A/AAAA, a target name for\nCNAME/ANAME, the text for TXT, or \"priority weight port target\"\nfor SRV.\n",
+                "type": "string"
+              }
+            },
+            "required": [
+              "name",
+              "value"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "registerStaticHosts": {
+          "default": true,
+          "description": "Publish every router.hosts entry that has a staticIp as\n<name>.<lan.domain> (plus a reverse PTR). The device name is\nslugified into a DNS label; names that collide after slugification\nare skipped with a warning.\n",
+          "type": "boolean"
+        },
         "technitium": {
           "additionalProperties": false,
           "properties": {

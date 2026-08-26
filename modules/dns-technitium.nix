@@ -17,6 +17,11 @@
 #      compiled Advanced Blocking policy config), and the read-only Cockpit
 #      API token via the HTTP API.
 #
+# Split-horizon DNS (router.dns.overrides / forwardZones /
+# registerStaticHosts) rides on phase 3: the desired zones and records are
+# grouped in Nix and reconciled through the same API client, with their own
+# managed-state file so removals are reaped.
+#
 # router-policy-push.service re-pushes ONLY the compiled Advanced Blocking
 # config; a path unit triggers it whenever the synced directory state changes,
 # so identity-based assignments follow the IdP without a rebuild.
@@ -151,6 +156,15 @@ let
         records = catalog.safeSearchRecords;
       };
 
+      # Split-horizon zones (router.dns.overrides / forwardZones /
+      # registerStaticHosts), fully grouped and typed here so the reconciler
+      # only executes the list. Tracked in its OWN managed-state file rather
+      # than the SafeSearch one, so reaping the two never interferes.
+      localDns = {
+        managedFile = "${stateDir}/managed-local-dns.json";
+        zones = localDnsSpec;
+      };
+
       apps = {
         # All three targets must be present: the app dereferences
         # FileTarget/HttpTarget/SyslogTarget unconditionally (with a null-
@@ -242,6 +256,170 @@ let
     }
   );
 
+  # ── Split-horizon DNS: zone model ────────────────────────
+  # Technitium answers a name locally only if an authoritative zone covers
+  # it, and a Primary zone blackholes everything else under it (which is
+  # exactly why the SafeSearch hijack uses one zone per name). So every zone
+  # this feature creates is a FORWARDER zone carrying an apex FWD record
+  # that mirrors the global upstreams: a declared name is answered locally,
+  # anything else in the zone falls through to the real upstream. That is
+  # what makes an override at a registrable apex ("example.com" itself)
+  # safe without special-casing it.
+  #
+  # Zone assignment is computed here, once, so the reconciler only executes
+  # a list. It never has to re-derive which zone a record belongs to.
+  dcfg = cfg.dns;
+
+  dnsLabelChars = lowerChars ++ stringToCharacters "0123456789";
+
+  # Device names allow spaces, dots and underscores (modules/hosts.nix), so
+  # they are not DNS labels. Lowercase, map everything else to "-", then
+  # collapse and trim the runs.
+  slugOf =
+    name:
+    concatStringsSep "-" (
+      filter (s: s != "") (
+        splitString "-" (stringAsChars (c: if elem c dnsLabelChars then c else "-") (toLower name))
+      )
+    );
+
+  hostZone = toLower cfg.lan.domain;
+  registerHosts = dcfg.registerStaticHosts;
+
+  staticHostSlugs = map (h: {
+    inherit (h) name staticIp;
+    slug = slugOf h.name;
+  }) (filter (h: h.staticIp != null) cfg.hosts);
+
+  slugDupes = attrNames (
+    filterAttrs (_: c: c > 1) (
+      foldl' (acc: e: acc // { ${e.slug} = (acc.${e.slug} or 0) + 1; }) { } staticHostSlugs
+    )
+  );
+
+  # A slug that lost a race with an explicit override for the same name, or
+  # with the router's own <hostName>.<domain> zone, is dropped too — the
+  # hand-written entry is the one the admin meant.
+  overrideNames = map (o: toLower o.name) dcfg.overrides;
+  hostRecordsUsable = filter (
+    e:
+    e.slug != ""
+    && !(elem e.slug slugDupes)
+    && !(elem "${e.slug}.${hostZone}" overrideNames)
+    && "${e.slug}.${hostZone}" != toLower localZone
+  ) staticHostSlugs;
+
+  hostRecords = optionals registerHosts (
+    map (e: {
+      name = "${e.slug}.${hostZone}";
+      type = "A";
+      value = e.staticIp;
+      ttl = 300;
+      ptr = true;
+    }) hostRecordsUsable
+  );
+
+  overrideRecords = map (o: {
+    name = toLower o.name;
+    inherit (o) type value ttl;
+    ptr = false;
+  }) dcfg.overrides;
+
+  localDnsRecords = overrideRecords ++ hostRecords;
+
+  # FWD record set mirroring the global upstreams — the "fall through to the
+  # public horizon" half of every zone this feature creates.
+  upstreamFwd = map (u: {
+    protocol = "Https";
+    forwarder = u;
+    dnssecValidation = true;
+  }) tcfg.upstreamServers;
+
+  forwardZoneNames = map (z: toLower z.zone) dcfg.forwardZones;
+
+  # Roots an admin declared explicitly. A record lands in the LONGEST of
+  # these that is a suffix of its name; with no match it becomes its own
+  # zone. `localZone` is deliberately absent: it stays the Primary zone it
+  # already is, and a more specific zone always wins in Technitium anyway.
+  declaredRoots = forwardZoneNames ++ optional registerHosts hostZone;
+
+  isUnderZone = name: root: name == root || hasSuffix ".${root}" name;
+  rootFor =
+    name:
+    let
+      matches = filter (isUnderZone name) declaredRoots;
+      longest = foldl' (a: b: if stringLength b > stringLength a then b else a) "" matches;
+    in
+    if longest == "" then name else longest;
+
+  implicitRoots = subtractLists declaredRoots (unique (map (r: rootFor r.name) localDnsRecords));
+
+  localDnsZones = sort (a: b: a.zone < b.zone) (
+    map (z: {
+      zone = toLower z.zone;
+      type = "Forwarder";
+      forwarders = map (f: {
+        inherit (z) protocol dnssecValidation;
+        forwarder = f;
+      }) z.forwarders;
+    }) dcfg.forwardZones
+    ++ optional registerHosts {
+      zone = hostZone;
+      type = "Forwarder";
+      forwarders = upstreamFwd;
+    }
+    ++ map (r: {
+      zone = r;
+      type = "Forwarder";
+      forwarders = upstreamFwd;
+    }) implicitRoots
+  );
+
+  localDnsSpec = map (
+    z: z // { records = filter (r: rootFor r.name == z.zone) localDnsRecords; }
+  ) localDnsZones;
+
+  # ── Validation inputs ────────────────────────────────────
+  dupsOfList =
+    xs:
+    attrNames (
+      filterAttrs (_: c: c > 1) (foldl' (acc: x: acc // { ${x} = (acc.${x} or 0) + 1; }) { } xs)
+    );
+
+  # Underscore is not a hostname character, but it is how SRV and TXT service
+  # names are spelled (_sip._udp.example.com), so it belongs here.
+  fqdnChars = dnsLabelChars ++ [
+    "-"
+    "."
+    "_"
+  ];
+  isFqdn =
+    name:
+    name != ""
+    && !(hasPrefix "." name)
+    && !(hasSuffix "." name)
+    && all (c: elem c fqdnChars) (stringToCharacters (toLower name));
+
+  overrideDupes = dupsOfList (map (o: "${toLower o.name} ${o.type} ${o.value}") dcfg.overrides);
+  badOverrideNames = map (o: o.name) (filter (o: !(isFqdn o.name)) dcfg.overrides);
+  forwardZoneDupes = dupsOfList forwardZoneNames;
+  emptyForwardZones = map (z: z.zone) (filter (z: z.forwarders == [ ]) dcfg.forwardZones);
+
+  shadowedOverrides = map (o: o.name) (
+    filter (o: any (z: isUnderZone (toLower o.name) z) forwardZoneNames) dcfg.overrides
+  );
+
+  # "example.com" — a name whose zone is created at a registrable apex, as
+  # opposed to "nas.example.com". Two labels is the cheap approximation; it
+  # only drives a warning, so a public-suffix list would be overkill.
+  apexOverrides = unique (
+    map (o: o.name) (
+      filter (
+        o: rootFor (toLower o.name) == toLower o.name && length (splitString "." o.name) == 2
+      ) dcfg.overrides
+    )
+  );
+
   # Runtime secrets, generated once. Runs as its own oneshot BEFORE any unit
   # that references these files via LoadCredential — systemd resolves
   # credentials before ExecStartPre, so generating them in a pre-start of the
@@ -306,6 +484,14 @@ in
     readOnly = true;
     description = "Generated router-dns-tools runtime config consumed by the service units.";
   };
+  # The split-horizon zone set, exposed so tests can assert the grouping
+  # without importing the generated JSON from a derivation.
+  options.router._localDnsZones = mkOption {
+    type = types.listOf types.attrs;
+    internal = true;
+    readOnly = true;
+    description = "Generated split-horizon zone/record spec (also embedded in the runtime config).";
+  };
   options.router._dnsToolsPackage = mkOption {
     type = types.package;
     internal = true;
@@ -324,6 +510,137 @@ in
       ];
       visible = false;
       description = "Unused with Technitium (kept for config compatibility).";
+    };
+
+    # ── Split-horizon DNS ──────────────────────────────────
+    # Names the router answers itself for internal clients, leaving the
+    # public horizon alone. Every zone this creates is a Technitium
+    # Forwarder zone carrying an apex FWD record that mirrors
+    # `dns.technitium.upstreamServers`, so a name inside an overridden
+    # domain that is NOT declared here still resolves from the real
+    # upstream instead of becoming NXDOMAIN.
+    overrides = mkOption {
+      default = [ ];
+      description = "Split-horizon DNS records the router answers for internal clients.";
+      example = literalExpression ''
+        [
+          {
+            name = "nas.example.com";
+            value = "10.48.4.20";
+          }
+          {
+            name = "vault.example.com";
+            type = "ANAME";
+            value = "nas.example.com";
+          }
+        ]
+      '';
+      type = types.listOf (
+        types.submodule {
+          options = {
+            name = mkOption {
+              type = types.str;
+              description = "Fully-qualified name this record answers for (no trailing dot).";
+            };
+            type = mkOption {
+              type = types.enum [
+                "A"
+                "AAAA"
+                "CNAME"
+                "ANAME"
+                "TXT"
+                "SRV"
+              ];
+              default = "A";
+              description = ''
+                Record type. A CNAME is illegal at a zone apex, so an alias
+                that owns its zone must use ANAME (Technitium resolves it and
+                answers with the target's addresses).
+              '';
+            };
+            value = mkOption {
+              type = types.str;
+              description = ''
+                Record data: an IP address for A/AAAA, a target name for
+                CNAME/ANAME, the text for TXT, or "priority weight port target"
+                for SRV.
+              '';
+            };
+            ttl = mkOption {
+              type = types.ints.between 1 604800;
+              default = 300;
+              description = "Record TTL in seconds.";
+            };
+            notes = mkOption {
+              type = types.str;
+              default = "";
+              description = "Free-form administrator notes.";
+            };
+          };
+        }
+      );
+    };
+
+    forwardZones = mkOption {
+      default = [ ];
+      description = "Domains resolved by an internal DNS server instead of the upstream forwarders.";
+      example = literalExpression ''
+        [
+          {
+            zone = "corp.example.com";
+            forwarders = [ "10.48.4.5" ];
+          }
+        ]
+      '';
+      type = types.listOf (
+        types.submodule {
+          options = {
+            zone = mkOption {
+              type = types.str;
+              description = "Domain to forward (no trailing dot). Applies to the whole subtree.";
+            };
+            forwarders = mkOption {
+              type = types.listOf types.str;
+              description = ''
+                DNS servers to forward this zone to, as an address, "address:port"
+                or a DoH/DoT URL. Queried in the order given.
+              '';
+            };
+            protocol = mkOption {
+              type = types.enum [
+                "Udp"
+                "Tcp"
+                "Tls"
+                "Https"
+                "Quic"
+              ];
+              default = "Udp";
+              description = "Transport used to reach the forwarders.";
+            };
+            dnssecValidation = mkOption {
+              type = types.bool;
+              default = false;
+              description = "Validate DNSSEC on answers from these forwarders.";
+            };
+            notes = mkOption {
+              type = types.str;
+              default = "";
+              description = "Free-form administrator notes.";
+            };
+          };
+        }
+      );
+    };
+
+    registerStaticHosts = mkOption {
+      type = types.bool;
+      default = true;
+      description = ''
+        Publish every router.hosts entry that has a staticIp as
+        <name>.<lan.domain> (plus a reverse PTR). The device name is
+        slugified into a DNS label; names that collide after slugification
+        are skipped with a warning.
+      '';
     };
 
     technitium = {
@@ -378,6 +695,56 @@ in
   };
 
   config = mkMerge [
+    { router._localDnsZones = localDnsSpec; }
+
+    # ── Split-horizon DNS validation ───────────────────────
+    # Unconditional: these inputs are wrong whether or not Technitium is the
+    # active resolver, and a settings file that cannot be fixed until the
+    # engine is re-enabled is a worse failure than a loud one now.
+    {
+      assertions = [
+        {
+          assertion = overrideDupes == [ ];
+          message = "router.dns.overrides: duplicate record(s): ${concatStringsSep ", " overrideDupes}";
+        }
+        {
+          assertion = badOverrideNames == [ ];
+          message = "router.dns.overrides: not a fully-qualified name (letters, digits, '-' and '.'; no trailing dot): ${concatStringsSep ", " badOverrideNames}";
+        }
+        {
+          assertion = forwardZoneDupes == [ ];
+          message = "router.dns.forwardZones: duplicate zone(s): ${concatStringsSep ", " forwardZoneDupes}";
+        }
+        {
+          assertion = emptyForwardZones == [ ];
+          message = "router.dns.forwardZones: no forwarders given for zone(s): ${concatStringsSep ", " emptyForwardZones}";
+        }
+        {
+          # A forward zone hands the WHOLE subtree to another server, so a
+          # local override for a name inside it would never be consulted.
+          assertion = shadowedOverrides == [ ];
+          message = "router.dns.overrides: ${concatStringsSep ", " shadowedOverrides} sits inside a router.dns.forwardZones zone, which forwards the entire subtree — remove the override or narrow the forward zone.";
+        }
+        {
+          assertion = !(registerHosts && elem hostZone forwardZoneNames);
+          message = "router.dns.forwardZones: '${hostZone}' is the LAN domain and router.dns.registerStaticHosts publishes host records into it — disable registerStaticHosts or forward a narrower zone.";
+        }
+      ];
+
+      warnings =
+        optional (registerHosts && slugDupes != [ ]) ''
+          router.dns.registerStaticHosts: these device names slugify to the same
+          DNS label, so NONE of them is published: ${concatStringsSep ", " slugDupes}.
+          Rename the devices in router.hosts, or add explicit router.dns.overrides.
+        ''
+        ++ optional (apexOverrides != [ ]) ''
+          router.dns.overrides: ${concatStringsSep ", " apexOverrides} override a whole
+          domain apex. The router serves it as a conditional-forwarder zone, so other
+          names under it still resolve upstream — but every internal client now takes
+          this answer for the apex itself.
+        '';
+    }
+
     (mkIf tcfg.enable {
       # Technitium 15.4.0 added SpecialZoneManager: with the (default-on)
       # `locallyServedDnsZones` setting it answers the RFC 6761/6762/7686

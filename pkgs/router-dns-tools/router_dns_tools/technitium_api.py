@@ -96,8 +96,11 @@ class TechnitiumClient:
     def list_zones(self) -> list[dict]:
         return self._call("/api/zones/list").get("zones", [])
 
-    def create_zone(self, zone: str, zone_type: str = "Primary") -> None:
-        self._call("/api/zones/create", {"zone": zone, "type": zone_type})
+    def create_zone(self, zone: str, zone_type: str = "Primary", **params) -> None:
+        """Create a zone. `params` carries the type-specific extras — a
+        Forwarder zone takes initializeForwarder/protocol/forwarder/
+        dnssecValidation, which is how conditional forwarding is set up."""
+        self._call("/api/zones/create", {"zone": zone, "type": zone_type, **params})
 
     def delete_zone(self, zone: str) -> None:
         self._call("/api/zones/delete", {"zone": zone})
@@ -106,10 +109,33 @@ class TechnitiumClient:
         resp = self._call("/api/zones/records/get", {"domain": domain, "zone": zone, "listZone": "true"})
         return resp.get("records", [])
 
-    def add_record(self, zone: str, domain: str, rtype: str, ttl: int = 3600, **rdata) -> None:
+    def add_record(
+        self, zone: str, domain: str, rtype: str, ttl: int = 3600, overwrite: bool = True, **rdata
+    ) -> None:
+        """Add a record. `overwrite` replaces every existing record of this type
+        at this name, which is what makes a repeated call idempotent — but it
+        also means a name with several values (round-robin A records) must
+        overwrite on the FIRST value only and append the rest."""
         self._call(
             "/api/zones/records/add",
-            {"domain": domain, "zone": zone, "type": rtype, "ttl": ttl, "overwrite": "true", **rdata},
+            {
+                "domain": domain,
+                "zone": zone,
+                "type": rtype,
+                "ttl": ttl,
+                "overwrite": str(overwrite).lower(),
+                **rdata,
+            },
+        )
+
+    def delete_record(self, zone: str, domain: str, rtype: str, **rdata) -> None:
+        """Delete one record. Technitium identifies a record by its rdata as
+        well as its name and type, so the caller must pass the same rdata
+        parameters it added the record with (ipAddress, cname, text, ...)."""
+        self._call(
+            "/api/zones/records/delete",
+            {"domain": domain, "zone": zone, "type": rtype, **rdata},
+            post=True,
         )
 
     def get_app_config(self, name: str) -> str | None:

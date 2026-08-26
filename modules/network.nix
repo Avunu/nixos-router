@@ -548,6 +548,15 @@ in
             DNS = [ lanGW ];
             EmitDNS = true;
             EmitRouter = true;
+            # Search domain (DHCP option 15), so a bare "nas" resolves to
+            # nas.<lan.domain> — the names router.dns.registerStaticHosts and
+            # router.dns.overrides publish are otherwise only reachable fully
+            # qualified. EmitDomain defaults to NO, so it has to be explicit;
+            # and this is [DHCPServer] Domain=, singular — the plural
+            # EmitDomains=/Domains= pair belongs to [IPv6SendRA], which this
+            # bridge does not use for DNS (ipv6SendRAConfig.EmitDNS = false).
+            EmitDomain = true;
+            Domain = cfg.lan.domain;
           };
           dhcpServerStaticLeases = staticLeasesFor "lan";
           dhcpPrefixDelegationConfig = {
@@ -639,6 +648,8 @@ in
             DNS = [ guestGW ];
             EmitDNS = true;
             EmitRouter = true;
+            EmitDomain = true;
+            Domain = cfg.lan.domain;
           };
           dhcpServerStaticLeases = staticLeasesFor "guest";
           dhcpPrefixDelegationConfig = {

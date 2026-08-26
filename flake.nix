@@ -231,6 +231,18 @@
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
           };
 
+          # Eval-only guard on split-horizon DNS: which zone a record lands
+          # in, whether that zone forwards the rest of its domain onward or
+          # blackholes it, and whether a device name that is not a DNS label
+          # is dropped rather than published as garbage. All of it is decided
+          # in Nix before a single API call, and all of it fails silently.
+          #   nix build .#checks.<system>.dns-overrides
+          dns-overrides = import ./tests/dns-overrides.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
           # Eval-only guard on the wireless controllers. Most of what matters
           # there fails silently: DHCP option 43 is merged into a networkd unit
           # another module owns, the UniFi database's isolation is the ABSENCE
