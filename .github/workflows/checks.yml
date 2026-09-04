@@ -21,6 +21,12 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+# magic-nix-cache-action needs id-token: write to scope its GitHub Actions
+# cache entries; nothing else in this workflow needs more than read.
+permissions:
+  id-token: write
+  contents: read
+
 jobs:
   fast:
     name: drift + build (fast)
@@ -28,6 +34,11 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: DeterminateSystems/nix-installer-action@main
+
+      # Backs /nix/store with the GitHub Actions cache, so re-evaluating and
+      # rebuilding the same derivations across runs (and across the `fast`/`vm`
+      # jobs' shared inputs) doesn't refetch or rebuild from scratch every time.
+      - uses: DeterminateSystems/magic-nix-cache-action@main
 
       # Listed individually rather than via `nix flake check` so a dependency
       # bump gets the drift verdict in under a minute, without waiting on the
@@ -69,5 +80,6 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@main
       - name: nix flake check
         run: nix flake check -L

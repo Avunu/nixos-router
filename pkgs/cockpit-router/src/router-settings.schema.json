@@ -587,6 +587,11 @@
               "minimum": 0,
               "type": "integer"
             },
+            "resolveMdns": {
+              "default": false,
+              "description": "Resolve arbitrary `.local` mDNS (Avahi/Bonjour) hostnames via a live\nmulticast DNS probe, in addition to the router's always-on live\nresolution of adopted (router.hosts) devices under router.lan.domain.\n",
+              "type": "boolean"
+            },
             "safeSearch": {
               "default": false,
               "description": "Enforce SafeSearch (Google, Bing, DuckDuckGo, YouTube) globally via\nprovisioned ANAME records. Technitium has no built-in SafeSearch.\n",
