@@ -1,0 +1,90 @@
+# Auto-fixes router-settings.schema.json drift — the one thing checks.yml's
+# `router-schema-fresh` check can only detect, never repair.
+#
+# Modeled on jxsuite/jx's schemas.yml, cut down to this repo's much smaller
+# surface: one generator (`packages.settingsSchema-router`), one committed
+# file, and no meaningful volume of fork pull requests. So unlike that
+# workflow, this one skips a bespoke pointer-diff report generator, a
+# fork-artifact fallback, and a checks-API neutral conclusion — a `git diff`
+# against a single JSON file already tells a reviewer everything they need,
+# and `router-schema-fresh`'s own failure message already tells a fork
+# contributor how to fix it by hand.
+#
+# `main` here carries no ruleset requiring pull requests (a direct push is
+# how most of this repo's history landed), so — unlike jx, which must open a
+# drift PR because its trunk cannot be pushed to directly — this lane always
+# pushes straight to whatever ref triggered it: the PR branch on a pull
+# request, `main` on a push there. Termination is a fixed point rather than a
+# guard: the generator is deterministic, so the run this lane's own push
+# triggers regenerates to identical bytes and pushes nothing.
+#
+# Fork pull requests are skipped outright: `GITHUB_TOKEN` is read-only
+# against a fork by design, so there is nothing this lane could push.
+name: schema-sync
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Pushes the regeneration. Nothing else in this workflow needs more than that.
+permissions:
+  contents: write
+
+concurrency:
+  group: schema-sync-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  regenerate:
+    if: github.event.pull_request.head.repo.fork != true
+    runs-on: ubuntu-latest
+    # A liveness bound, not a performance budget: the eval + jq diff is under
+    # a minute, so anything near this means the build hung.
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: true
+
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: false
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+        with:
+          use-flakehub: false
+
+      - name: Regenerate router-settings.schema.json if it drifted
+        id: sync
+        run: |
+          set -euo pipefail
+          fresh="$(nix build --no-link --print-out-paths \
+            '.#packages.x86_64-linux.settingsSchema-router')"
+          jq -S . "$fresh" > /tmp/fresh-schema.json
+          if diff -q /tmp/fresh-schema.json \
+              pkgs/cockpit-router/src/router-settings.schema.json >/dev/null; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            cp /tmp/fresh-schema.json pkgs/cockpit-router/src/router-settings.schema.json
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # Same-repo pull request or a push to `main`: push the fix to whichever
+      # ref triggered this run. `checks.yml`'s `router-schema-fresh` on the
+      # new head then goes green on its own.
+      - name: Push the regenerated schema
+        if: steps.sync.outputs.changed == 'true'
+        env:
+          BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- pkgs/cockpit-router/src/router-settings.schema.json
+          git commit -m "chore(schema): regenerate stale router-settings.schema.json" \
+            -m "Written by .github/workflows/schema-sync.yml. This file is a build output of router.* options, not hand-authored — see the comment above router-schema-fresh in flake.nix."
+          # Fully qualified: this ref works whether the checkout above left us
+          # on a normal branch or (rarely) a detached HEAD.
+          git push origin "HEAD:refs/heads/${BRANCH}"

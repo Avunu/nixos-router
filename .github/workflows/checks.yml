@@ -33,7 +33,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      # `determinate: false` — this flake declares no Determinate-only
+      # nixConfig (lazy trees, FlakeHub substituters), so there's nothing to
+      # gain from Determinate Nix here, and the default `true` has the
+      # installer's `determinate-nixd` try to log into FlakeHub on a repo
+      # that isn't registered there, which just logs a failure annotation.
       - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: false
 
       # Backs /nix/store with the GitHub Actions cache, so re-evaluating and
       # rebuilding the same derivations across runs (and across the `fast`/`vm`
@@ -84,6 +91,8 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: false
       - uses: DeterminateSystems/magic-nix-cache-action@main
         with:
           use-flakehub: false
