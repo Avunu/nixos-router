@@ -40,6 +40,7 @@ let
     lanGW
     guestGW
     allHomeNets
+    brLAN
     ;
 
   catalog = import ./filter-catalog.nix;
@@ -206,6 +207,23 @@ let
             includeBlockingInfo = true;
           }
         ];
+        # Config for pkgs/technitium-apps/RouterLiveDnsApp — present
+        # unconditionally, matching this file's convention above (every Log
+        # Exporter target must be present even when disabled). The "local"
+        # zone/mdns branch is simply never invoked when resolveMdns is off,
+        # since no zone/APP record exists there — see localDnsZones below.
+        "Router Live DNS" = {
+          hostZone = hostZone;
+          dynamicHosts = map (h: {
+            inherit (h) slug mac;
+          }) dynamicHostSlugsUsable;
+          neighborRefreshIntervalSeconds = 20;
+          ipTool = "${pkgs.iproute2}/bin/ip";
+          mdns = {
+            interface = brLAN;
+            queryTimeoutMs = 1200;
+          };
+        };
       };
 
       policy = {
@@ -291,9 +309,20 @@ let
     slug = slugOf h.name;
   }) (filter (h: h.staticIp != null) cfg.hosts);
 
+  # Adopted hosts with no static IP get no explicit record (hostRecords,
+  # below) — instead the "Router Live DNS" app (pkgs/technitium-apps) resolves
+  # them live from the ARP/NDP neighbor table, keyed by MAC. Slugified the
+  # same way as static hosts so the two sets share one collision check.
+  dynamicHostSlugs = map (h: {
+    inherit (h) name mac;
+    slug = slugOf h.name;
+  }) (filter (h: h.staticIp == null) cfg.hosts);
+
   slugDupes = attrNames (
     filterAttrs (_: c: c > 1) (
-      foldl' (acc: e: acc // { ${e.slug} = (acc.${e.slug} or 0) + 1; }) { } staticHostSlugs
+      foldl' (acc: e: acc // { ${e.slug} = (acc.${e.slug} or 0) + 1; }) { } (
+        staticHostSlugs ++ dynamicHostSlugs
+      )
     )
   );
 
@@ -308,6 +337,14 @@ let
     && !(elem "${e.slug}.${hostZone}" overrideNames)
     && "${e.slug}.${hostZone}" != toLower localZone
   ) staticHostSlugs;
+
+  dynamicHostSlugsUsable = filter (
+    e:
+    e.slug != ""
+    && !(elem e.slug slugDupes)
+    && !(elem "${e.slug}.${hostZone}" overrideNames)
+    && "${e.slug}.${hostZone}" != toLower localZone
+  ) dynamicHostSlugs;
 
   hostRecords = optionals registerHosts (
     map (e: {
@@ -341,7 +378,13 @@ let
   # these that is a suffix of its name; with no match it becomes its own
   # zone. `localZone` is deliberately absent: it stays the Primary zone it
   # already is, and a more specific zone always wins in Technitium anyway.
-  declaredRoots = forwardZoneNames ++ optional registerHosts hostZone;
+  #
+  # hostZone is unconditional (not gated by registerHosts): "adopted hosts
+  # should always resolve" — a dynamic (no staticIp) router.hosts entry only
+  # ever gets a name via the Router Live DNS app's live lookup, so the zone
+  # carrying its apex APP record must exist regardless of registerHosts,
+  # which continues to gate only the explicit static hostRecords/PTR below.
+  declaredRoots = forwardZoneNames ++ [ hostZone ];
 
   isUnderZone = name: root: name == root || hasSuffix ".${root}" name;
   rootFor =
@@ -354,6 +397,19 @@ let
 
   implicitRoots = subtractLists declaredRoots (unique (map (r: rootFor r.name) localDnsRecords));
 
+  # Zone-apex APP record dispatching to the "Router Live DNS" app
+  # (pkgs/technitium-apps/RouterLiveDnsApp): resolves adopted router.hosts
+  # entries without a static IP (hostZone, always) or live mDNS *.local names
+  # (the "local" zone, only when resolveMdns is on). classPath must equal the
+  # app's C# Type.FullName exactly; appName must equal its installed app name.
+  routerLiveDnsAppRecord = zoneName: {
+    name = zoneName;
+    appName = "Router Live DNS";
+    classPath = "RouterLiveDns.App";
+    data = "";
+    ttl = 60;
+  };
+
   localDnsZones = sort (a: b: a.zone < b.zone) (
     map (z: {
       zone = toLower z.zone;
@@ -362,16 +418,33 @@ let
         inherit (z) protocol dnssecValidation;
         forwarder = f;
       }) z.forwarders;
+      appRecords = [ ];
     }) dcfg.forwardZones
-    ++ optional registerHosts {
-      zone = hostZone;
-      type = "Forwarder";
-      forwarders = upstreamFwd;
+    ++ [
+      {
+        zone = hostZone;
+        type = "Forwarder";
+        forwarders = upstreamFwd;
+        appRecords = [ (routerLiveDnsAppRecord hostZone) ];
+      }
+    ]
+    ++ optional tcfg.resolveMdns {
+      # Primary, not Forwarder: there is no legitimate public upstream for
+      # `.local`, so an unresolved name should NXDOMAIN/NODATA rather than
+      # attempt a pointless upstream forward. Its mere existence — any
+      # enabled apex zone, Primary or Forwarder — is what defeats
+      # Technitium's SpecialZoneManager RFC 6762 blackhole for `local`
+      # (see the special-use-domain warning below).
+      zone = "local";
+      type = "Primary";
+      forwarders = [ ];
+      appRecords = [ (routerLiveDnsAppRecord "local") ];
     }
     ++ map (r: {
       zone = r;
       type = "Forwarder";
       forwarders = upstreamFwd;
+      appRecords = [ ];
     }) implicitRoots
   );
 
@@ -691,6 +764,15 @@ in
         default = true;
         description = "Block public DoH resolver domains in every policy (bypass prevention).";
       };
+      resolveMdns = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Resolve arbitrary `.local` mDNS (Avahi/Bonjour) hostnames via a live
+          multicast DNS probe, in addition to the router's always-on live
+          resolution of adopted (router.hosts) devices under router.lan.domain.
+        '';
+      };
     };
   };
 
@@ -726,15 +808,22 @@ in
           message = "router.dns.overrides: ${concatStringsSep ", " shadowedOverrides} sits inside a router.dns.forwardZones zone, which forwards the entire subtree — remove the override or narrow the forward zone.";
         }
         {
-          assertion = !(registerHosts && elem hostZone forwardZoneNames);
-          message = "router.dns.forwardZones: '${hostZone}' is the LAN domain and router.dns.registerStaticHosts publishes host records into it — disable registerStaticHosts or forward a narrower zone.";
+          # hostZone is always a zone now (adopted hosts resolve live
+          # regardless of registerStaticHosts), so this conflict is checked
+          # unconditionally rather than only when registerHosts is set.
+          assertion = !(elem hostZone forwardZoneNames);
+          message = "router.dns.forwardZones: '${hostZone}' is the LAN domain — router.hosts entries (static via registerStaticHosts, dynamic via the Router Live DNS app) publish records into it, so forwarding the whole zone elsewhere would shadow them. Forward a narrower zone instead.";
+        }
+        {
+          assertion = !(tcfg.resolveMdns && (hostZone == "local"));
+          message = "router.dns.technitium.resolveMdns and router.lan.domain = \"local\" both want to own the `local` zone apex with incompatible zone types — pick a different router.lan.domain.";
         }
       ];
 
       warnings =
-        optional (registerHosts && slugDupes != [ ]) ''
-          router.dns.registerStaticHosts: these device names slugify to the same
-          DNS label, so NONE of them is published: ${concatStringsSep ", " slugDupes}.
+        optional (slugDupes != [ ]) ''
+          router.hosts: these device names slugify to the same DNS label, so
+          NONE of them is published: ${concatStringsSep ", " slugDupes}.
           Rename the devices in router.hosts, or add explicit router.dns.overrides.
         ''
         ++ optional (apexOverrides != [ ]) ''

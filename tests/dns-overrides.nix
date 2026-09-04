@@ -269,9 +269,15 @@ let
     }
     {
       # The validation lives outside the mkIf so a settings file stays fixable
-      # while the engine is off.
+      # while the engine is off. hostZone (the LAN domain) is now always a
+      # declared root — regardless of registerStaticHosts or technitium.enable,
+      # since an adopted host with no static IP only ever resolves through it
+      # via the Router Live DNS app — so "nas.example.test" (a suffix of
+      # hostZone "example.test") is absorbed into that zone rather than
+      # becoming its own, and off.router.dns.registerStaticHosts = false only
+      # suppresses the explicit static A/PTR record, not the zone itself.
       name = "spec-still-evaluates-with-filtering-disabled";
-      ok = map (z: z.zone) off.router._localDnsZones == [ "nas.example.test" ];
+      ok = map (z: z.zone) off.router._localDnsZones == [ "example.test" ];
       detail = "the zone model is gated on dns.technitium.enable";
     }
     {

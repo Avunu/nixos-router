@@ -1,7 +1,9 @@
 # ── Technitium DNS Apps ─────────────────────────────────────────────────────────
-# Compiles the three DNS apps this router uses — Advanced Blocking, Log Exporter,
-# and Block Page — from the Technitium DnsServer source (`technitium-dns` flake
-# input) instead of downloading the pre-built app zips.
+# Compiles the DNS apps this router uses — Advanced Blocking, Log Exporter,
+# Block Page, and this repo's own Router Live DNS — from the Technitium DnsServer
+# source (`technitium-dns` flake input) instead of downloading the pre-built app
+# zips. Router Live DNS is NOT part of upstream Technitium: its source lives in
+# ./RouterLiveDnsApp and is copied into the build tree below.
 #
 # Built exactly like nixpkgs' technitium-dns-server: buildDotnetModule with the
 # ASP.NET Core 10 runtime (Block Page uses it) and the TechnitiumLibrary DLLs
@@ -39,10 +41,24 @@ buildDotnetModule (finalAttrs: {
     "Apps/AdvancedBlockingApp/AdvancedBlockingApp.csproj"
     "Apps/LogExporterApp/LogExporterApp.csproj"
     "Apps/BlockPageApp/BlockPageApp.csproj"
+    "Apps/RouterLiveDnsApp/RouterLiveDnsApp.csproj"
   ];
 
+  # Router Live DNS isn't part of the upstream checkout — its source (this
+  # repo's ./RouterLiveDnsApp) has to land in the build tree BEFORE
+  # dotnetConfigureHook's `dotnet restore` runs (configurePhase), since
+  # restore needs the .csproj listed in `projectFile` to already exist —
+  # postPatch (end of patchPhase) is the latest hook that still runs early
+  # enough.
+  postPatch = ''
+    mkdir -p Apps/RouterLiveDnsApp
+    cp -r ${./RouterLiveDnsApp}/* Apps/RouterLiveDnsApp/
+  '';
+
   # The apps reference pre-built TechnitiumLibrary DLLs via a HintPath to a
-  # sibling ../../../TechnitiumLibrary/bin — stage them there (as the server does).
+  # sibling ../../../TechnitiumLibrary/bin — stage them there (as the server
+  # does). This is only needed at compile time, so preBuild (unlike the
+  # postPatch source copy above) is late enough.
   preBuild = ''
     mkdir -p ../TechnitiumLibrary/bin
     cp -r ${technitium-dns-server-library}/lib/${technitium-dns-server-library.pname}/* ../TechnitiumLibrary/bin/
@@ -65,12 +81,13 @@ buildDotnetModule (finalAttrs: {
     publishApp "Apps/AdvancedBlockingApp/AdvancedBlockingApp.csproj" "Advanced Blocking"
     publishApp "Apps/LogExporterApp/LogExporterApp.csproj" "Log Exporter"
     publishApp "Apps/BlockPageApp/BlockPageApp.csproj" "Block Page"
+    publishApp "Apps/RouterLiveDnsApp/RouterLiveDnsApp.csproj" "Router Live DNS"
 
     runHook postInstall
   '';
 
   meta = {
-    description = "Technitium DNS Apps (Advanced Blocking, Log Exporter, Block Page) built from source";
+    description = "Technitium DNS Apps (Advanced Blocking, Log Exporter, Block Page, Router Live DNS) built from source";
     homepage = "https://github.com/TechnitiumSoftware/DnsServer";
     license = lib.licenses.gpl3Only;
     platforms = lib.platforms.linux;

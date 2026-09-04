@@ -27,6 +27,94 @@
   routerModule,
   baseSettings,
 }:
+let
+  # Minimal, deliberately non-RFC-6762-faithful mDNS stand-in for the
+  # resolveMdns subtests below: a stand-in like vmtest-internal-dns is for
+  # split-horizon forwarding, just at the mDNS layer instead of unicast DNS.
+  # It only needs to prove the Router Live DNS app's raw multicast query/parse
+  # round-trips correctly against a real UDP multicast exchange — it answers
+  # ONE fixed name and replies to the multicast group (matching real mDNS
+  # responder behavior, and required so the reply reaches the resolver's
+  # per-query socket regardless of how the kernel's SO_REUSEPORT unicast
+  # hashing would otherwise split traffic with avahi-daemon's own listener).
+  mdnsTestResponder = pkgs.writers.writePython3Bin "mdns-test-responder" { } ''
+    import socket
+    import struct
+
+    TARGET = "test-device.local"
+    ANSWER_IP = "10.48.4.90"
+
+
+    def encode_name(name):
+        out = b""
+        for label in name.split("."):
+            out += bytes([len(label)]) + label.encode("ascii")
+        return out + b"\x00"
+
+
+    def decode_name(data, offset):
+        labels = []
+        while True:
+            length = data[offset]
+            if length == 0:
+                offset += 1
+                break
+            offset += 1
+            end = offset + length
+            labels.append(data[offset:end].decode("ascii"))
+            offset += length
+        return ".".join(labels), offset
+
+
+    def main():
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        sock.bind(("0.0.0.0", 5353))
+        group = socket.inet_aton("224.0.0.251")
+        # The join's interface selector must be a real local address - "0.0.0.0"
+        # (kernel picks the default-route interface) raises ENODEV in a netns
+        # with no default route, which this fixture's netns deliberately has
+        # none of. ANSWER_IP is this netns's own veth address, so it always
+        # resolves to the one interface that matters here.
+        iface = socket.inet_aton(ANSWER_IP)
+        mreq = struct.pack("4s4s", group, iface)
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
+        # Same reasoning for SENDING: with no default route in this netns,
+        # the kernel has no way to pick an outgoing interface for a multicast
+        # destination unless told explicitly.
+        sock.setsockopt(socket.IPPROTO_IP, socket.IP_MULTICAST_IF, iface)
+
+        while True:
+            data, addr = sock.recvfrom(4096)
+            if len(data) < 12:
+                continue
+            qdcount = struct.unpack(">H", data[4:6])[0]
+            if qdcount < 1:
+                continue
+            name, _ = decode_name(data, 12)
+            if name != TARGET:
+                continue
+
+            ident = data[0:2]
+            counts = struct.pack(">HHHH", 0, 1, 0, 0)
+            header = ident + b"\x84\x00" + counts
+            rr_head = struct.pack(">HHIH", 1, 1, 120, 4)
+            rdata = socket.inet_aton(ANSWER_IP)
+            answer = encode_name(TARGET) + rr_head + rdata
+            # Reply to the multicast group (RFC 6762 SS6), not unicast to the
+            # querier: avahi-daemon and the resolver's per-query socket both
+            # bind :5353 with SO_REUSEPORT, which load-balances a UNICAST
+            # packet to exactly one of them by hash - it could land on either.
+            # A multicast reply is delivered to every group member instead,
+            # so the resolver (having joined 224.0.0.251) always gets it.
+            sock.sendto(header + answer, ("224.0.0.251", 5353))
+
+
+    if __name__ == "__main__":
+        main()
+  '';
+in
 pkgs.testers.runNixOSTest {
   name = "router-technitium";
 
@@ -75,7 +163,19 @@ pkgs.testers.runNixOSTest {
               network = "lan";
               user = "ghost";
             }
+            {
+              # No staticIp: adopted but DHCP-dynamic. Only ever resolves via
+              # the Router Live DNS app's live ARP/NDP lookup (Gap 1) — proves
+              # "adopted hosts should always resolve" independent of
+              # registerStaticHosts, which stays true above for the static
+              # hosts' explicit-record/PTR path.
+              mac = "aa:bb:cc:dd:ee:04";
+              name = "dyn-1";
+              network = "lan";
+            }
           ];
+
+          router.dns.technitium.resolveMdns = true;
 
           # Hermetic policies: static domains only, no list downloads.
           router.accessPolicies = {
@@ -309,6 +409,7 @@ pkgs.testers.runNixOSTest {
             pkgs.curl
             pkgs.jq
             pkgs.nftables
+            mdnsTestResponder
           ];
         }
       ];
@@ -699,6 +800,91 @@ pkgs.testers.runNixOSTest {
             "ip netns exec kid dig +short +time=10 +tries=1 @10.48.4.1 -x 10.48.4.50"
         )
 
+    # ── Router Live DNS: adopted hosts + mDNS ─────────────────────────────
+    with subtest(
+        "an unregistered name under the LAN domain still falls through, not blocked by the app"
+    ):
+        # Same invariant as "the public horizon survives an override", now for
+        # hostZone's apex APP record: a name the Router Live DNS app does not
+        # recognize must fall through to hostZone's FWD forwarders (returning
+        # null lets Technitium's own ProcessAPPAsync do this), not become an
+        # authoritative NXDOMAIN the app itself claims.
+        out = router.succeed(dig.format(ns="guestpc", name="nobody-adopted-this-name.lan"))
+        assert "NXDOMAIN" not in out, out
+
+    with subtest("a dynamic (non-static-IP) host resolves live, and stops once it's gone"):
+        # Not yet ARP-visible: no answer.
+        answer = router.succeed(dig_short.format(ns="guestpc", name="dyn-1.lan"))
+        assert answer.strip() == "", answer
+
+        router.succeed("ip netns add dynhost")
+        router.succeed("ip link add veth-dynhost type veth peer name vbr-dynhost")
+        router.succeed("ip link set vbr-dynhost master br-lan up")
+        router.succeed("ip link set veth-dynhost netns dynhost")
+        router.succeed("ip -n dynhost link set lo up")
+        router.succeed("ip -n dynhost link set veth-dynhost address aa:bb:cc:dd:ee:04")
+        router.succeed("ip -n dynhost link set veth-dynhost up")
+        router.succeed("ip -n dynhost addr add 10.48.4.71/24 dev veth-dynhost")
+        # A real ARP exchange, so the router's kernel neighbor table — what
+        # NeighborCache polls via `ip -j neigh` — actually learns this MAC <->
+        # IP pairing, exactly as it would for a real device joining the LAN.
+        router.succeed("ip netns exec dynhost ping -c1 -W2 10.48.4.1")
+
+        router.wait_until_succeeds(
+            dig_short.format(ns="guestpc", name="dyn-1.lan") + " | grep -qx 10.48.4.71",
+            timeout=60,
+        )
+
+        # Remove it from the router's neighbor table directly (deterministic,
+        # rather than waiting out the kernel's own ARP aging) and confirm the
+        # name stops answering once the next refresh cycle sees it gone —
+        # proof this is a live lookup, not a one-time snapshot.
+        router.succeed("ip neigh del 10.48.4.71 dev br-lan")
+        router.wait_until_succeeds(
+            f'test -z "$({dig_short.format(ns="guestpc", name="dyn-1.lan")})"',
+            timeout=60,
+        )
+
+    with subtest("resolveMdns: local is an authoritative Primary zone carrying the app record"):
+        zones = json.loads(
+            router.succeed(
+                f"curl -sS -H 'Authorization: Bearer {token}' "
+                "'http://127.0.0.1:5380/api/zones/list'"
+            )
+        )["response"]["zones"]
+        by_name = {z["name"]: z for z in zones}
+        assert by_name["local"]["type"] == "Primary", zones
+        records = json.loads(
+            router.succeed(
+                f"curl -sS -H 'Authorization: Bearer {token}' "
+                "'http://127.0.0.1:5380/api/zones/records/get"
+                "?domain=local&zone=local&listZone=true'"
+            )
+        )["response"]["records"]
+        assert any(r["type"] == "APP" for r in records), records
+
+    with subtest("resolveMdns: a live mDNS responder resolves by its broadcast name"):
+        router.succeed("ip netns add mdnsdev")
+        router.succeed("ip link add veth-mdnsdev type veth peer name vbr-mdnsdev")
+        router.succeed("ip link set vbr-mdnsdev master br-lan up")
+        router.succeed("ip link set veth-mdnsdev netns mdnsdev")
+        router.succeed("ip -n mdnsdev link set lo up")
+        router.succeed("ip -n mdnsdev addr add 10.48.4.90/24 dev veth-mdnsdev")
+        router.succeed("ip -n mdnsdev link set veth-mdnsdev up")
+        router.succeed(
+            "ip netns exec mdnsdev sh -c "
+            "'nohup mdns-test-responder </dev/null >/tmp/mdns-responder.log 2>&1 &'"
+        )
+
+        router.wait_until_succeeds(
+            dig_short.format(ns="guestpc", name="test-device.local") + " | grep -qx 10.48.4.90",
+            timeout=30,
+        )
+
+    with subtest("resolveMdns: a name nobody answers for is NXDOMAIN, not a hang"):
+        out = router.succeed(dig.format(ns="guestpc", name="nobody-here.local"))
+        assert "NXDOMAIN" in out, out
+
     with subtest("removing an override reaps its zone"):
         # Reconcile is idempotent but it is also the only thing that DELETES;
         # a removal that leaves the zone behind keeps answering forever, which
@@ -721,5 +907,26 @@ pkgs.testers.runNixOSTest {
         assert "nas.example.vmtest" not in {z["name"] for z in zones}, zones
         # The rest of the set is untouched.
         assert "example.vmtest" in {z["name"] for z in zones}, zones
+
+    with subtest("toggling resolveMdns off reaps the local zone"):
+        # Mirrors the override-reap test above for the other kind of zone
+        # this feature creates: dropping "local" from the desired set (as Nix
+        # does when router.dns.technitium.resolveMdns flips to false) must
+        # delete the zone, not just stop updating it.
+        router.succeed(
+            "jq --arg z local "
+            "'.localDns.zones |= map(select(.zone != $z))' "
+            f"{cfg_path.strip()} > /tmp/reduced2.json"
+        )
+        router.succeed(f"{binary} --config /tmp/reduced2.json")
+        zones = json.loads(
+            router.succeed(
+                f"curl -sS -H 'Authorization: Bearer {token}' "
+                "'http://127.0.0.1:5380/api/zones/list'"
+            )
+        )["response"]["zones"]
+        assert "local" not in {z["name"] for z in zones}, zones
+        # The rest of the set (in particular hostZone) is untouched.
+        assert "lan" in {z["name"] for z in zones}, zones
   '';
 }

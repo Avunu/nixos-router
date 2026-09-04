@@ -154,6 +154,25 @@ def reconcile_local_dns(client: TechnitiumClient, cfg: dict, zones: dict[str, st
         for fwd in zone_spec.get("forwarders", []):
             write(zone, "FWD", fwd["forwarder"], _fwd_rdata(fwd), 3600, {})
 
+        # APP records dispatch dynamic (live) resolution to a Technitium DNS
+        # App — the "Router Live DNS" app for adopted hosts / mDNS, see
+        # modules/dns-technitium.nix. Three distinct API params, not one flat
+        # `value`, so — like FWD above — this gets its own loop rather than
+        # going through rdata_for.
+        for app in zone_spec.get("appRecords", []):
+            write(
+                app["name"],
+                "APP",
+                f'{app["appName"]}\t{app["classPath"]}',
+                {
+                    "appName": app["appName"],
+                    "classPath": app["classPath"],
+                    "recordData": app.get("data", ""),
+                },
+                app["ttl"],
+                {},
+            )
+
         for rec in zone_spec.get("records", []):
             write(
                 rec["name"],
