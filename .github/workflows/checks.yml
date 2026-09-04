@@ -38,7 +38,11 @@ jobs:
       # Backs /nix/store with the GitHub Actions cache, so re-evaluating and
       # rebuilding the same derivations across runs (and across the `fast`/`vm`
       # jobs' shared inputs) doesn't refetch or rebuild from scratch every time.
+      # `use-flakehub: false` — this repo isn't a FlakeHub flake, and without it
+      # the action logs a FlakeHub-login-failure annotation on every run.
       - uses: DeterminateSystems/magic-nix-cache-action@main
+        with:
+          use-flakehub: false
 
       # Listed individually rather than via `nix flake check` so a dependency
       # bump gets the drift verdict in under a minute, without waiting on the
@@ -81,5 +85,7 @@ jobs:
 
       - uses: DeterminateSystems/nix-installer-action@main
       - uses: DeterminateSystems/magic-nix-cache-action@main
+        with:
+          use-flakehub: false
       - name: nix flake check
         run: nix flake check -L
