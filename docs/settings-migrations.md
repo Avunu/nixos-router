@@ -5,14 +5,20 @@ A router's configuration lives in `/etc/nixos/router-settings.json`, the file Co
 The module's options sometimes change shape between versions. For example, port forwards used to name an IPv4 `destination` and now name a registered `host`. So the host flake must read the file **through `nixos-router.lib`**, which upgrades settings written for an older version on the way in:
 
 ```nix
-settings = nixos-router.lib.readSettings ./router-settings.json;
-...
-modules = [
-  nixos-router.nixosModules.router
-  (nixos-router.lib.settingsModule ./router-settings.json)
-  # ... locked settings module ...
-];
+router = nixpkgs.lib.nixosSystem {
+  modules = [
+    nixos-router.nixosModules.router
+    (nixos-router.lib.settingsModule ./router-settings.json)
+    # ... locked settings module ...
+  ];
+};
+nixosConfigurations = {
+  ${router.config.networking.hostName} = router;
+  default = router;
+};
 ```
+
+The configuration is named after the evaluated system's hostname, so the file is read exactly once. If the flake needs a value from the settings outside a module, `nixos-router.lib.readSettings ./router-settings.json` returns them, upgraded the same way.
 
 New deployments get this automatically:
 
@@ -38,7 +44,7 @@ A router installed from an older ISO has a line like this instead:
 On such a router, an upgrade that changes an option's shape fails with an error like `The option router.portForwards."[definition 1-entry 1]".destination does not exist`. The running system is unaffected: nothing is switched. Fix it once in `/etc/nixos/flake.nix`:
 
 1.  Replace the settings module line, either `{ router = nixpkgs.lib.mkDefault settings; }` or `{ router = load "router"; }`, with `(nixos-router.lib.settingsModule ./router-settings.json)`.
-2.  If the file has a `settings = builtins.fromJSON (…);` line, replace it with `settings = nixos-router.lib.readSettings ./router-settings.json;`.
+2.  If the file still has a `settings = builtins.fromJSON (…);` line, it only names the configuration after `hostName`. That can stay, since `hostName` never changes shape, or you can move to the template's evaluated-hostname naming in `local/flake.nix`.
 3.  Run `system-upgrade` again.
 
 ## What happens during an upgrade

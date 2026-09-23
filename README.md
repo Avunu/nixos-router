@@ -19,12 +19,17 @@ A NixOS module that turns a multi-NIC machine into a small business router, usin
 A router is a small host flake in `/etc/nixos`, plus a `router-settings.json` file that holds the router's configuration. Cockpit edits that file, and a rebuild applies it. `local/flake.nix` is the host flake template:
 
 ```nix
-settings = nixos-router.lib.readSettings ./router-settings.json;
-...
-modules = [
-  nixos-router.nixosModules.router
-  (nixos-router.lib.settingsModule ./router-settings.json)
-];
+router = nixpkgs.lib.nixosSystem {
+  modules = [
+    nixos-router.nixosModules.router
+    (nixos-router.lib.settingsModule ./router-settings.json)
+  ];
+};
+# Named after the hostName in router-settings.json, plus a `default` alias.
+nixosConfigurations = {
+  ${router.config.networking.hostName} = router;
+  default = router;
+};
 ```
 
 Always load the settings through `nixos-router.lib`. It upgrades settings written for older versions, so an upgrade never fails on them. See [docs/settings-migrations.md](docs/settings-migrations.md).
