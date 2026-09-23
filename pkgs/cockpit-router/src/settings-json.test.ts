@@ -18,6 +18,7 @@ import {
   deepEqual,
   getPath,
   isLocked,
+  rebaseEdits,
   setPath,
 } from "./settings-json.ts";
 
@@ -226,4 +227,47 @@ void test("changedTopKeys reports only sections that differ", () => {
   assert.deepEqual(changedTopKeys({ a: 1 }, { a: 1 }), []);
   // A key present on one side only is a change.
   assert.deepEqual(changedTopKeys({ a: 1, c: 1 }, { a: 1 }), ["c"]);
+});
+
+// rebaseEdits keeps an open form in step with the file: without it, a page
+// left open across the changes tray's Revert wrote its stale copy straight
+// back, undoing the revert on the next save.
+void test("rebaseEdits: an untouched form takes the file as it now is", () => {
+  const pending = new Map<string, Json>();
+  const disk: Json = { upnp: { enable: false }, hostName: "r1" };
+  assert.deepEqual(rebaseEdits(disk, pending), disk);
+});
+
+void test("rebaseEdits: unsaved edits survive a change made elsewhere", () => {
+  const pending = new Map<string, Json>([["upnp.enable", true]]);
+  const reverted: Json = { upnp: { enable: false }, hostName: "reverted" };
+  assert.deepEqual(rebaseEdits(reverted, pending), {
+    upnp: { enable: true },
+    hostName: "reverted",
+  });
+  assert.equal(pending.size, 1, "still unsaved, still pending");
+});
+
+void test("rebaseEdits: an edit the file already carries counts as saved", () => {
+  const pending = new Map<string, Json>([["hostName", "r2"]]);
+  rebaseEdits({ hostName: "r2" }, pending); // this form's own save landed
+  assert.equal(pending.size, 0);
+  // …so the tray reverting it afterwards is not undone by the form.
+  assert.deepEqual(rebaseEdits({ hostName: "r1" }, pending), { hostName: "r1" });
+});
+
+void test("rebaseEdits: a later parent edit wins over an earlier child edit", () => {
+  const pending = new Map<string, Json>([
+    ["ddns.ttl", 300],
+    ["ddns", { enable: true, ttl: 60 }],
+  ]);
+  assert.deepEqual(rebaseEdits({ ddns: { enable: false } }, pending), {
+    ddns: { enable: true, ttl: 60 },
+  });
+});
+
+void test("rebaseEdits: clearing a value the file never set is nothing to re-apply", () => {
+  const pending = new Map<string, Json>([["ddns.cloudflare.apiTokenFile", null]]);
+  assert.deepEqual(rebaseEdits({ ddns: {} }, pending), { ddns: {} });
+  assert.equal(pending.size, 0);
 });

@@ -4,9 +4,11 @@
 // Devices tab: one table keyed by lowercase MAC that overlays the registry on
 // the live neighbor list. Adopting a device records it in the registry; giving
 // it a static IP creates a DHCP reservation, which device-tier access policies
-// require (the IP→device mapping must be stable). Groups tab: named device
-// groups that access policies can target, with referential integrity into
-// hosts[].group on rename/delete.
+// require (the IP→device mapping must be stable). An IPv6 suffix and a public
+// hostname make a device reachable from the internet (port forwards, dynamic
+// DNS); port forwards follow a device's rename and go with it on removal.
+// Groups tab: named device groups that access policies can target, with
+// referential integrity into hosts[].group on rename/delete.
 import { useEffect, useState, useCallback, useMemo } from "react";
 import type { Ref } from "react";
 import { errMsg } from "./nix";
@@ -63,10 +65,20 @@ import {
 import { useSettings, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
 import { loadNeighbors, resolveNames, loadOuiMap, vendorFor, isIPv4 } from "./hosts-live";
 import type { LiveHost } from "./hosts-live";
-import { suggestStaticIp, cidrContains, ipToInt } from "./ip-math";
+import {
+  suggestStaticIp,
+  cidrContains,
+  ipToInt,
+  normalizeSuffix,
+  suffixOf,
+  eui64Suffix,
+  isGlobalIPv6,
+  isHostname,
+} from "./ip-math";
 import type { NetworkShape } from "./ip-math";
 import { loadDirectoryAll } from "./directory";
-import type { RouterHost, HostGroup, DirectoryUser } from "./types";
+import { renameForwardHost, normalizeForward } from "./forwards";
+import type { RouterHost, HostGroup, DirectoryUser, PortForward } from "./types";
 
 const _ = cockpit.gettext;
 
@@ -138,6 +150,37 @@ function checkStaticIp(ip: string, shape: NetworkShape | null, taken: string[]):
         msg: _("Inside the dynamic pool — will be excluded from dynamic assignment."),
       };
     }
+  }
+  return null;
+}
+
+// Suffix / public-name validation, mirroring modules/hosts.nix's assertions.
+function checkSuffix(value: string, takenSuffixes: string[]): IpIssue | null {
+  if (!value) {
+    return null;
+  }
+  const norm = normalizeSuffix(value);
+  if (!norm) {
+    return {
+      level: "error",
+      msg: _("Not an interface identifier: only the low 64 bits may be set, e.g. ::42."),
+    };
+  }
+  if (takenSuffixes.includes(norm)) {
+    return { level: "error", msg: _("Another device on this network uses this suffix.") };
+  }
+  return null;
+}
+
+function checkPublicName(value: string, takenNames: string[]): IpIssue | null {
+  if (!value) {
+    return null;
+  }
+  if (!isHostname(value)) {
+    return { level: "error", msg: _("Not a valid DNS name, e.g. nas.example.com.") };
+  }
+  if (takenNames.includes(value.toLowerCase())) {
+    return { level: "error", msg: _("Already used by another device or by the router.") };
   }
   return null;
 }
@@ -288,9 +331,18 @@ interface DeviceDraft {
   name: string;
   network: "lan" | "guest";
   staticIp: string;
+  ipv6Suffix: string;
+  publicHostname: string;
   group: string;
   user: string;
   notes: string;
+}
+
+// Taken values for the editor's uniqueness checks, per other device.
+interface TakenSets {
+  ips: string[];
+  suffixes: (network: "lan" | "guest") => string[];
+  publicNames: string[];
 }
 
 const DeviceEditor = ({
@@ -310,20 +362,37 @@ const DeviceEditor = ({
   groups: HostGroup[];
   users: DirectoryUser[];
   unresolved: string[];
-  taken: string[];
+  taken: TakenSets;
   onSave: (h: RouterHost) => void;
   onCancel: () => void;
 }) => {
   const [name, setName] = useState(init.name);
   const [network, setNetwork] = useState<"lan" | "guest">(init.network);
   const [staticIp, setStaticIp] = useState(init.staticIp);
+  const [ipv6Suffix, setIpv6Suffix] = useState(init.ipv6Suffix);
+  const [publicHostname, setPublicHostname] = useState(init.publicHostname);
   const [group, setGroup] = useState(init.group);
   const [user, setUser] = useState(init.user);
   const [notes, setNotes] = useState(init.notes);
   const [suggestMsg, setSuggestMsg] = useState("");
 
   const shape = network === "guest" ? shapes.guest : shapes.lan;
-  const issue = checkStaticIp(staticIp.trim(), shape, taken);
+  const issue = checkStaticIp(staticIp.trim(), shape, taken.ips);
+  const suffixIssue = checkSuffix(ipv6Suffix.trim(), taken.suffixes(network));
+  const nameIssue = checkPublicName(publicHostname.trim(), taken.publicNames);
+
+  // Global addresses the device is using right now, as suffix candidates.
+  // Only a STABLE identifier works: a device on RFC 7217 stable-privacy or
+  // temporary addresses changes its suffix whenever the prefix changes.
+  const observed = [
+    ...new Set(
+      (live?.ips ?? [])
+        .filter((ip) => isGlobalIPv6(ip))
+        .map((ip) => suffixOf(ip))
+        .filter((x): x is string => x !== null),
+    ),
+  ];
+  const eui64 = eui64Suffix(init.mac);
 
   const suggest = () => {
     setSuggestMsg("");
@@ -332,7 +401,7 @@ const DeviceEditor = ({
     }
     const liveV4 = (live?.ips ?? []).filter((ip) => isIPv4(ip));
     const current = liveV4.find((ip) => cidrContains(shapeCidr(shape), ip)) ?? liveV4[0];
-    const suggestion = suggestStaticIp(shape, current, taken);
+    const suggestion = suggestStaticIp(shape, current, taken.ips);
     if (suggestion) {
       setStaticIp(suggestion);
     } else {
@@ -346,6 +415,8 @@ const DeviceEditor = ({
       name: name.trim(),
       network,
       staticIp: staticIp.trim() || null,
+      ipv6Suffix: normalizeSuffix(ipv6Suffix) ?? null,
+      publicHostname: publicHostname.trim().toLowerCase() || null,
       group: group || null,
       user: user.trim() || null,
       ...(notes.trim() ? { notes: notes.trim() } : {}),
@@ -422,6 +493,78 @@ const DeviceEditor = ({
               </HelperText>
             )}
           </FormGroup>
+          <FormGroup
+            label={_("IPv6 suffix")}
+            fieldId="devSuffix"
+            labelHelp={hint(
+              _(
+                "The low 64 bits of this device's IPv6 address (e.g. ::42). The ISP-assigned prefix changes, so IPv6 port forwards and the public AAAA record find the device by this alone. Use a stable identifier: a token configured on the device, or its EUI-64 identifier if it uses one.",
+              ),
+            )}
+          >
+            <Split hasGutter>
+              <SplitItem isFilled>
+                <TextInput
+                  id="devSuffix"
+                  value={ipv6Suffix}
+                  placeholder={_("none")}
+                  validated={suffixIssue ? suffixIssue.level : "default"}
+                  onChange={(_e, v) => setIpv6Suffix(v)}
+                  aria-label={_("IPv6 suffix")}
+                />
+              </SplitItem>
+              {eui64 && (
+                <SplitItem>
+                  <Tooltip content={cockpit.format(_("Derived from $0"), init.mac)}>
+                    <Button variant="secondary" onClick={() => setIpv6Suffix(eui64)}>
+                      {_("EUI-64")}
+                    </Button>
+                  </Tooltip>
+                </SplitItem>
+              )}
+            </Split>
+            <HelperText>
+              {suffixIssue && (
+                <HelperTextItem variant={suffixIssue.level}>{suffixIssue.msg}</HelperTextItem>
+              )}
+              {observed.length > 0 && (
+                <HelperTextItem>
+                  {_("In use now:")}{" "}
+                  {observed.map((o) => (
+                    <Button key={o} variant="link" isInline onClick={() => setIpv6Suffix(o)}>
+                      {o}
+                    </Button>
+                  ))}{" "}
+                  {_(
+                    "— only pick one the device keeps across prefix changes; privacy addresses rotate.",
+                  )}
+                </HelperTextItem>
+              )}
+            </HelperText>
+          </FormGroup>
+          <FormGroup
+            label={_("Public hostname")}
+            fieldId="devPublic"
+            labelHelp={hint(
+              _(
+                "A public DNS name dynamic DNS keeps pointed at this device: A = the router's WAN IPv4 (reach it through a port forward), AAAA = the device's own IPv6 address when it has a suffix. LAN clients resolve it to the static IP.",
+              ),
+            )}
+          >
+            <TextInput
+              id="devPublic"
+              value={publicHostname}
+              placeholder="nas.example.com"
+              validated={nameIssue ? nameIssue.level : "default"}
+              onChange={(_e, v) => setPublicHostname(v)}
+              aria-label={_("Public hostname")}
+            />
+            {nameIssue && (
+              <HelperText>
+                <HelperTextItem variant={nameIssue.level}>{nameIssue.msg}</HelperTextItem>
+              </HelperText>
+            )}
+          </FormGroup>
           <FormGroup label={_("Group")} fieldId="devGroup">
             <FormSelect
               id="devGroup"
@@ -468,7 +611,12 @@ const DeviceEditor = ({
             <Button
               variant="primary"
               onClick={commit}
-              isDisabled={!name.trim() || issue?.level === "error"}
+              isDisabled={
+                !name.trim() ||
+                issue?.level === "error" ||
+                suffixIssue?.level === "error" ||
+                nameIssue?.level === "error"
+              }
             >
               {init.isNew ? _("Adopt") : _("Update")}
             </Button>
@@ -491,6 +639,8 @@ interface DeviceRow {
 
 const DevicesTab = ({ s }: { s: S }) => {
   const hosts = s.valueOf<RouterHost[]>("hosts", []);
+  const forwards = s.valueOf<PortForward[]>("portForwards", []);
+  const routerNames = s.valueOf<string[]>("ddns.names", []);
   const groups = s.valueOf<HostGroup[]>("hostGroups", []);
   const shapes = readShapes(s);
   const { users, unresolved } = useDirectory();
@@ -578,6 +728,8 @@ const DevicesTab = ({ s }: { s: S }) => {
       row.mac,
       row.reg?.name ?? "",
       row.reg?.staticIp ?? "",
+      row.reg?.ipv6Suffix ?? "",
+      row.reg?.publicHostname ?? "",
       row.reg?.group ?? "",
       row.reg?.user ?? "",
       row.reg?.user ? userDisplay(row.reg.user) : "",
@@ -597,6 +749,28 @@ const DevicesTab = ({ s }: { s: S }) => {
       .map((h) => h.staticIp)
       .filter(Boolean) as string[];
 
+  // The same for IPv6 suffixes (unique per network) and public names (unique
+  // across devices, and apart from the router's own dynamic DNS names).
+  const takenFor = (mac: string): TakenSets => {
+    const others = hosts.filter((h) => h.mac.toLowerCase() !== mac);
+    return {
+      ips: takenIps(mac),
+      suffixes: (network) =>
+        others
+          .filter((h) => (h.network ?? "lan") === network && h.ipv6Suffix)
+          .map((h) => normalizeSuffix(h.ipv6Suffix ?? ""))
+          .filter((x): x is string => x !== null),
+      publicNames: [
+        ...others
+          .map((h) => h.publicHostname?.toLowerCase())
+          .filter((x): x is string => Boolean(x)),
+        ...routerNames.map((n) => n.toLowerCase()),
+      ],
+    };
+  };
+
+  const forwardsTo = (name: string) => forwards.filter((f) => f.host === name);
+
   const openAdopt = (row: DeviceRow) => {
     const liveV4 = (row.live?.ips ?? []).filter((ip) => isIPv4(ip));
     const inGuest = shapes.guest
@@ -615,6 +789,8 @@ const DevicesTab = ({ s }: { s: S }) => {
       name: row.live ? liveName(row.live) : "",
       network,
       staticIp: suggestion ?? "",
+      ipv6Suffix: "",
+      publicHostname: "",
       group: "",
       user: "",
       notes: "",
@@ -632,21 +808,39 @@ const DevicesTab = ({ s }: { s: S }) => {
       name: row.reg.name,
       network: row.reg.network === "guest" ? "guest" : "lan",
       staticIp: row.reg.staticIp ?? "",
+      ipv6Suffix: row.reg.ipv6Suffix ?? "",
+      publicHostname: row.reg.publicHostname ?? "",
       group: row.reg.group ?? "",
       user: row.reg.user ?? "",
       notes: row.reg.notes ?? "",
     });
   };
 
+  // Renames keep referential integrity: the device's port forwards follow in
+  // the same edit (they reference it by name).
   const commitDevice = (h: RouterHost) => {
     const idx = hosts.findIndex((x) => x.mac.toLowerCase() === h.mac.toLowerCase());
     const next = idx === -1 ? [...hosts, h] : hosts.map((x, i) => (i === idx ? h : x));
     s.setLeaf("hosts", next as unknown as Json);
+    const before = idx === -1 ? null : hosts[idx]?.name;
+    if (before && before !== h.name && forwardsTo(before).length > 0) {
+      s.setLeaf("portForwards", renameForwardHost(forwards, before, h.name) as unknown as Json);
+    }
     setEditing(null);
   };
 
+  // Removing a device removes its port forwards in the same edit — a forward
+  // to a host that no longer exists fails the rebuild. The confirm button says
+  // how many go with it.
   const removeDevice = (mac: string) => {
+    const gone = hosts.find((h) => h.mac.toLowerCase() === mac)?.name;
     s.setLeaf("hosts", hosts.filter((h) => h.mac.toLowerCase() !== mac) as unknown as Json);
+    if (gone && forwardsTo(gone).length > 0) {
+      s.setLeaf(
+        "portForwards",
+        forwards.filter((f) => f.host !== gone).map((f) => normalizeForward(f)) as unknown as Json,
+      );
+    }
     setConfirmRemove(null);
     if (editing?.mac === mac) {
       setEditing(null);
@@ -702,7 +896,7 @@ const DevicesTab = ({ s }: { s: S }) => {
             groups={groups}
             users={users}
             unresolved={unresolved}
-            taken={takenIps(editing.mac)}
+            taken={takenFor(editing.mac)}
             onSave={commitDevice}
             onCancel={() => setEditing(null)}
           />
@@ -768,6 +962,11 @@ const DevicesTab = ({ s }: { s: S }) => {
                               <strong>{row.reg.staticIp}</strong>
                             </div>
                           )}
+                          {row.reg?.ipv6Suffix && (
+                            <div>
+                              <strong>{row.reg.ipv6Suffix}</strong>
+                            </div>
+                          )}
                           {(row.live?.ips ?? [])
                             .filter((ip) => ip !== row.reg?.staticIp)
                             .map((ip) => (
@@ -800,7 +999,12 @@ const DevicesTab = ({ s }: { s: S }) => {
                                 isDanger
                                 onClick={() => removeDevice(row.mac)}
                               >
-                                {_("Confirm remove")}
+                                {row.reg && forwardsTo(row.reg.name).length > 0
+                                  ? cockpit.format(
+                                      _("Confirm remove (and its $0 port forward(s))"),
+                                      forwardsTo(row.reg.name).length,
+                                    )
+                                  : _("Confirm remove")}
                               </Button>{" "}
                               <Button
                                 variant="link"

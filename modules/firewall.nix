@@ -1,5 +1,5 @@
 # ── Firewall module ───────────────────────────────────────────────────────────
-# The complete nftables ruleset (inet filter + ip nat with DNS hijacking + inet
+# The complete nftables ruleset (inet filter + inet nat with DNS hijacking + inet
 # dns_bypass), generated from the topology and the WireGuard / port-forward
 # options, plus optional UPnP-IGD/NAT-PMP via miniupnpd. The ruleset is kept as a
 # single atomic flush-ruleset string; interface names come from the shared
@@ -12,6 +12,7 @@
 with lib;
 let
   cfg = config.router;
+  netLib = import ./lib/net.nix { inherit lib; };
   inherit (config.router._internal)
     brLAN
     brGuest
@@ -61,31 +62,140 @@ let
     iifname "${name}" oifname "${wanIf}" accept
     iifname "${wanIf}" oifname "${name}" ct state { established, related } accept'') wgNames;
 
-  # portForwardDnatRules / portForwardFilterRules:
-  #   Static inbound port forwarding (DNAT) generated from
-  #   cfg.portForwards. Each entry rewrites WAN-inbound traffic on
-  #   the listed ports to an internal host (prerouting DNAT), and a
-  #   matching accept rule lets that traffic cross the drop-policy
-  #   forward chain (matched on destination IP + port, so it does
-  #   not depend on which bridge the host is on). IPv4 only; ports
-  #   are mapped 1:1 (router port == destination port). An optional
-  #   `source` restricts the accepted WAN source prefix.
+  # ── Static port forwards ────────────────────────────────
+  # Each entry names a router.hosts device and opens its ports for one or both
+  # address families. Ports are mapped 1:1 (router port == device port).
+  #
+  #   • IPv4 — prerouting DNAT of WAN traffic to the host's staticIp, plus a
+  #     forward accept limited to connections that DNAT produced (`ct status
+  #     dnat`), so the rule cannot also admit packets routed straight at the
+  #     internal address from the WAN segment.
+  #   • IPv6 — no NAT: a forward-chain pinhole to the host's OWN global
+  #     address. The delegated prefix is dynamic, so the address is matched by
+  #     its low 64 bits (the host's ipv6Suffix) on the egress bridge of the
+  #     host's network — the same `::suffix/-64` technique OpenWrt fw4 uses.
+  #     Only the bridge's own /64 is routed out of it, so bridge + suffix pins
+  #     one address whatever prefix the ISP hands out today.
+  #
+  # `sources` may mix IPv4 and IPv6 prefixes; each family's rule only sees its
+  # own. A restricted forward with no prefix of a family opens nothing for that
+  # family (warned below).
+  hostByName = listToAttrs (map (h: nameValuePair h.name h) cfg.hosts);
+  bridgeOf = h: if h.network == "guest" then brGuest else brLAN;
+
+  resolveForward =
+    f:
+    let
+      h = hostByName.${f.host} or null;
+      restricted = f.sources != [ ];
+      v4Sources = filter (s: netLib.familyOf s == "ipv4") f.sources;
+      v6Sources = filter (s: netLib.familyOf s == "ipv6") f.sources;
+      v4Addr = if h != null then h.staticIp else null;
+      v6Suffix = if h != null && h.ipv6Suffix != null then netLib.parseSuffix h.ipv6Suffix else null;
+      wantV4 = f.family != "ipv6";
+      wantV6 = f.family != "ipv4";
+    in
+    {
+      inherit
+        f
+        h
+        restricted
+        v4Sources
+        v6Sources
+        v4Addr
+        v6Suffix
+        wantV4
+        wantV6
+        ;
+      label = if f.name != "" then f.name else f.host;
+      v4 = wantV4 && v4Addr != null && (!restricted || v4Sources != [ ]);
+      v6 = wantV6 && v6Suffix != null && (!restricted || v6Sources != [ ]);
+      bridge = if h != null then bridgeOf h else null;
+    };
+  forwards = map resolveForward cfg.portForwards;
+  v4Forwards = filter (r: r.v4) forwards;
+  v6Forwards = filter (r: r.v6) forwards;
+
   pfDports =
     ports:
     if length ports == 1 then
       toString (head ports)
     else
       "{ ${concatMapStringsSep ", " toString ports} }";
-  pfSaddr = source: optionalString (source != null) "ip saddr ${source} ";
-  pfComment = name: optionalString (name != "") " comment \"${name}\"";
+  pfSaddr =
+    family: sources:
+    optionalString (sources != [ ]) "${family} saddr { ${concatStringsSep ", " sources} } ";
+  # Names are free text; a double quote would end the nftables string early.
+  pfComment = r: " comment \"${replaceStrings [ "\"" "\\" ] [ "'" "" ] r.label}\"";
+
   portForwardDnatRules = concatMapStringsSep "\n                " (
-    f:
-    ''iifname "${wanIf}" ${pfSaddr f.source}${f.protocol} dport ${pfDports f.ports} dnat ip to ${f.destination}${pfComment f.name}''
-  ) cfg.portForwards;
+    r:
+    ''iifname "${wanIf}" ${pfSaddr "ip" r.v4Sources}${r.f.protocol} dport ${pfDports r.f.ports} dnat ip to ${r.v4Addr}${pfComment r}''
+  ) v4Forwards;
   portForwardFilterRules = concatMapStringsSep "\n                " (
-    f:
-    ''iifname "${wanIf}" ${pfSaddr f.source}ip daddr ${f.destination} ${f.protocol} dport ${pfDports f.ports} ct state { new, established, related } accept${pfComment f.name}''
-  ) cfg.portForwards;
+    r:
+    ''iifname "${wanIf}" ${pfSaddr "ip" r.v4Sources}ip daddr ${r.v4Addr} ${r.f.protocol} dport ${pfDports r.f.ports} ct status dnat accept${pfComment r}''
+  ) v4Forwards;
+  portForwardPinholeRules = concatMapStringsSep "\n                " (
+    r:
+    ''iifname "${wanIf}" oifname "${r.bridge}" ${pfSaddr "ip6" r.v6Sources}ip6 daddr & ::ffff:ffff:ffff:ffff == ${r.v6Suffix} ${r.f.protocol} dport ${pfDports r.f.ports} ct state new accept${pfComment r}''
+  ) v6Forwards;
+
+  # Checks on the forwards themselves, each naming the offending forward.
+  wgPorts = map (n: cfg.wireguard.${n}.listenPort) wgNames;
+  unrestrictedV4Keys = concatMap (r: map (p: "${r.f.protocol}/${toString p}") r.f.ports) (
+    filter (r: r.v4Sources == [ ]) v4Forwards
+  );
+  dupsOf =
+    xs:
+    attrNames (
+      filterAttrs (_: c: c > 1) (foldl' (acc: x: acc // { ${x} = (acc.${x} or 0) + 1; }) { } xs)
+    );
+
+  forwardAssertions = concatMap (
+    r:
+    let
+      pf = "router.portForwards: forward '${r.label}'";
+    in
+    [
+      {
+        assertion = r.f.ports != [ ] && !(elem 0 r.f.ports);
+        message = "${pf} needs at least one port, and port 0 cannot be forwarded";
+      }
+      {
+        assertion = all netLib.isPrefix r.f.sources;
+        message = "${pf} has an invalid source prefix in [ ${concatStringsSep ", " r.f.sources} ] — use IPv4 or IPv6 addresses or CIDR prefixes";
+      }
+      {
+        assertion = !(r.f.protocol == "udp" && r.v4 && any (p: elem p wgPorts) r.f.ports);
+        message = "${pf} forwards a WireGuard listen port (UDP ${
+          concatMapStringsSep ", " toString wgPorts
+        }); its DNAT would capture the tunnel's own traffic";
+      }
+      {
+        assertion = r.h != null;
+        message = "${pf} references unknown host '${r.f.host}' — it must name a router.hosts entry";
+      }
+      {
+        assertion = r.h == null || !r.wantV4 || r.h.staticIp != null;
+        message = "${pf} forwards IPv4 to host '${r.f.host}', which has no staticIp (DHCP reservation) to DNAT to — set one, or set family = \"ipv6\"";
+      }
+      {
+        assertion = r.h == null || !r.wantV6 || r.h.ipv6Suffix != null;
+        message = "${pf} forwards IPv6 to host '${r.f.host}', which has no ipv6Suffix to open a pinhole for — set one, or set family = \"ipv4\"";
+      }
+    ]
+  ) forwards;
+
+  forwardWarnings =
+    map (
+      r:
+      "router.portForwards: forward '${r.label}' includes IPv6, but its sources are all IPv4 prefixes, so the IPv6 pinhole stays closed. Add IPv6 source prefixes or set family = \"ipv4\"."
+    ) (filter (r: r.wantV6 && r.v6Suffix != null && r.restricted && r.v6Sources == [ ]) forwards)
+    ++ map (
+      r:
+      "router.portForwards: forward '${r.label}' includes IPv4, but its sources are all IPv6 prefixes, so nothing is forwarded over IPv4. Add IPv4 source prefixes or set family = \"ipv6\"."
+    ) (filter (r: r.wantV4 && r.v4Addr != null && r.restricted && r.v4Sources == [ ]) forwards);
 
   # v6DnsDropRules:
   #   IPv6 :53 drops for the policy-enforced segments (LAN + guest), emitted
@@ -119,11 +229,11 @@ let
   #        from WG entirely and may only answer LAN, never initiate
   #        to it).
   #
-  #   2. `ip nat` — NAT and DNS hijacking
+  #   2. `inet nat` — NAT and DNS hijacking
   #      • Prerouting: intercepts all IPv4 DNS (port 53) from
   #        LAN/guest and redirects to the local resolver, preventing
   #        clients from bypassing Technitium filtering by hardcoding
-  #        external DNS servers.
+  #        external DNS servers; DNATs IPv4 port forwards.
   #      • Postrouting: masquerades outbound WAN traffic.
   #
   #   3. `inet dns_bypass` — DNS bypass prevention
@@ -218,10 +328,17 @@ let
           iifname "${wanIf}" oifname "${brLAN}" ct status dnat accept
         ''}
 
-        ${optionalString (cfg.portForwards != [ ]) ''
-          # Static inbound port forwards: allow WAN traffic destined
-          # for the configured internal hosts/ports (DNAT'd above).
+        ${optionalString (v4Forwards != [ ]) ''
+          # Static IPv4 port forwards: allow the WAN connections the
+          # prerouting DNAT below redirected to their host.
           ${portForwardFilterRules}
+        ''}
+
+        ${optionalString (v6Forwards != [ ]) ''
+          # Static IPv6 port forwards: pinholes to each host's own global
+          # address, matched on its interface ID (the delegated prefix is
+          # dynamic) and the bridge of the host's network.
+          ${portForwardPinholeRules}
         ''}
 
         ${optionalString owEnabled ''
@@ -286,8 +403,8 @@ let
           iifname "${brGuest}" tcp dport 53 ip daddr != ${guestGW} dnat to ${guestGW}:53
         ''}
 
-        ${optionalString (cfg.portForwards != [ ]) ''
-          # Static inbound port forwards (WAN → internal hosts)
+        ${optionalString (v4Forwards != [ ]) ''
+          # Static IPv4 port forwards (WAN → host staticIp)
           ${portForwardDnatRules}
         ''}
       }
@@ -388,26 +505,28 @@ in
       };
     };
 
-    # ── Static port forwards (DNAT) ───────────────────────
-    # Explicit inbound port forwarding from the WAN to internal
-    # hosts. Unlike UPnP, every hole is declared in configuration
-    # and auditable. Each entry forwards its listed ports to a
-    # fixed internal IPv4 host; ports are mapped 1:1 (router port ==
-    # destination port). Use the optional `source` to restrict the
-    # forward to a specific WAN source prefix.
+    # ── Static port forwards ──────────────────────────────
+    # Explicit inbound port forwarding from the WAN to a registered
+    # device (router.hosts). Unlike UPnP, every hole is declared in
+    # configuration and auditable. Ports are mapped 1:1 (router port
+    # == device port). IPv4 is DNAT'd to the device's staticIp; IPv6
+    # is a firewall pinhole to the device's own global address,
+    # identified by its ipv6Suffix. Use `sources` to restrict the
+    # forward to specific WAN source prefixes.
     #
-    # SECURITY: each forward exposes the host directly to the
-    # internet. When Suricata is enabled the inbound traffic is
-    # IPS-inspected; regardless, only forward what must be reachable
-    # and prefer narrowing `source` where possible.
+    # SECURITY: each forward exposes the device directly to the
+    # internet. With Suricata enabled the traffic still passes the
+    # IPS, but HOME_NET lists only IPv4 networks, so inbound-IPv6
+    # signatures keyed on $HOME_NET will not match. Only forward what
+    # must be reachable, and narrow `sources` where possible.
     portForwards = mkOption {
       default = [ ];
-      description = "Static inbound port forwards (DNAT) from the WAN to internal hosts. IPv4 only.";
+      description = "Static inbound port forwards from the WAN to registered hosts, over IPv4 (DNAT) and/or IPv6 (pinhole).";
       example = literalExpression ''
         [
           {
             name = "Synology DSM";
-            destination = "10.48.4.2";
+            host = "nas";
             ports = [ 5080 5443 ];
           }
         ]
@@ -428,10 +547,22 @@ in
               default = "tcp";
               description = "Transport protocol to forward.";
             };
-            destination = mkOption {
+            host = mkOption {
               type = types.str;
-              example = "10.48.4.2";
-              description = "Internal IPv4 address to forward the traffic to.";
+              example = "nas";
+              description = "Name of the router.hosts device to forward the traffic to.";
+            };
+            family = mkOption {
+              type = types.enum [
+                "both"
+                "ipv4"
+                "ipv6"
+              ];
+              default = "both";
+              description = ''
+                Address families to forward. IPv4 needs the host's `staticIp`
+                (the DNAT target); IPv6 needs its `ipv6Suffix` (the pinhole).
+              '';
             };
             ports = mkOption {
               type = types.listOf types.port;
@@ -439,13 +570,20 @@ in
                 80
                 443
               ];
-              description = "WAN-facing ports to forward, each mapped 1:1 to the same port on `destination`.";
+              description = "WAN-facing ports to forward, each mapped 1:1 to the same port on the host.";
             };
-            source = mkOption {
-              type = types.nullOr types.str;
-              default = null;
-              example = "203.0.113.0/24";
-              description = "Optional WAN source prefix the forward is restricted to. Null allows any source.";
+            sources = mkOption {
+              type = types.listOf types.str;
+              default = [ ];
+              example = [
+                "203.0.113.0/24"
+                "2001:db8:100::/48"
+              ];
+              description = ''
+                WAN source prefixes the forward is restricted to; IPv4 and IPv6
+                prefixes may be mixed. Empty allows any source. A family with no
+                prefix in a non-empty list is not forwarded at all.
+              '';
             };
           };
         }
@@ -454,6 +592,14 @@ in
   };
 
   config = {
+    assertions = forwardAssertions ++ [
+      {
+        assertion = dupsOf unrestrictedV4Keys == [ ];
+        message = "router.portForwards: more than one unrestricted IPv4 forward claims ${concatStringsSep ", " (dupsOf unrestrictedV4Keys)} — only the first DNAT would ever match";
+      }
+    ];
+    warnings = forwardWarnings;
+
     # ── 4. nftables ──────────────────────────────────────
     # The complete firewall ruleset generated from `nftRuleset` above.
     # See the nftRuleset generation section in the `let` block for

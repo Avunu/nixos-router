@@ -71,6 +71,26 @@ export function deepEqual(a: Json | undefined, b: Json | undefined): boolean {
   return false;
 }
 
+// A form's working copy rebuilt from the settings file on disk, keeping the
+// edits it has not saved yet (useSettings). `pending` maps leaf paths to the
+// values the admin set, in the order they were last set; it is updated in
+// place: an edit the file already carries has been saved (by this form, or by
+// a direct write of the working copy) and is dropped, so it is never
+// re-applied over a later change such as the changes tray's Revert. The rest
+// are re-applied in order, which lets a later edit of a parent path win over
+// an earlier edit inside it.
+export function rebaseEdits(disk: Json, pending: Map<string, Json>): Json {
+  let next = disk;
+  for (const [path, val] of pending) {
+    if (deepEqual(getPath(disk, path) ?? null, val)) {
+      pending.delete(path);
+    } else {
+      next = setPath(next, path, val);
+    }
+  }
+  return next;
+}
+
 // A leaf is locked when the last-applied input set it but the effective config
 // Disagrees — i.e. something in Nix overrode the JSON value.
 // True when Nix OVERRODE something the settings JSON set — not merely when the

@@ -34,47 +34,24 @@ let
 
   catalog = import ./filter-catalog.nix;
 
-  # ── AdGuard compatibility shim mapping ───────────────────
-  # `router.dns.adguard` survives one release as an invisible freeform
-  # option so settings JSON that still carries adguard keys keeps
-  # evaluating (protects system.autoUpgrade routers that rebuild before
-  # an admin sees the Cockpit migration banner). When no accessPolicies
-  # are configured, a "Base" policy is synthesized from the old keys so
-  # filtering continues until the JSON is migrated.
-  shim = cfg.dns.adguard;
-  shimActive = shim != { };
-
-  # Naive parse of old extraUserRules: exact-domain AdGuard rules map to
-  # allow/block domains; anything fancier is dropped (the bulk of the old
-  # rules were DoH blocks, which are now a built-in base layer).
-  shimRules = shim.extraUserRules or [ ];
-  ruleDomain = rule: prefix: removeSuffix "^" (removePrefix prefix rule);
-  isExact = rule: prefix: hasPrefix prefix rule && hasSuffix "^" rule && !hasInfix "/" rule;
-  shimAllowDomains = map (r: ruleDomain r "@@||") (filter (r: isExact r "@@||") shimRules);
-  shimBlockDomains = map (r: ruleDomain r "||") (
-    filter (r: isExact r "||" && !hasPrefix "@@" r) shimRules
-  );
-
+  # The "Base" policy used when none are configured: the modest default set
+  # of ad, malware and phishing lists.
   synthesizedBase = {
     name = "Base";
-    description = "Default policy" + optionalString shimActive " (migrated from AdGuard Home settings)";
+    description = "Default policy";
     priority = 0;
-    standardFilters =
-      if shimActive then
-        attrNames (filterAttrs (_: v: v == true) (shim.standardFilters or { }))
-      else
-        [
-          "adguard_ads"
-          "adguard_malware"
-          "adguard_phishing"
-        ];
-    categories = shim.utCapitoleCategories or [ ];
+    standardFilters = [
+      "adguard_ads"
+      "adguard_malware"
+      "adguard_phishing"
+    ];
+    categories = [ ];
     blockListUrls = [ ];
     allowListUrls = [ ];
-    adblockListUrls = map (f: f.url) (shim.extraFilters or [ ]);
+    adblockListUrls = [ ];
     regexBlockListUrls = [ ];
-    blockDomains = (shim.blockList or [ ]) ++ shimBlockDomains;
-    allowDomains = (shim.allowList or [ ]) ++ shimAllowDomains;
+    blockDomains = [ ];
+    allowDomains = [ ];
     blockRegex = [ ];
     allowRegex = [ ];
     responseType = "blockingAddress";
@@ -291,8 +268,8 @@ in
         type = types.listOf policyType;
         default = [ ];
         description = ''
-          Named access policies. When empty, a "Base" policy is synthesized
-          (from legacy AdGuard settings if present, else a modest default).
+          Named access policies. When empty, a "Base" policy with a modest
+          default set of ad, malware and phishing lists is synthesized.
         '';
       };
 
@@ -330,16 +307,6 @@ in
       };
     };
 
-    # Legacy AdGuard Home settings — invisible freeform shim, one release
-    # only (see header). Non-empty values trigger the migration warning and
-    # feed the synthesized Base policy above.
-    dns.adguard = mkOption {
-      type = types.attrs;
-      default = { };
-      visible = false;
-      description = "Removed. Migrate to router.accessPolicies (Cockpit shows a migration banner).";
-    };
-
     # Store path of the compiler's static inputs, consumed by
     # dns-technitium.nix (reconcile/policy-push units). Internal plumbing —
     # `router._internal` is readOnly and owned by topology.nix, so this
@@ -354,26 +321,6 @@ in
 
   config = {
     router._policyStaticInputs = staticInputs;
-
-    warnings =
-      optional shimActive (
-        "router.dns.adguard is removed: AdGuard Home has been replaced by Technitium DNS Server. "
-        + (
-          if cfg.accessPolicies.policies == [ ] then
-            "A 'Base' access policy was synthesized from the legacy settings — "
-          else
-            "The legacy settings are IGNORED (router.accessPolicies is configured) — "
-        )
-        + "open Cockpit and complete the settings migration, or run migrate-router-settings."
-      )
-      ++
-        optional
-          (
-            shimActive
-            && shimRules != [ ]
-            && length shimRules > length shimAllowDomains + length shimBlockDomains
-          )
-          "router.dns.adguard.extraUserRules: only exact-domain rules (||domain^ / @@||domain^) were migrated; other rules were dropped.";
 
     assertions = [
       {

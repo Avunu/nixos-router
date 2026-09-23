@@ -54,14 +54,14 @@ jobs:
       # Listed individually rather than via `nix flake check` so a dependency
       # bump gets the drift verdict in under a minute, without waiting on the
       # VM tests in the other job.
-      - name: Technitium version drift, settings migration, DNS coverage, schema
+      - name: Technitium version drift, DNS coverage, port forwards, schema
         run: |
           nix build --no-link -L \
             '.#checks.x86_64-linux.technitium-version' \
-            '.#checks.x86_64-linux.legacy-adguard' \
             '.#checks.x86_64-linux.dns-fallback' \
             '.#checks.x86_64-linux.dns-overrides' \
             '.#checks.x86_64-linux.wireless-eval' \
+            '.#checks.x86_64-linux.port-forwards-eval' \
             '.#checks.x86_64-linux.router-schema-fresh'
 
       # The npm gate, in two halves. The PACKAGE only runs `npm run build`

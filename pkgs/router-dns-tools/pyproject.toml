@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "router-dns-tools"
 version = "0.1.0"
-description = "nixos-router access-protection runtime tooling (Technitium reconcile, policy compiler, query-log daemon, directory sync, reports)"
+description = "nixos-router runtime tooling (Technitium reconcile, policy compiler, query-log daemon, directory sync, reports, dynamic DNS)"
 requires-python = ">=3.12"
 
 [project.scripts]
@@ -15,6 +15,7 @@ router-policy-compile = "router_dns_tools.compile_policies:main"
 router-logd = "router_dns_tools.logd:main"
 router-directory-sync = "router_dns_tools.directory_sync:main"
 router-report = "router_dns_tools.report:main"
+router-ddns = "router_dns_tools.ddns:main"
 
 [tool.setuptools.packages.find]
 include = ["router_dns_tools*"]

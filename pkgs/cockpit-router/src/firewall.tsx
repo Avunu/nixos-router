@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { errMsg } from "./nix";
+import type { Json } from "./nix";
 import {
   Button,
   Alert,
@@ -23,28 +24,39 @@ import {
   CodeBlockCode,
   Split,
   SplitItem,
+  HelperText,
+  HelperTextItem,
+  Label,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { useSettings, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
+import { useSettings, Loading, SubNav, SaveBar, hint, TabbedPage, ListEditor } from "./settings";
+import { isPrefix } from "./ip-math";
+import { normalizeForward } from "./forwards";
+import type { PortForward, RouterHost } from "./types";
 
 const _ = cockpit.gettext;
 
-// ── Static port forwards (DNAT) ─────────────────────────────────────────────
-type PortForward = {
+// ── Static port forwards ────────────────────────────────────────────────────
+// Each forward names a registered host (router.hosts). IPv4 is DNAT'd to the
+// host's static IP; IPv6 is a pinhole to the host's own global address, found
+// by its IPv6 suffix since the delegated prefix is dynamic. The checks below
+// mirror modules/firewall.nix's assertions, so a rebuild never fails on
+// something this form let through.
+type Family = "both" | "ipv4" | "ipv6";
+
+interface Draft {
   name: string;
   protocol: "tcp" | "udp";
-  destination: string;
-  ports: number[];
-  source: string | null;
-};
+  host: string;
+  family: Family;
+  sources: string[];
+}
 
-const EMPTY_PF: PortForward = {
-  name: "",
-  protocol: "tcp",
-  destination: "",
-  ports: [],
-  source: null,
-};
+const EMPTY_DRAFT: Draft = { name: "", protocol: "tcp", host: "", family: "both", sources: [] };
+
+const FAMILIES: Family[] = ["both", "ipv4", "ipv6"];
+const familyLabel = (f: Family) =>
+  f === "ipv4" ? _("IPv4 only") : f === "ipv6" ? _("IPv6 only") : _("IPv4 + IPv6");
 
 const parsePorts = (s: string): number[] =>
   s
@@ -52,13 +64,109 @@ const parsePorts = (s: string): number[] =>
     .map((p) => Number(p.trim()))
     .filter((n) => Number.isInteger(n) && n > 0 && n <= 65_535);
 
+const wantsV4 = (f: Family) => f !== "ipv6";
+const wantsV6 = (f: Family) => f !== "ipv4";
+const isV6Source = (p: string) => p.includes(":");
+
+interface Issue {
+  level: "error" | "warning";
+  msg: string;
+}
+
+function checkForward(
+  d: Draft,
+  ports: number[],
+  host: RouterHost | undefined,
+  others: PortForward[],
+): Issue[] {
+  const issues: Issue[] = [];
+  if (!d.host) {
+    issues.push({ level: "error", msg: _("Choose the host to forward to.") });
+  } else if (!host) {
+    issues.push({
+      level: "error",
+      msg: cockpit.format(_("Host '$0' is not registered."), d.host),
+    });
+  }
+  if (ports.length === 0) {
+    issues.push({ level: "error", msg: _("Enter at least one port (1-65535).") });
+  }
+  if (host && wantsV4(d.family) && !host.staticIp) {
+    issues.push({
+      level: "error",
+      msg: cockpit.format(
+        _(
+          "$0 has no static IP to forward IPv4 to — reserve one on the Hosts page, or forward IPv6 only.",
+        ),
+        host.name,
+      ),
+    });
+  }
+  if (host && wantsV6(d.family) && !host.ipv6Suffix) {
+    issues.push({
+      level: "error",
+      msg: cockpit.format(
+        _(
+          "$0 has no IPv6 suffix to open a pinhole for — set one on the Hosts page, or forward IPv4 only.",
+        ),
+        host.name,
+      ),
+    });
+  }
+  const bad = d.sources.filter((p) => !isPrefix(p));
+  if (bad.length > 0) {
+    issues.push({
+      level: "error",
+      msg: cockpit.format(_("Not an IPv4 or IPv6 address or prefix: $0"), bad.join(", ")),
+    });
+  }
+  if (d.sources.length > 0 && wantsV6(d.family) && !d.sources.some((p) => isV6Source(p))) {
+    issues.push({
+      level: "warning",
+      msg: _("All sources are IPv4, so the IPv6 side of this forward stays closed."),
+    });
+  }
+  if (d.sources.length > 0 && wantsV4(d.family) && d.sources.every((p) => isV6Source(p))) {
+    issues.push({
+      level: "warning",
+      msg: _("All sources are IPv6, so nothing is forwarded over IPv4."),
+    });
+  }
+  if (wantsV4(d.family) && d.sources.length === 0) {
+    const clash = ports.filter((p) =>
+      others.some(
+        (o) =>
+          wantsV4(o.family ?? "both") &&
+          (o.sources ?? []).length === 0 &&
+          (o.protocol ?? "tcp") === d.protocol &&
+          o.ports.includes(p),
+      ),
+    );
+    if (clash.length > 0) {
+      issues.push({
+        level: "error",
+        msg: cockpit.format(
+          _("Another unrestricted IPv4 forward already claims $0 $1."),
+          d.protocol,
+          clash.join(", "),
+        ),
+      });
+    }
+  }
+  return issues;
+}
+
+const hostDetail = (h: RouterHost | undefined) =>
+  h ? [h.staticIp, h.ipv6Suffix].filter(Boolean).join(" · ") || _("no addresses") : "";
+
 const PortForwards = () => {
   const s = useSettings();
-  const rows: PortForward[] = s.valueOf<PortForward[]>("portForwards", []);
+  const stored = s.valueOf<PortForward[]>("portForwards", []);
+  const hosts = s.valueOf<RouterHost[]>("hosts", []);
   const locked = s.lockedOf("portForwards");
 
   // The row currently being edited/added, plus the raw ports text being typed.
-  const [draft, setDraft] = useState<PortForward | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
   const [editIndex, setEditIndex] = useState<number | null>(null);
   const [portsText, setPortsText] = useState("");
 
@@ -73,10 +181,12 @@ const PortForwards = () => {
     );
   }
 
-  const setRows = (r: PortForward[]) => s.setLeaf("portForwards", r);
+  const hostByName = new Map(hosts.map((h) => [h.name, h]));
+  const rows = stored.map((r) => normalizeForward(r));
+  const setRows = (r: PortForward[]) => s.setLeaf("portForwards", r as unknown as Json);
 
   const beginAdd = () => {
-    setDraft({ ...EMPTY_PF });
+    setDraft({ ...EMPTY_DRAFT });
     setEditIndex(null);
     setPortsText("");
   };
@@ -85,7 +195,13 @@ const PortForwards = () => {
     if (!r) {
       return;
     }
-    setDraft({ ...r });
+    setDraft({
+      name: r.name ?? "",
+      protocol: r.protocol ?? "tcp",
+      host: r.host,
+      family: r.family ?? "both",
+      sources: r.sources ?? [],
+    });
     setEditIndex(i);
     setPortsText(r.ports.join(", "));
   };
@@ -96,20 +212,24 @@ const PortForwards = () => {
   };
   const remove = (i: number) => setRows(rows.filter((_r, idx) => idx !== i));
 
+  const ports = parsePorts(portsText);
+  const issues = draft
+    ? checkForward(
+        draft,
+        ports,
+        hostByName.get(draft.host),
+        rows.filter((_r, i) => i !== editIndex),
+      )
+    : [];
+
   const commit = () => {
     if (!draft) {
       return;
     }
-    const row: PortForward = {
-      ...draft,
-      ports: parsePorts(portsText),
-      source: draft.source && draft.source.trim() ? draft.source.trim() : null,
-    };
+    const row = normalizeForward({ ...draft, name: draft.name.trim(), ports });
     setRows(editIndex === null ? [...rows, row] : rows.map((r, i) => (i === editIndex ? row : r)));
     cancel();
   };
-
-  const draftValid = draft && draft.destination.trim() && parsePorts(portsText).length > 0;
 
   return (
     <Stack hasGutter className="ct-router-stack">
@@ -131,7 +251,7 @@ const PortForwards = () => {
                 <Button
                   variant="secondary"
                   onClick={beginAdd}
-                  isDisabled={Boolean(draft) || locked}
+                  isDisabled={Boolean(draft) || locked || hosts.length === 0}
                 >
                   {_("Add port forward")}
                 </Button>
@@ -142,7 +262,11 @@ const PortForwards = () => {
           <StackItem>
             {rows.length === 0 ? (
               <EmptyState>
-                <EmptyStateBody>{_("No port forwards configured.")}</EmptyStateBody>
+                <EmptyStateBody>
+                  {hosts.length === 0
+                    ? _("No port forwards configured. Register the device on the Hosts page first.")
+                    : _("No port forwards configured.")}
+                </EmptyStateBody>
               </EmptyState>
             ) : (
               <Table variant="compact" aria-label={_("Port forwards")}>
@@ -150,41 +274,57 @@ const PortForwards = () => {
                   <Tr>
                     <Th>{_("Name")}</Th>
                     <Th>{_("Protocol")}</Th>
-                    <Th>{_("Destination")}</Th>
+                    <Th>{_("Host")}</Th>
+                    <Th>{_("Family")}</Th>
                     <Th>{_("Ports")}</Th>
-                    <Th>{_("Source")}</Th>
+                    <Th>{_("Sources")}</Th>
                     <Th screenReaderText={_("Actions")} />
                   </Tr>
                 </Thead>
                 <Tbody>
-                  {rows.map((r, i) => (
-                    <Tr key={i}>
-                      <Td>{r.name || "—"}</Td>
-                      <Td>{r.protocol}</Td>
-                      <Td>{r.destination}</Td>
-                      <Td>{r.ports.join(", ")}</Td>
-                      <Td>{r.source || _("any")}</Td>
-                      <Td isActionCell>
-                        <Button
-                          variant="link"
-                          isInline
-                          onClick={() => beginEdit(i)}
-                          isDisabled={locked}
-                        >
-                          {_("Edit")}
-                        </Button>{" "}
-                        <Button
-                          variant="link"
-                          isInline
-                          isDanger
-                          onClick={() => remove(i)}
-                          isDisabled={locked}
-                        >
-                          {_("Delete")}
-                        </Button>
-                      </Td>
-                    </Tr>
-                  ))}
+                  {rows.map((r, i) => {
+                    const host = hostByName.get(r.host);
+                    return (
+                      <Tr key={i}>
+                        <Td>{r.name || "—"}</Td>
+                        <Td>{r.protocol}</Td>
+                        <Td>
+                          <div>{r.host}</div>
+                          <small>
+                            {host ? (
+                              hostDetail(host)
+                            ) : (
+                              <Label color="red" isCompact>
+                                {_("unknown host")}
+                              </Label>
+                            )}
+                          </small>
+                        </Td>
+                        <Td>{familyLabel(r.family ?? "both")}</Td>
+                        <Td>{r.ports.join(", ")}</Td>
+                        <Td>{(r.sources ?? []).join(", ") || _("any")}</Td>
+                        <Td isActionCell>
+                          <Button
+                            variant="link"
+                            isInline
+                            onClick={() => beginEdit(i)}
+                            isDisabled={locked}
+                          >
+                            {_("Edit")}
+                          </Button>{" "}
+                          <Button
+                            variant="link"
+                            isInline
+                            isDanger
+                            onClick={() => remove(i)}
+                            isDisabled={locked}
+                          >
+                            {_("Delete")}
+                          </Button>
+                        </Td>
+                      </Tr>
+                    );
+                  })}
                 </Tbody>
               </Table>
             )}
@@ -205,6 +345,22 @@ const PortForwards = () => {
                         onChange={(_e, v) => setDraft({ ...draft, name: v })}
                       />
                     </FormGroup>
+                    <FormGroup label={_("Host")} fieldId="pfHost" isRequired>
+                      <FormSelect
+                        id="pfHost"
+                        value={draft.host}
+                        onChange={(_e, v) => setDraft({ ...draft, host: v })}
+                      >
+                        <FormSelectOption value="" label={_("— choose a host —")} isPlaceholder />
+                        {hosts.map((h) => (
+                          <FormSelectOption
+                            key={h.mac}
+                            value={h.name}
+                            label={`${h.name} (${hostDetail(h)})`}
+                          />
+                        ))}
+                      </FormSelect>
+                    </FormGroup>
                     <FormGroup label={_("Protocol")} fieldId="pfProto">
                       <FormSelect
                         id="pfProto"
@@ -215,13 +371,24 @@ const PortForwards = () => {
                         <FormSelectOption value="udp" label="udp" />
                       </FormSelect>
                     </FormGroup>
-                    <FormGroup label={_("Destination IPv4")} fieldId="pfDest" isRequired>
-                      <TextInput
-                        id="pfDest"
-                        value={draft.destination}
-                        placeholder="10.48.4.2"
-                        onChange={(_e, v) => setDraft({ ...draft, destination: v })}
-                      />
+                    <FormGroup
+                      label={_("Family")}
+                      fieldId="pfFamily"
+                      labelHelp={hint(
+                        _(
+                          "IPv4 is forwarded from the router's public address to the host's static IP. IPv6 needs no forwarding address: the host's own IPv6 address is opened on these ports.",
+                        ),
+                      )}
+                    >
+                      <FormSelect
+                        id="pfFamily"
+                        value={draft.family}
+                        onChange={(_e, v) => setDraft({ ...draft, family: v as Family })}
+                      >
+                        {FAMILIES.map((f) => (
+                          <FormSelectOption key={f} value={f} label={familyLabel(f)} />
+                        ))}
+                      </FormSelect>
                     </FormGroup>
                     <FormGroup
                       label={_("Ports")}
@@ -237,19 +404,35 @@ const PortForwards = () => {
                       />
                     </FormGroup>
                     <FormGroup
-                      label={_("Source prefix (optional)")}
+                      label={_("Sources (optional)")}
                       fieldId="pfSrc"
-                      labelHelp={hint(_("Restrict to a WAN source, e.g. 203.0.113.0/24"))}
+                      labelHelp={hint(
+                        _(
+                          "Restrict the forward to these WAN addresses or prefixes, IPv4 and IPv6 mixed (e.g. 203.0.113.0/24, 2001:db8::/48). Empty allows any source.",
+                        ),
+                      )}
                     >
-                      <TextInput
-                        id="pfSrc"
-                        value={draft.source || ""}
+                      <ListEditor
+                        value={draft.sources}
                         placeholder={_("any")}
-                        onChange={(_e, v) => setDraft({ ...draft, source: v })}
+                        onChange={(v) => setDraft({ ...draft, sources: v })}
                       />
                     </FormGroup>
+                    {issues.length > 0 && (
+                      <HelperText>
+                        {issues.map((it) => (
+                          <HelperTextItem key={it.msg} variant={it.level}>
+                            {it.msg}
+                          </HelperTextItem>
+                        ))}
+                      </HelperText>
+                    )}
                     <ActionGroup>
-                      <Button variant="secondary" onClick={commit} isDisabled={!draftValid}>
+                      <Button
+                        variant="secondary"
+                        onClick={commit}
+                        isDisabled={issues.some((it) => it.level === "error")}
+                      >
                         {editIndex === null ? _("Add") : _("Update")}
                       </Button>
                       <Button variant="link" onClick={cancel}>

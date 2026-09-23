@@ -49,8 +49,8 @@ let
     }).config;
 
   # mkForce: the sample settings JSON sets dns.technitium.enable explicitly, so
-  # a plain definition would collide with it — and, as the legacy-adguard check
-  # learned the hard way, silently assert the sample file instead of the module.
+  # a plain definition would collide with it — and could silently assert the
+  # sample file instead of the module.
   filtering = evalWith { router.dns.technitium.enable = lib.mkForce true; };
   fallback = evalWith { router.dns.technitium.enable = lib.mkForce false; };
 

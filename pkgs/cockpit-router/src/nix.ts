@@ -22,6 +22,7 @@ export {
   deepEqual,
   getPath,
   isLocked,
+  rebaseEdits,
   setPath,
 } from "./settings-json";
 
@@ -33,6 +34,7 @@ const cfg = (window.cockpitRouterConfig ?? {}) as {
   directoryStatePath?: string;
   directoryStatusPath?: string;
   reportsDir?: string;
+  ddnsStatusPath?: string;
   macPrefixesPath?: string;
   hostName?: string;
   flakePath?: string;
@@ -49,6 +51,7 @@ export const DIRECTORY_STATE_PATH =
 export const DIRECTORY_STATUS_PATH =
   cfg.directoryStatusPath ?? "/var/lib/router-directory/status.json";
 export const REPORTS_DIR = cfg.reportsDir ?? "/var/lib/router-reports";
+export const DDNS_STATUS_PATH = cfg.ddnsStatusPath ?? "/var/lib/router-ddns/status.json";
 
 export const HOST = cfg.hostName ?? "";
 export const FLAKE_PATH = cfg.flakePath ?? "/etc/nixos";
