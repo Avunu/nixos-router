@@ -63,8 +63,9 @@ Inbound traffic passes the IPS as before. But `HOME_NET` lists only IPv4 network
 -   **Detecting the WAN IPv4.** If the WAN address is private or CGNAT (for example, the router sits behind an ISP modem that still does NAT), the public address comes from Cloudflare's trace endpoint instead.
 -   **Writing to Cloudflare.** It only writes when an address changes. It re-verifies every record every 6 hours, which repairs any edits made by hand.
 -   **One record per type.** Each name ends up with exactly one record of each type. Records the tool creates carry the comment `managed by nixos-router`.
+-   **Names held by a CNAME are taken over.** A configured name belongs to the router, so an existing A/AAAA record there is overwritten. A CNAME, which DNS allows nothing else beside, is replaced. The replaced CNAME is remembered, with its target, proxying and comment. When the name is later removed from the configuration, the tool deletes its own records and puts that CNAME back. The Dynamic DNS tab shows what was replaced. MX, TXT and other records at the name are left alone.
 -   **A missing family.** If a family has no address during a run (for example, the prefix delegation is briefly lost), those records are **left as they are**, not deleted.
--   **A removed name.** When a name is removed from the configuration, only records carrying the comment are deleted.
+-   **A removed name.** When a name is removed from the configuration, only records carrying the comment are deleted, and any CNAME the tool replaced at that name is restored.
 -   **Proxying.** `proxied = true` orange-clouds the records. Only HTTP(S) on Cloudflare's supported ports gets through a proxied name.
 
 The **Network → Dynamic DNS** tab shows the last run: the addresses detected and each record's result. It also has an **Update now** button. The raw status is in `/var/lib/router-ddns/status.json`.

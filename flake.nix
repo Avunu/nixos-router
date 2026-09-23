@@ -267,6 +267,15 @@
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
           };
 
+          # router-ddns against a fake Cloudflare API in the build sandbox (no
+          # VM): names held by CNAMEs are taken over, and the CNAMEs restored
+          # when the names are dropped.
+          #   nix build .#checks.<system>.ddns-cloudflare
+          ddns-cloudflare = import ./tests/ddns-cloudflare.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerDnsTools = (nixpkgs.legacyPackages.${system}.extend self.overlays.router).router-dns-tools;
+          };
+
           # NixOS VM test: port forwards on the wire — IPv4 DNAT to the host's
           # staticIp, IPv6 pinholes to exactly the host's own address, per-family
           # source restrictions — and router-ddns publishing the router's and a

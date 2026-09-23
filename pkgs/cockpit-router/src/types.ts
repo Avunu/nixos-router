@@ -178,7 +178,8 @@ export interface DirectoryStatus {
 // ── Dynamic DNS status (router-ddns status.json, read-only) ─────────────────
 export interface DdnsRecordStatus {
   name: string;
-  type: "A" | "AAAA";
+  // CNAME rows appear when a record replaced to take the name over is restored.
+  type: "A" | "AAAA" | "CNAME";
   host?: string | null; // set for a host's publicHostname, absent for router names
   content: string | null;
   state: "created" | "updated" | "unchanged" | "skipped" | "removed" | "error";
