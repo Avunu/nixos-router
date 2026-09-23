@@ -41,9 +41,10 @@ let
   #   router-specific views (hosts & groups, access policies, users,
   #   reports, Suricata, diagnostics) to Cockpit. Installed via the
   #   services.cockpit.plugins hook. Local service ports/token paths
-  #   are baked into config.js so the frontend can reach Technitium
-  #   and router-logd on localhost.
-  cockpitRouterPlugin = pkgs.callPackage ../pkgs/cockpit-router/package.nix {
+  #   are written into config.js so the frontend can reach Technitium
+  #   and router-logd on localhost — by `withConfig`, a per-router
+  #   wrapper around the shared (binary-cached) npm bundle.
+  cockpitRouterPlugin = (pkgs.callPackage ../pkgs/cockpit-router/package.nix { }).withConfig {
     technitiumPort = cfg.dns.technitium.webPort;
     logdPort = cfg.reporting.logd.port;
     hostName = cfg.hostName;
