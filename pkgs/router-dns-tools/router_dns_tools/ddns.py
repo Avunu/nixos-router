@@ -22,10 +22,15 @@ brief prefix-delegation outage must not take the names down with it. A name
 dropped from the configuration has its records deleted, but only the ones
 carrying the comment.
 
+A configured name belongs to the router: an A/AAAA record already there is
+overwritten, and a CNAME — which DNS allows nothing else beside — is replaced.
+The replaced CNAME is kept in state.json and put back when the name is dropped
+from the configuration, so taking a name over is never a one-way loss.
+
 State directory:
-  state.json   — zone-id cache, the managed name set and the last pushed
-                 record set (API writes are skipped while it is unchanged and
-                 was verified recently)
+  state.json   — zone-id cache, the managed name set, the last pushed record
+                 set (API writes are skipped while it is unchanged and was
+                 verified recently) and the CNAMEs replaced to take names over
   status.json  — last run summary for Cockpit, written on success AND failure
 
 Environment overrides (the VM test points them at a fake API):
@@ -220,10 +225,47 @@ class Cloudflare:
         return self.call("GET", f"/zones/{zone}/dns_records", {"name": name, "type": rtype}) or []
 
 
+# The fields of a replaced record needed to create it again.
+RESTORE_FIELDS = ("type", "name", "content", "ttl", "proxied", "comment")
+
+
+def take_over(cf: Cloudflare, zone: str, name: str, replaced: dict) -> str:
+    """Clear `name` of CNAMEs, which DNS allows no other record beside.
+
+    Each one is remembered in `replaced` (persisted in state.json) so it can be
+    restored when the name leaves the configuration. Returns a note for the
+    status file, or "" when there was nothing to replace.
+    """
+    notes = []
+    for r in cf.records(zone, name, "CNAME"):
+        cf.call("DELETE", f"/zones/{zone}/dns_records/{r['id']}")
+        replaced.setdefault(name, []).append({k: r.get(k) for k in RESTORE_FIELDS})
+        notes.append(f"replaced CNAME → {r.get('content')} (restored if the name is dropped)")
+    return "; ".join(notes)
+
+
+def restore(cf: Cloudflare, zone: str, records: list[dict]) -> None:
+    """Recreate records take_over replaced. Called only once this tool's own
+    records at the name are gone, since a CNAME cannot sit beside them."""
+    for r in records:
+        body = {k: v for k, v in r.items() if v is not None and v != ""}
+        cf.call("POST", f"/zones/{zone}/dns_records", body=body)
+
+
 def reconcile(
-    cf: Cloudflare, zone: str, name: str, rtype: str, content: str, ttl: int, proxied: bool
-) -> str:
-    """Make `name` carry exactly one `rtype` record with `content`."""
+    cf: Cloudflare,
+    zone: str,
+    name: str,
+    rtype: str,
+    content: str,
+    ttl: int,
+    proxied: bool,
+    replaced: dict,
+) -> tuple[str, str]:
+    """Make `name` carry exactly one `rtype` record with `content`.
+
+    Returns the outcome and a note for the status file.
+    """
     existing = cf.records(zone, name, rtype)
     want = {
         "type": rtype,
@@ -234,8 +276,11 @@ def reconcile(
         "comment": COMMENT,
     }
     if not existing:
+        # No address record of this type yet, so a CNAME may be holding the
+        # name (with one present, none can be).
+        note = take_over(cf, zone, name, replaced)
         cf.call("POST", f"/zones/{zone}/dns_records", body=want)
-        return "created"
+        return "created", note
     keep = next((r for r in existing if r.get("comment") == COMMENT), existing[0])
     # A DDNS name holds one address per family; stale extras would keep
     # sending some clients to an address the router no longer has.
@@ -244,9 +289,9 @@ def reconcile(
             cf.call("DELETE", f"/zones/{zone}/dns_records/{r['id']}")
     current = {k: keep.get(k) for k in ("content", "ttl", "proxied", "comment")}
     if current == {k: want[k] for k in current}:
-        return "unchanged" if len(existing) == 1 else "updated"
+        return ("unchanged" if len(existing) == 1 else "updated"), ""
     cf.call("PATCH", f"/zones/{zone}/dns_records/{keep['id']}", body=want)
-    return "updated"
+    return "updated", ""
 
 
 def remove_managed(cf: Cloudflare, zone: str, name: str, rtype: str) -> int:
@@ -305,12 +350,16 @@ def run(cfg: dict, force: bool = False) -> int:
     desired = {f"{r['name']}/{r['type']}": r["content"] for r in configured if r["content"]}
     configured_keys = sorted({f"{r['name']}/{r['type']}" for r in configured})
     stale = [k for k in state.get("managed", []) if k not in configured_keys]
+    # Names taken over from a CNAME that are no longer configured: put it back.
+    replaced = state.setdefault("replaced", {})
+    configured_names = {r["name"] for r in configured}
+    to_restore = [n for n in replaced if n not in configured_names]
 
     results: list[dict] = []
     error: str | None = None
     fresh = now - state.get("lastVerified", 0) < VERIFY_INTERVAL
 
-    if not force and not stale and desired == state.get("lastPushed") and fresh:
+    if not force and not stale and not to_restore and desired == state.get("lastPushed") and fresh:
         results = [
             {
                 "name": r["name"],
@@ -342,12 +391,17 @@ def run(cfg: dict, force: bool = False) -> int:
                     continue
                 try:
                     zone = cf.zone_for(r["name"], zones)
-                    row.update(
-                        state=reconcile(
-                            cf, zone, r["name"], r["type"], r["content"], cfg["ttl"], cfg["proxied"]
-                        ),
-                        detail="",
+                    outcome, note = reconcile(
+                        cf,
+                        zone,
+                        r["name"],
+                        r["type"],
+                        r["content"],
+                        cfg["ttl"],
+                        cfg["proxied"],
+                        replaced,
                     )
+                    row.update(state=outcome, detail=note)
                 except DdnsError as exc:
                     row.update(state="error", detail=str(exc))
                 results.append(row)
@@ -361,6 +415,32 @@ def run(cfg: dict, force: bool = False) -> int:
                 except DdnsError as exc:
                     results.append({"name": name, "type": rtype, "content": None, "state": "error", "detail": str(exc)})
                     configured_keys.append(key)  # keep tracking it; retry next run
+            # Restore only where this tool's records are gone: a name whose
+            # removal failed above is still tracked, and is retried next run.
+            tracked = {k.rsplit("/", 1)[0] for k in configured_keys}
+            for name in to_restore:
+                if name in tracked:
+                    continue
+                try:
+                    zone = cf.zone_for(name, zones)
+                    # Also clears records left from a run whose state was lost.
+                    for rtype in ("A", "AAAA"):
+                        remove_managed(cf, zone, name, rtype)
+                    restore(cf, zone, replaced[name])
+                    for rec in replaced.pop(name):
+                        results.append(
+                            {
+                                "name": name,
+                                "type": rec.get("type"),
+                                "content": rec.get("content"),
+                                "state": "created",
+                                "detail": "restored: the name is no longer configured",
+                            }
+                        )
+                except DdnsError as exc:
+                    results.append(
+                        {"name": name, "type": "CNAME", "content": None, "state": "error", "detail": f"restoring the replaced record: {exc}"}
+                    )
 
             failed = [r for r in results if r["state"] == "error"]
             if failed:

@@ -25,82 +25,21 @@
   baseSettings,
 }:
 let
-  # Just enough of the Cloudflare v4 API for router-ddns: zone lookup and
-  # dns_records list/create/patch/delete, in memory. GET /__state exposes the
-  # records and the write count to the test script.
-  fakeCloudflare = pkgs.writeText "fake-cloudflare.py" ''
-    import json, itertools
-    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-    from urllib.parse import urlparse, parse_qs
-
-    ZONE = {"id": "zone-1", "name": "example.com"}
-    records = {}
-    ids = itertools.count(1)
-    writes = 0
-
-    class H(BaseHTTPRequestHandler):
-        def reply(self, result, code=200, success=True, errors=()):
-            body = json.dumps({"success": success, "errors": [{"message": e} for e in errors], "result": result}).encode()
-            self.send_response(code)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-
-        def authorized(self):
-            if self.headers.get("Authorization") != "Bearer test-token":
-                self.reply(None, 403, False, ["bad token"])
-                return False
-            return True
-
-        def body(self):
-            return json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-
-        def do_GET(self):
-            u = urlparse(self.path)
-            q = {k: v[0] for k, v in parse_qs(u.query).items()}
-            if u.path == "/__state":
-                return self.reply({"records": list(records.values()), "writes": writes})
-            if not self.authorized():
-                return
-            if u.path == "/client/v4/zones":
-                return self.reply([ZONE] if q.get("name") == ZONE["name"] else [])
-            if u.path == "/client/v4/zones/zone-1/dns_records":
-                return self.reply([
-                    r for r in records.values()
-                    if r["name"] == q.get("name") and r["type"] == q.get("type")
-                ])
-            self.reply(None, 404, False, ["not found"])
-
-        def do_POST(self):
-            global writes
-            if not self.authorized():
-                return
-            writes += 1
-            rec = dict(self.body(), id=f"rec-{next(ids)}")
-            records[rec["id"]] = rec
-            self.reply(rec)
-
-        def do_PATCH(self):
-            global writes
-            if not self.authorized():
-                return
-            writes += 1
-            rid = self.path.rsplit("/", 1)[1]
-            records[rid].update(self.body())
-            self.reply(records[rid])
-
-        def do_DELETE(self):
-            global writes
-            if not self.authorized():
-                return
-            writes += 1
-            rid = self.path.rsplit("/", 1)[1]
-            records.pop(rid, None)
-            self.reply({"id": rid})
-
-    ThreadingHTTPServer(("0.0.0.0", 8000), H).serve_forever()
-  '';
+  # The router name starts out as a CNAME, as names moved over from another
+  # setup often do: DNS allows nothing beside a CNAME, so router-ddns must take
+  # the name over rather than fail on it.
+  cloudflareSeed = pkgs.writeText "cloudflare-seed.json" (
+    builtins.toJSON [
+      {
+        type = "CNAME";
+        name = "home.example.com";
+        content = "old-router.example.net";
+        ttl = 1;
+        proxied = false;
+        comment = "hand-made";
+      }
+    ]
+  );
 in
 pkgs.testers.runNixOSTest {
   name = "router-port-forwards";
@@ -236,7 +175,8 @@ pkgs.testers.runNixOSTest {
       systemd.services.fake-cloudflare = {
         wantedBy = [ "multi-user.target" ];
         after = [ "network.target" ];
-        serviceConfig.ExecStart = "${pkgs.python3}/bin/python3 ${fakeCloudflare}";
+        environment.FAKE_CF_SEED = "${cloudflareSeed}";
+        serviceConfig.ExecStart = "${pkgs.python3}/bin/python3 ${./fake-cloudflare.py}";
       };
     };
 
@@ -324,6 +264,12 @@ pkgs.testers.runNixOSTest {
         assert all(r.get("comment") == "managed by nixos-router" for r in records), records
         status = json.loads(router.succeed("cat /var/lib/router-ddns/status.json"))
         assert status["ok"], status
+        # The seeded CNAME on home.example.com was replaced, and remembered so
+        # it can be put back if the name is ever dropped.
+        ddns_state = json.loads(router.succeed("cat /var/lib/private/router-ddns/state.json"))
+        assert [r["content"] for r in ddns_state["replaced"]["home.example.com"]] == [
+            "old-router.example.net"
+        ], ddns_state
 
     with subtest("a run with nothing changed writes nothing"):
         before = cf_state()["writes"]
