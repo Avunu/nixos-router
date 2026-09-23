@@ -48,6 +48,22 @@ updates:
       npm:
         patterns: ["*"]
 
+  # The reverse proxy's Rust dependencies (Pingora above all).
+  #
+  # Safe to automate for the same reason as npm: package.nix builds with
+  # `cargoLock.lockFile = ./Cargo.lock`, so there is no cargoHash to
+  # regenerate and a lockfile bump is the whole change. The package's
+  # `cargo test` runs in its build, which the `cache` CI job performs.
+  - package-ecosystem: cargo
+    directory: /pkgs/router-proxy
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: chore
+    groups:
+      cargo:
+        patterns: ["*"]
+
   # The CI that gates the above. Without this the workflow's actions silently
   # rot while everything they check stays current.
   - package-ecosystem: github-actions

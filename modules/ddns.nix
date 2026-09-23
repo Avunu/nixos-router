@@ -5,6 +5,9 @@
 #                                  router's own global IPv6 (the WAN's, or the
 #                                  LAN bridge's delegated-prefix address when
 #                                  the ISP gives the WAN none).
+#   • router.reverseProxy.routes[].hostnames — with publishDns on, published
+#                                  exactly like router.ddns.names: the proxy on
+#                                  the router answers for them.
 #   • router.hosts[].publicHostname — a registered device: A = WAN IPv4 (reach
 #                                  it through a port forward), AAAA = the
 #                                  device's own address, i.e. its network's
@@ -37,6 +40,9 @@ let
 
   publicHosts = filter (h: h.publicHostname != null) cfg.hosts;
   routerNames = map toLower dcfg.names;
+  proxyNames = optionals (cfg.reverseProxy.enable && cfg.reverseProxy.publishDns) (
+    unique (concatMap (r: map toLower r.hostnames) cfg.reverseProxy.routes)
+  );
   collisions = filter (n: elem n routerNames) (map (h: toLower h.publicHostname) publicHosts);
 
   records =
@@ -44,7 +50,7 @@ let
       name = toLower n;
       v4 = dcfg.ipv4;
       v6 = if dcfg.ipv6 then { kind = "router"; } else null;
-    }) dcfg.names
+    }) (dcfg.names ++ proxyNames)
     ++ map (h: {
       name = toLower h.publicHostname;
       host = h.name;
@@ -60,24 +66,30 @@ let
           null;
     }) publicHosts;
 
-  ddnsConfig = pkgs.writeText "router-ddns.json" (
-    builtins.toJSON {
-      ddns = {
-        inherit stateDir records;
-        inherit (dcfg)
-          ipv4
-          ipv6
-          ttl
-          proxied
-          ;
-        wanInterface = wanIf;
-        routerV6Fallback = brLAN;
-        apiTokenFile = dcfg.cloudflare.apiTokenFile;
-      };
-    }
-  );
+  ddnsSpec = {
+    ddns = {
+      inherit stateDir records;
+      inherit (dcfg)
+        ipv4
+        ipv6
+        ttl
+        proxied
+        ;
+      wanInterface = wanIf;
+      routerV6Fallback = brLAN;
+      apiTokenFile = dcfg.cloudflare.apiTokenFile;
+    };
+  };
+  ddnsConfig = pkgs.writeText "router-ddns.json" (builtins.toJSON ddnsSpec);
 in
 {
+  options.router._ddnsConfig = mkOption {
+    type = types.attrs;
+    internal = true;
+    readOnly = true;
+    description = "Generated router-ddns configuration (tests read it without building the file).";
+  };
+
   options.router.ddns = {
     enable = mkEnableOption "dynamic DNS updates of the router's public addresses (Cloudflare)";
 
@@ -139,6 +151,7 @@ in
   };
 
   config = mkMerge [
+    { router._ddnsConfig = ddnsSpec; }
     {
       assertions = [
         {

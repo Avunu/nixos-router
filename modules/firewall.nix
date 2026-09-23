@@ -197,6 +197,31 @@ let
       "router.portForwards: forward '${r.label}' includes IPv4, but its sources are all IPv6 prefixes, so nothing is forwarded over IPv4. Add IPv4 source prefixes or set family = \"ipv6\"."
     ) (filter (r: r.wantV4 && r.v4Addr != null && r.restricted && r.v4Sources == [ ]) forwards);
 
+  # ── Reverse proxy ingress ───────────────────────────────
+  # The proxy (modules/reverse-proxy.nix) cannot bind :80/:443 — the Block Page
+  # holds them on every address — so tcp 80/443 aimed at the router is
+  # redirected to its local ports instead:
+  #
+  #   • from the WAN, when the destination is one of the router's own
+  #     addresses (`fib daddr type local`). IPv6 port forwards to a host's own
+  #     address on 80/443 are routed, not local, so they keep working.
+  #   • from inside (LAN, WireGuard, guest), when the destination is a router
+  #     address that is NOT on the ingress interface — in practice the WAN
+  #     address a public name resolves to (hairpin). `fib daddr . iif type`
+  #     answers "local" only for the interface's own addresses, so the gateway
+  #     addresses clients use for the Block Page are left alone.
+  #
+  # `redirect` is a DNAT, so the input chain admits exactly the redirected
+  # flows (`ct status dnat`) and a direct connection to the proxy's ports from
+  # the WAN still falls through to the drop.
+  pcfg = cfg.reverseProxy;
+  inherit (config.router._internal) proxyHttpPort proxyHttpsPort;
+  proxyPorts = "{ ${toString proxyHttpPort}, ${toString proxyHttpsPort} }";
+  hairpinIFs = trustedIFs ++ optional cfg.guest.enable brGuest;
+  proxyRedirects = port: target: ''
+    iifname "${wanIf}" fib daddr type local tcp dport ${toString port} redirect to :${toString target} comment "Reverse proxy"
+    iifname { ${nftSet hairpinIFs} } fib daddr type local fib daddr . iif type != local tcp dport ${toString port} redirect to :${toString target} comment "Reverse proxy hairpin"'';
+
   # v6DnsDropRules:
   #   IPv6 :53 drops for the policy-enforced segments (LAN + guest), emitted
   #   into BOTH hooks of the `inet dns_bypass` table — see the comment on that
@@ -273,6 +298,10 @@ let
             # Block page (Technitium Block Page app) + exception-request portal (router-logd)
             iifname "${brGuest}" tcp dport { 80, 443, ${toString cfg.reporting.logd.port} } accept
           ''}
+          ${optionalString pcfg.enable ''
+            # Reverse proxy hairpin (redirected 80/443 to the WAN address)
+            iifname "${brGuest}" tcp dport ${proxyPorts} ct status dnat accept
+          ''}
         ''}
 
         ${optionalString owEnabled ''
@@ -304,6 +333,9 @@ let
         iifname "${wanIf}" icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, echo-request, echo-reply, nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } counter accept
         iifname "${wanIf}" udp dport 546 accept comment "DHCPv6 client"
         ${wgInputRules}
+        ${optionalString pcfg.enable ''
+          iifname "${wanIf}" tcp dport ${proxyPorts} ct status dnat accept comment "Reverse proxy (redirected 80/443)"
+        ''}
 
         # Drop everything else from WAN
         iifname "${wanIf}" counter drop
@@ -401,6 +433,14 @@ let
           # Force guest DNS through the local resolver (IPv4; see above)
           iifname "${brGuest}" udp dport 53 ip daddr != ${guestGW} dnat to ${guestGW}:53
           iifname "${brGuest}" tcp dport 53 ip daddr != ${guestGW} dnat to ${guestGW}:53
+        ''}
+
+        ${optionalString pcfg.enable ''
+          # Reverse proxy: tcp 80/443 to the router → the proxy's local ports.
+          # Ahead of the port forwards; an IPv4 forward of tcp 80/443 is
+          # rejected by an assertion in modules/reverse-proxy.nix.
+          ${proxyRedirects 80 proxyHttpPort}
+          ${proxyRedirects 443 proxyHttpsPort}
         ''}
 
         ${optionalString (v4Forwards != [ ]) ''
