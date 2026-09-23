@@ -1539,9 +1539,11 @@ export const AccessPolicies = () => {
   const [requestsError, setRequestsError] = useState("");
 
   const loadRequests = useCallback(() => {
-    setRequestsError("");
     void exceptionRequests()
-      .then((r) => setRequests(r))
+      .then((r) => {
+        setRequests(r);
+        setRequestsError("");
+      })
       .catch((e: unknown) => {
         setRequests([]);
         setRequestsError(errMsg(e));

@@ -62,7 +62,6 @@ const useUnits = (units: string[], enabled: boolean) => {
 
   useEffect(() => {
     if (!enabled) {
-      setRows(null);
       return;
     }
     let cancelled = false;
@@ -101,7 +100,8 @@ const useUnits = (units: string[], enabled: boolean) => {
     };
   }, [units, enabled]);
 
-  return { rows, error };
+  // Disabled: nothing is polled, and whatever the last poll saw is not shown.
+  return enabled ? { rows, error } : { rows: null, error: "" };
 };
 
 const UnitStatus = ({ units, enabled }: { units: string[]; enabled: boolean }) => {

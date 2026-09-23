@@ -22,8 +22,10 @@ export function useInterfaces() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const reload = useCallback(() => {
-    setLoading(true);
+  // Fetch only; every state update waits for the answer. The mount effect
+  // calls this directly (`loading` already starts true), while `reload` — the
+  // user's Refresh — first shows the spinner again.
+  const fetchNics = useCallback(() => {
     cockpit
       .spawn(["ip", "-j", "link"], { err: "message" })
       .then((out: string) => {
@@ -43,6 +45,7 @@ export function useInterfaces() {
           }));
         list.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
         setNics(list);
+        setError("");
         setLoading(false);
       })
       .catch((e: unknown) => {
@@ -51,9 +54,15 @@ export function useInterfaces() {
       });
   }, []);
 
+  const reload = useCallback(() => {
+    setLoading(true);
+    setError("");
+    fetchNics();
+  }, [fetchNics]);
+
   useEffect(() => {
-    reload();
-  }, [reload]);
+    fetchNics();
+  }, [fetchNics]);
 
   return { nics, loading, error, reload };
 }
