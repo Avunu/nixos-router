@@ -1,15 +1,37 @@
 #!/usr/bin/env bash
+# Install a router over SSH with nixos-anywhere, from this directory's host flake.
+#
+#   ./deploy.sh [FQDN] [IP]
+#
+# The target's /etc/nixos gets everything the host flake needs to rebuild
+# itself after the install: flake.nix, flake.lock (so it starts on exactly the
+# inputs it was installed from) and router-settings.json, which flake.nix reads
+# and Cockpit edits.
 set -euo pipefail
+
+# The flake and its settings sit beside this script; work from here whatever
+# directory it was started from.
+cd "$(dirname "$(readlink -f "$0")")"
 
 # Parse arguments
 FQDN="${1:-258-router.local}"
 IP_ADDRESS="${2:-10.58.1.97}"
-HOSTNAME="${FQDN%%.*}"  # Extract hostname from FQDN (everything before first dot)
 
-echo "🚀 Deploying NixOS Development Host to $FQDN (hostname: $HOSTNAME)"
+for f in flake.nix router-settings.json; do
+  [ -f "$f" ] || { echo "error: $(pwd)/$f is missing" >&2; exit 1; }
+done
+
+# flake.nix names the configuration after hostName in router-settings.json, so
+# that — not the FQDN argument — is the attribute to build.
+HOSTNAME=$(nix eval --raw --impure --expr '(builtins.fromJSON (builtins.readFile ./router-settings.json)).hostName')
+if [ "${FQDN%%.*}" != "$HOSTNAME" ]; then
+  echo "warning: router-settings.json names this router '$HOSTNAME', not '${FQDN%%.*}'" >&2
+fi
+
+echo "🚀 Deploying router $HOSTNAME to $IP_ADDRESS ($FQDN)"
 echo ""
 
-# Create a temporary directory for host keys and flake
+# Staging tree for the files nixos-anywhere copies onto the target.
 temp=$(mktemp -d)
 
 # Function to cleanup temporary directory on exit
@@ -18,14 +40,13 @@ cleanup() {
 }
 trap cleanup EXIT
 
-echo "📋 Copying flake configuration to ${temp}/etc/nixos/..."
-# Copy the local flake.nix to /etc/nixos/ on the target system
+echo "📋 Staging /etc/nixos (flake.nix, flake.lock, router-settings.json)..."
 mkdir -p "${temp}/etc/nixos"
-cp flake.nix "${temp}/etc/nixos/flake.nix"
-chmod 644 "${temp}/etc/nixos/flake.nix"
+install -m 644 flake.nix "${temp}/etc/nixos/flake.nix"
+[ -f flake.lock ] && install -m 644 flake.lock "${temp}/etc/nixos/flake.lock"
+install -m 644 router-settings.json "${temp}/etc/nixos/router-settings.json"
 
 echo "🔧 Running nixos-anywhere..."
-# Install NixOS to the host system with our secrets and flake
 nix run github:nix-community/nixos-anywhere -- \
   --extra-files "$temp" \
   --flake ".#${HOSTNAME}" \
@@ -34,12 +55,11 @@ nix run github:nix-community/nixos-anywhere -- \
 echo ""
 echo "✅ Deployment complete!"
 echo ""
-echo "The system is now running with:"
-echo "  - Flake configuration in /etc/nixos"
-echo "  - Auto-update enabled for /etc/nixos flake"
+echo "The router's configuration is in /etc/nixos; manage it from Cockpit"
+echo "(https://${FQDN}:9090) or by editing /etc/nixos/router-settings.json."
 echo ""
 echo "To access the system:"
 echo "  ssh root@${FQDN}"
 echo ""
-echo "To update the system:"
-echo "  ssh root@${FQDN} 'cd /etc/nixos && nix flake update && nixos-rebuild switch --flake .'"
+echo "To upgrade it now (it also upgrades nightly):"
+echo "  ssh root@${FQDN} system-upgrade"
