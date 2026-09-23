@@ -9,12 +9,32 @@
 #
 # Make `fast` a required status check in branch protection — nothing here can
 # enforce that from inside the repo.
+#
+# A third job, `cache`, fills the project's binary cache (nixos-router.cachix.org)
+# with what cache.nixos.org cannot serve: the Technitium DNS apps (a .NET build
+# from source), router-dns-tools, suricata-update-preflight, the Cockpit plugin
+# bundle, and the NixOS system derivations. A router's host flake follows this
+# repository's nixpkgs (local/flake.nix), so once a lock bump is published here
+# every router upgrading to it downloads those paths rather than compiling
+# them. It publishes from pull requests too: a store path is a function of the
+# flake's inputs, not of the commit that carried them, so what a lock-bump pull
+# request builds is exactly what its merge produces.
+#
+# Secrets on a Dependabot pull request resolve against the SEPARATE Dependabot
+# secret store, so CACHIX_AUTH_TOKEN has to be added twice: once under Actions
+# secrets and once under Dependabot secrets. Miss the second and every lock
+# bump builds green and publishes nothing.
 name: checks
 
 on:
   pull_request:
   push:
     branches: [main]
+  # Nightly, for `cache` above all: keeps the Actions cache warm and republishes
+  # whatever an earlier run could not push. The other two jobs ride along,
+  # which catches a flake-input drift no commit caused.
+  schedule:
+    - cron: "41 2 * * *"
   workflow_dispatch:
 
 concurrency:
@@ -100,3 +120,130 @@ jobs:
           use-flakehub: false
       - name: nix flake check
         run: nix flake check -L
+
+  cache:
+    name: build + publish binary cache
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: DeterminateSystems/nix-installer-action@main
+        with:
+          determinate: false
+          # flake.nix declares the project cache in `nixConfig`; accepting it
+          # lets a run PULL what an earlier revision already published (the
+          # Technitium apps, mostly) instead of rebuilding it.
+          extra-conf: |
+            accept-flake-config = true
+            # This job exists to notice when something stops being cached;
+            # it must never trust a remembered "that path is missing".
+            narinfo-cache-negative-ttl = 0
+            # 4 vCPU. Two jobs of two cores drains a queue of small
+            # derivations faster than one job of four.
+            max-jobs = 2
+            cores = 2
+
+      - uses: DeterminateSystems/magic-nix-cache-action@main
+        with:
+          use-flakehub: false
+
+      # Installs the `cachix` binary and configures the cache as a substituter.
+      # Pushing is deliberately NOT delegated to this action: its daemon mode
+      # registers a post-build hook, which magic-nix-cache above already owns,
+      # and would push every path built during the job. The explicit push
+      # below sends the runtime closures instead — build-time-only inputs are
+      # paths no router ever asks for.
+      - uses: cachix/cachix-action@v17
+        with:
+          name: nixos-router
+          skipPush: true
+
+      # The `install` system is the routers' closure as far as one settings
+      # file can show it; a real router differs only in its own small system
+      # derivations. The packages are built by name as well, because
+      # install-settings.json does not enable every feature that pulls one in
+      # (Suricata, for suricata-update-preflight) — and the Cockpit bundle,
+      # because the system only carries it behind the per-router config.js
+      # wrapper, which no other router shares.
+      - name: Build the install system and the router packages
+        run: |
+          df -h / | tail -1
+          nix build -L -o result .#nixosConfigurations.install.config.system.build.toplevel
+          for p in technitium-dns-apps router-dns-tools suricata-update-preflight cockpit-router; do
+            nix build -L -o "result-$p" ".#packages.x86_64-linux.$p"
+          done
+          df -h / | tail -1
+
+      # What only we can serve. A path that arrived from any cache carries that
+      # cache's signature, so an EMPTY `signatures` array is the set
+      # cache.nixos.org cannot provide. `nix path-info --json` has had three
+      # shapes: an ARRAY on older Nix, an OBJECT keyed by store path on 2.20+
+      # (`--json-format 1`), and `{info: {<hash-name>: …}, storeDir}` for
+      # `--json-format 2`, which 2.34 warns will become the required choice.
+      # Normalise all three so the query reads the same whichever this runner
+      # gets, rather than pinning a flag older Nix rejects.
+      - name: Determine what cache.nixos.org cannot serve
+        run: |
+          set -euo pipefail
+          nix path-info --json --recursive ./result ./result-* \
+            | jq 'if type == "array" then .
+                  elif has("info") then .storeDir as $d | .info | to_entries
+                    | map({path: ($d + "/" + .key)} + .value)
+                  else to_entries | map({path: .key} + .value) end' \
+            | jq -r '.[] | select((.signatures // []) | length == 0) | .path' \
+            | sort -u > unsigned.txt
+          echo "$(grep -c . unsigned.txt || true) paths only this cache can serve:"
+          sed 's|^/nix/store/[a-z0-9]*-|  |' unsigned.txt
+
+      # Cachix also subtracts its configured upstream caches server-side, so a
+      # path that lost its signature on the way through the Actions cache is
+      # not uploaded twice. Paths go as ARGUMENTS (`cachix push` documents only
+      # `CACHE-NAME [PATHS...]`); `xargs -r` makes an empty set a no-op.
+      #
+      # No token is not an error: it is what a fork's pull request looks like
+      # and — the case worth the warning — a Dependabot pull request when the
+      # token is missing from the Dependabot secret store. `continue-on-error`,
+      # because a cache is an optimisation: a failed push must not turn a green
+      # build red. The nightly run publishes what this one could not.
+      - name: Publish to Cachix
+        continue-on-error: true
+        env:
+          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "${CACHIX_AUTH_TOKEN:-}" ]; then
+            echo "::warning::CACHIX_AUTH_TOKEN is empty on this run, so nothing was"\
+                 "published. Expected on a fork; on a Dependabot pull request it means"\
+                 "the token is missing from the DEPENDABOT secret store."
+            exit 0
+          fi
+          xargs -r cachix push nixos-router < unsigned.txt
+
+      # What one revision costs the cache, measured rather than estimated.
+      # Caches store the compressed form; zstd is what Cachix uses.
+      - name: Report what this revision costs the cache
+        if: always() && hashFiles('unsigned.txt') != ''
+        run: |
+          set -euo pipefail
+          total=0
+          rows=""
+          while IFS= read -r p; do
+            [ -n "$p" ] || continue
+            n="$(nix-store --dump "$p" | zstd -19 -T0 | wc -c)"
+            total=$((total + n))
+            rows="${rows}| \`$(basename "$p")\` | $(numfmt --to=iec "$n") |"$'\n'
+          done < unsigned.txt
+          {
+            echo "## Binary-cache cost of this revision"
+            echo
+            echo "| Store path | Compressed |"
+            echo "|---|---:|"
+            printf '%s' "$rows"
+            echo "| **Total** | **$(numfmt --to=iec "$total")** |"
+            echo
+            printf 'Runtime closure of the install system: '
+            nix path-info -Sh ./result | awk '{print $2, $3}'
+            echo
+            echo "Cachix's open-source tier is 5 GB and collects least-recently-used first."
+          } >> "$GITHUB_STEP_SUMMARY"

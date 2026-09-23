@@ -24,6 +24,24 @@
 {
   description = "NixOS Router";
 
+  # The project's binary cache, for the consumers modules/system.nix cannot
+  # reach: CI, and anyone building this flake on a machine that is not already
+  # a router. The module's nix.settings take effect only once the system they
+  # configure exists, which is after the build they would have accelerated.
+  # (A network deploy builds local/flake.nix, not this flake, so that file
+  # carries the same block.)
+  #
+  # Nix honours this only for a trusted user who accepts it — a prompt the
+  # first time, or `--accept-flake-config` — and everyone else gets a warning
+  # and a local build, which is fine. Same key as modules/system.nix; keep
+  # them equal.
+  nixConfig = {
+    extra-substituters = [ "https://nixos-router.cachix.org" ];
+    extra-trusted-public-keys = [
+      "nixos-router.cachix.org-1:SVg1w5V/8cCwagilNr0r64yhGEjnP/p71J10ULx9v+o="
+    ];
+  };
+
   # ── Flake Inputs ────────────────────────────────────────────────────────────
   # nixpkgs:   NixOS unstable channel — provides all packages and the NixOS
   #            module system. Unstable is used for the latest kernel, networkd,
@@ -77,37 +95,51 @@
       # Installer surface (nixos-install-helper). The router settings round-trip
       # through the existing FLAT local/router-settings.json — the same file the
       # Cockpit UI reads/writes — and its derived schema feeds the Cockpit build.
-      ih = inputs.nixos-install-helper.lib.mkProject {
-        inherit nixpkgs self;
-        system = "x86_64-linux";
-        installModules = [
-          self.nixosModules.router
-          # Package-typed / Nix-only bits the JSON schema deliberately drops.
-          { router.cockpit.enable = true; }
-        ];
-        optionRoots = [ "router" ];
-        flakeStyle = "local";
-        upstream = "github:Avunu/nixos-router";
-        # No generic guided ISO. The guided image bakes the router modules
-        # evaluated with NO settings, but a router with no settings is not a
-        # router: network.nix asserts that a WAN uplink, a LAN port and at least
-        # one physical interface are assigned, and those are the last things that
-        # can be guessed generically. The guided installer could not fill them in
-        # either — it prompts for `guidedPrompts` paths, which are string-typed
-        # only, and `lan.interfaces` is a list. Every router is delivered per-site
-        # from a settings JSON via the unattended ISO (local/build-iso.sh) or the
-        # network deploy, both of which remain.
-        guided = false;
-        # Per-root FLAT settings for the per-host install systems: the file holds
-        # router.* values at top level and the helper applies it as
-        # `{ router = mkDefault <flat> }` — the same shape as the runtime
-        # /etc/nixos/router-settings.json the Cockpit UI edits.
-        settingsFiles.router = ./local/install-settings.json;
-        hints = {
-          diskDevice = "disk-device";
-          "wan.interface" = "net-iface";
-        };
-      };
+      ih = inputs.nixos-install-helper.lib.mkProject (
+        {
+          inherit nixpkgs self;
+          system = "x86_64-linux";
+          installModules = [
+            self.nixosModules.router
+            # Package-typed / Nix-only bits the JSON schema deliberately drops.
+            { router.cockpit.enable = true; }
+          ];
+          optionRoots = [ "router" ];
+          flakeStyle = "local";
+          upstream = "github:Avunu/nixos-router";
+          # No generic guided ISO. The guided image bakes the router modules
+          # evaluated with NO settings, but a router with no settings is not a
+          # router: network.nix asserts that a WAN uplink, a LAN port and at least
+          # one physical interface are assigned, and those are the last things that
+          # can be guessed generically. The guided installer could not fill them in
+          # either — it prompts for `guidedPrompts` paths, which are string-typed
+          # only, and `lan.interfaces` is a list. Every router is delivered per-site
+          # from a settings JSON via the unattended ISO (local/build-iso.sh) or the
+          # network deploy, both of which remain.
+          guided = false;
+          # Per-root FLAT settings for the per-host install systems: the file holds
+          # router.* values at top level and the helper applies it as
+          # `{ router = mkDefault <flat> }` — the same shape as the runtime
+          # /etc/nixos/router-settings.json the Cockpit UI edits.
+          settingsFiles.router = ./local/install-settings.json;
+          hints = {
+            diskDevice = "disk-device";
+            "wan.interface" = "net-iface";
+          };
+        }
+        # The installed router's /etc/nixos flake takes nixpkgs from this
+        # repository's lock rather than tracking nixos-unstable itself: that is
+        # the rev CI builds and pushes to the binary cache, and the one the
+        # Technitium apps are checked against (checks.technitium-version).
+        # Passed only when the locked nixos-install-helper knows the argument
+        # (Avunu/nixos-install-helper, `nixpkgsFromUpstream`) — mkProject takes
+        # no `...`, so an unknown one fails evaluation — which lets the lock
+        # bump that brings it in switch it on with no edit here. Once that has
+        # landed, fold it into the attrset above.
+        // lib.optionalAttrs (
+          (lib.functionArgs inputs.nixos-install-helper.lib.mkProject) ? nixpkgsFromUpstream
+        ) { nixpkgsFromUpstream = true; }
+      );
 
       # The Cockpit UI validates the FLAT router-settings.json, so flatten the
       # install-helper's per-root schema ({ properties.router = {...} }) down to
@@ -465,7 +497,7 @@
         in
         {
           cockpit-router = pkgs.callPackage ./pkgs/cockpit-router/package.nix { };
-          inherit (routerPkgs) technitium-dns-apps router-dns-tools;
+          inherit (routerPkgs) technitium-dns-apps router-dns-tools suricata-update-preflight;
         }
         # Merge the installer artifacts on x86_64 (installerIso, guidedIso,
         # settingsSchema, …) plus the FLAT schema the Cockpit UI validates

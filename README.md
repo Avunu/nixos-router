@@ -44,6 +44,23 @@ Always load the settings through `nixos-router.lib`. It upgrades settings writte
 -   **Web UI:** Cockpit at `https://<router>:9090`, reachable from the LAN or WireGuard. Edit settings there, then press **Apply**.
 -   **Upgrade:** `system-upgrade` on the router. Upgrades also run nightly.
 
+## Binary cache
+
+Routers download their router-specific packages from [nixos-router.cachix.org](https://nixos-router.cachix.org) instead of compiling them. These are the Technitium DNS apps, `router-dns-tools`, the Cockpit plugin bundle and the NixOS system derivations. CI builds them from this repository's `flake.lock` and pushes whatever cache.nixos.org doesn't have. The `cache` job in `.github/workflows/checks.yml` does this on every pull request, every push to `main`, and nightly. The router module adds the substituter, and `flake.nix` declares it in `nixConfig` for deploys and development machines.
+
+A router only hits the cache when its nixpkgs is the rev CI built, so the host flake takes nixpkgs from nixos-router rather than tracking nixos-unstable itself:
+
+```nix
+inputs = {
+  nixos-router.url = "github:Avunu/nixos-router";
+  nixpkgs.follows = "nixos-router/nixpkgs";
+};
+```
+
+Routers installed before this change still have `nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable"` and `nixos-router.inputs.nixpkgs.follows = "nixpkgs"`. Change `/etc/nixos/flake.nix` to the block above once, then run `system-upgrade`.
+
+CI publishes with the `CACHIX_AUTH_TOKEN` secret. Add it under **both** Actions secrets and Dependabot secrets, because Dependabot pull requests only see the latter.
+
 ## Develop
 
 ```sh

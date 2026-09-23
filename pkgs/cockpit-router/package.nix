@@ -4,6 +4,7 @@
   importNpmLock,
   nodejs,
   cockpit,
+  runCommand,
   iproute2,
   iputils,
   dnsutils,
@@ -13,28 +14,20 @@
   avahi,
   nmap,
   wireguard-tools,
-  # Local service endpoints/paths baked into config.js at install time:
-  # Technitium web API port + the read-only dashboard token, router-logd's
-  # port + query token, the directory sync state files, the reports dir, and
-  # the dynamic DNS status file.
-  technitiumPort ? 5380,
-  technitiumTokenPath ? "/var/lib/cockpit-router/technitium-token",
-  logdPort ? 8067,
-  logdTokenPath ? "/var/lib/router-technitium/logd-query.token",
-  directoryStatePath ? "/var/lib/router-directory/directory.json",
-  directoryStatusPath ? "/var/lib/router-directory/status.json",
-  reportsDir ? "/var/lib/router-reports",
-  # router-ddns's last-run summary (a DynamicUser StateDirectory, so the real
-  # directory is /var/lib/private/router-ddns; root reads it via the symlink).
-  ddnsStatusPath ? "/var/lib/router-ddns/status.json",
-  # Baked into config.js so the frontend knows where the editable JSON config
-  # lives, the host name, and the flake path for nixos-rebuild. Defaults match
-  # the standard deployment layout.
-  hostName ? "",
-  flakePath ? "/etc/nixos",
-  settingsFile ? "/etc/nixos/router-settings.json",
 }:
 
+# Two derivations, so that the expensive one is the same on every router.
+#
+#   • This one is the bundle: the npm build, host-independent, and therefore
+#     one store path per nixpkgs rev that CI builds and pushes to the binary
+#     cache (.github/workflows/checks.yml).
+#   • `passthru.withConfig { … }` is the per-router part: the bundle symlinked
+#     into place plus a generated config.js with that router's endpoints and
+#     paths. A file write, not a build.
+#
+# Baking config.js into the bundle itself, as this package used to, made every
+# router's hostName and ports an input of the npm build, so no two routers
+# shared the output and none could ever substitute it.
 buildNpmPackage (finalAttrs: {
   pname = "cockpit-router";
   version = "0.1.0";
@@ -80,12 +73,11 @@ buildNpmPackage (finalAttrs: {
 
   # This is a Cockpit static package, not an npm library — install the bundled
   # dist/ into the cockpit share tree instead of running `npm install` to $out.
+  # No config.js here; see `withConfig` below.
   installPhase = ''
     runHook preInstall
     mkdir -p $out/share/cockpit/router
     cp -r dist/* $out/share/cockpit/router/
-    echo 'window.cockpitRouterConfig = { technitiumPort: ${toString technitiumPort}, technitiumTokenPath: "${technitiumTokenPath}", logdPort: ${toString logdPort}, logdTokenPath: "${logdTokenPath}", directoryStatePath: "${directoryStatePath}", directoryStatusPath: "${directoryStatusPath}", reportsDir: "${reportsDir}", ddnsStatusPath: "${ddnsStatusPath}", macPrefixesPath: "${nmap}/share/nmap/nmap-mac-prefixes", hostName: "${hostName}", flakePath: "${flakePath}", settingsFile: "${settingsFile}" };' \
-      > $out/share/cockpit/router/config.js
     runHook postInstall
   '';
 
@@ -98,6 +90,66 @@ buildNpmPackage (finalAttrs: {
   # way the technitium apps do — but there the input is unavoidable, since
   # nixpkgs ships only the DNS server binary and never the app sources.
   passthru.cockpitSrc = cockpit.src;
+
+  # The plugin as a router installs it: the bundle above plus config.js, the
+  # local service endpoints/paths the frontend reads at load time — Technitium
+  # web API port + the read-only dashboard token, router-logd's port + query
+  # token, the directory sync state files, the reports dir, the dynamic DNS
+  # status file, and where the editable JSON config, the host name and the
+  # flake for nixos-rebuild live. Defaults match the standard deployment
+  # layout. Carries the bundle's passthru, so Cockpit's plugin buildEnv still
+  # finds `cockpitPath` on it.
+  passthru.withConfig =
+    {
+      technitiumPort ? 5380,
+      technitiumTokenPath ? "/var/lib/cockpit-router/technitium-token",
+      logdPort ? 8067,
+      logdTokenPath ? "/var/lib/router-technitium/logd-query.token",
+      directoryStatePath ? "/var/lib/router-directory/directory.json",
+      directoryStatusPath ? "/var/lib/router-directory/status.json",
+      reportsDir ? "/var/lib/router-reports",
+      # router-ddns's last-run summary (a DynamicUser StateDirectory, so the
+      # real directory is /var/lib/private/router-ddns; root reads it via the
+      # symlink).
+      ddnsStatusPath ? "/var/lib/router-ddns/status.json",
+      hostName ? "",
+      flakePath ? "/etc/nixos",
+      settingsFile ? "/etc/nixos/router-settings.json",
+    }:
+    let
+      config = builtins.toJSON {
+        inherit
+          technitiumPort
+          technitiumTokenPath
+          logdPort
+          logdTokenPath
+          directoryStatePath
+          directoryStatusPath
+          reportsDir
+          ddnsStatusPath
+          hostName
+          flakePath
+          settingsFile
+          ;
+        macPrefixesPath = "${nmap}/share/nmap/nmap-mac-prefixes";
+      };
+    in
+    runCommand "cockpit-router-${finalAttrs.version}"
+      {
+        inherit (finalAttrs) meta;
+        passthru = removeAttrs finalAttrs.passthru [ "withConfig" ] // {
+          bundle = finalAttrs.finalPackage;
+        };
+      }
+      ''
+        mkdir -p $out
+        # Real directories, symlinked files; the directories come over with
+        # the store's read-only mode, and config.js has to go in one of them.
+        cp -rs ${finalAttrs.finalPackage}/share $out/share
+        find $out -type d -exec chmod u+w {} +
+        echo ${lib.escapeShellArg "window.cockpitRouterConfig = ${config};"} \
+          > $out/share/cockpit/router/config.js
+      '';
 
   # CLI tools the plugin spawns via cockpit-bridge (made available on Cockpit's
   # PATH through the module's plugin buildEnv).
