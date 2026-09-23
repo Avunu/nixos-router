@@ -37,6 +37,8 @@ Each forward names a **host**, a **protocol**, one or more **ports** (mapped 1:1
 
 Renaming a host in Cockpit updates its forwards. Removing a host removes its forwards, and the confirmation says how many.
 
+Forwards saved in the old address-based format (`destination` and `source`) are upgraded automatically on the next rebuild. Each one is pointed at the host whose `staticIp` is the old address, and stays IPv4-only. This needs the host flake to load settings through `nixos-router.lib`; see [settings-migrations.md](settings-migrations.md).
+
 There is **no NAT loopback**. For a host with both a `publicHostname` and a `staticIp`, the router's resolver answers that name with the LAN address for LAN clients. This is a split-horizon record, and it needs Technitium to be enabled.
 
 ### Suricata

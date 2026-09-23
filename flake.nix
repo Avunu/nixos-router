@@ -256,6 +256,17 @@
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
           };
 
+          # Eval-only guard on the settings loader every router reads its JSON
+          # through: old-shape settings are upgraded (and the file rewritten at
+          # activation) instead of failing the rebuild on a retired option.
+          #   nix build .#checks.<system>.settings-loader
+          settings-loader = import ./tests/settings-loader.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            settingsLib = self.lib;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
           # NixOS VM test: port forwards on the wire — IPv4 DNAT to the host's
           # staticIp, IPv6 pinholes to exactly the host's own address, per-family
           # source restrictions — and router-ddns publishing the router's and a
@@ -307,6 +318,11 @@
               '';
         }
       );
+
+      # ── Settings loader ──────────────────────────────────────────────────────
+      # How a router's host flake reads router-settings.json: settings-format
+      # migrations are applied on the way in (see lib/settings.nix).
+      lib = import ./lib/settings.nix { inherit lib; };
 
       # ── Overlay ──────────────────────────────────────────────────────────────
       # Adds the router's from-source packages to nixpkgs, closing over the flake
