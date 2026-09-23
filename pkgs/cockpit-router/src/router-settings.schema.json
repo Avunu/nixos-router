@@ -43,7 +43,7 @@
         },
         "policies": {
           "default": [],
-          "description": "Named access policies. When empty, a \"Base\" policy is synthesized\n(from legacy AdGuard settings if present, else a modest default).\n",
+          "description": "Named access policies. When empty, a \"Base\" policy with a modest\ndefault set of ad, malware and phishing lists is synthesized.\n",
           "items": {
             "additionalProperties": false,
             "properties": {
@@ -323,6 +323,64 @@
         "uefi",
         "legacy"
       ]
+    },
+    "ddns": {
+      "additionalProperties": false,
+      "properties": {
+        "cloudflare": {
+          "additionalProperties": false,
+          "properties": {
+            "apiTokenFile": {
+              "default": null,
+              "description": "Path to a root-owned file holding a Cloudflare API token with\nZone → Zone → Read and Zone → DNS → Edit on the zones of every managed\nname. The file holds the bare token — never put the token itself here.\n",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "enable": {
+          "default": false,
+          "description": "Whether to enable dynamic DNS updates of the router's public addresses (Cloudflare).",
+          "type": "boolean"
+        },
+        "intervalMinutes": {
+          "default": 5,
+          "description": "How often to check the addresses. Cloudflare is only written to when one changes.",
+          "type": "integer"
+        },
+        "ipv4": {
+          "default": true,
+          "description": "Publish A records (the WAN IPv4 address).",
+          "type": "boolean"
+        },
+        "ipv6": {
+          "default": true,
+          "description": "Publish AAAA records (the router's and hosts' global IPv6 addresses).",
+          "type": "boolean"
+        },
+        "names": {
+          "default": [],
+          "description": "Public names for the router itself: A = WAN IPv4, AAAA = the router's\nown global IPv6 address. Hosts publish their own names through\nrouter.hosts[].publicHostname.\n",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "proxied": {
+          "default": false,
+          "description": "Proxy the records through Cloudflare (orange cloud). Only HTTP(S) on\nCloudflare's supported ports passes a proxied name, so leave this off\nfor anything else a port forward exposes.\n",
+          "type": "boolean"
+        },
+        "ttl": {
+          "default": 1,
+          "description": "Record TTL in seconds: 1 for Cloudflare's automatic TTL, otherwise 60-86400.",
+          "type": "integer"
+        }
+      },
+      "type": "object"
     },
     "directory": {
       "additionalProperties": false,
@@ -734,6 +792,14 @@
               "null"
             ]
           },
+          "ipv6Suffix": {
+            "default": null,
+            "description": "IPv6 interface identifier (the low 64 bits) this device uses on\nits network, e.g. `::42` for a token configured on the device, or\nits EUI-64 identifier. The ISP-delegated prefix is dynamic, so the\ndevice is identified by this suffix alone. Required for IPv6 port\nforwards and for an AAAA record on `publicHostname`. Use a stable\nidentifier: RFC 7217 \"stable-privacy\" and temporary addresses\nchange when the prefix does.\n",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
           "mac": {
             "description": "Device MAC address (colon-separated).",
             "type": "string"
@@ -754,6 +820,14 @@
             "default": "",
             "description": "Free-form administrator notes.",
             "type": "string"
+          },
+          "publicHostname": {
+            "default": null,
+            "description": "Public DNS name kept up to date by router.ddns: an A record for\nthe WAN IPv4 address (reach the device through a port forward)\nand, when `ipv6Suffix` is set, an AAAA record for the device's\nown global IPv6 address.\n",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "staticIp": {
             "default": null,
@@ -857,12 +931,21 @@
     },
     "portForwards": {
       "default": [],
-      "description": "Static inbound port forwards (DNAT) from the WAN to internal hosts. IPv4 only.",
+      "description": "Static inbound port forwards from the WAN to registered hosts, over IPv4 (DNAT) and/or IPv6 (pinhole).",
       "items": {
         "additionalProperties": false,
         "properties": {
-          "destination": {
-            "description": "Internal IPv4 address to forward the traffic to.",
+          "family": {
+            "default": "both",
+            "description": "Address families to forward. IPv4 needs the host's `staticIp`\n(the DNAT target); IPv6 needs its `ipv6Suffix` (the pinhole).\n",
+            "enum": [
+              "both",
+              "ipv4",
+              "ipv6"
+            ]
+          },
+          "host": {
+            "description": "Name of the router.hosts device to forward the traffic to.",
             "type": "string"
           },
           "name": {
@@ -871,7 +954,7 @@
             "type": "string"
           },
           "ports": {
-            "description": "WAN-facing ports to forward, each mapped 1:1 to the same port on `destination`.",
+            "description": "WAN-facing ports to forward, each mapped 1:1 to the same port on the host.",
             "items": {
               "maximum": 65535,
               "minimum": 0,
@@ -887,17 +970,17 @@
               "udp"
             ]
           },
-          "source": {
-            "default": null,
-            "description": "Optional WAN source prefix the forward is restricted to. Null allows any source.",
-            "type": [
-              "string",
-              "null"
-            ]
+          "sources": {
+            "default": [],
+            "description": "WAN source prefixes the forward is restricted to; IPv4 and IPv6\nprefixes may be mixed. Empty allows any source. A family with no\nprefix in a non-empty list is not forwarded at all.\n",
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
           }
         },
         "required": [
-          "destination",
+          "host",
           "ports"
         ],
         "type": "object"

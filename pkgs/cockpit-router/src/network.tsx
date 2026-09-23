@@ -29,6 +29,7 @@ import { useSettings, Loading, SubNav, SaveBar, ListEditor, hint, TabbedPage } f
 import { useInterfaces, validateNetwork } from "./interfaces";
 import type { Nic, NetView } from "./interfaces";
 import { Diagnostics } from "./diagnostics";
+import { DynamicDnsTab } from "./dynamic-dns";
 
 const _ = cockpit.gettext;
 
@@ -824,6 +825,7 @@ export const Network = () => {
             { id: "lan", label: _("LAN") },
             { id: "guest", label: _("Guest") },
             { id: "wireguard", label: _("WireGuard") },
+            { id: "ddns", label: _("Dynamic DNS") },
             { id: "diagnostics", label: _("Diagnostics") },
           ]}
         />
@@ -836,6 +838,7 @@ export const Network = () => {
           {tab === "lan" && <LanTab s={s} nics={nics} net={net} />}
           {tab === "guest" && <GuestTab s={s} nics={nics} net={net} />}
           {tab === "wireguard" && <WireGuardTab s={s} />}
+          {tab === "ddns" && <DynamicDnsTab s={s} />}
           {tab === "diagnostics" && <Diagnostics />}
         </StackItem>
         {!isMonitorTab && (

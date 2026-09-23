@@ -75,6 +75,7 @@ let
     "suricata"
     "upnp"
     "portForwards"
+    "ddns"
     "adminUser"
     "wireless"
   ];
@@ -685,10 +686,10 @@ in
     # Cap journald storage to 500MB and 30 days to prevent the
     # system journal from consuming all disk space on routers
     # with limited storage (common with eMMC/SSD appliances).
-    services.journald.extraConfig = ''
-      SystemMaxUse=500M
-      MaxRetentionSec=30day
-    '';
+    services.journald.settings.Journal = {
+      SystemMaxUse = "500M";
+      MaxRetentionSec = "30day";
+    };
 
     # ── 10. Hardening ────────────────────────────────────
     # SSH is the primary remote management interface. Security:

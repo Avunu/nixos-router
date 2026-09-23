@@ -362,7 +362,28 @@ let
     ptr = false;
   }) dcfg.overrides;
 
-  localDnsRecords = overrideRecords ++ hostRecords;
+  # Public host names (router.hosts[].publicHostname, published by router.ddns)
+  # resolve to the WAN IPv4 on the internet. The router has no NAT loopback, so
+  # a LAN client handed that address could not reach the host through its own
+  # port forward; answer it with the host's LAN address instead. An explicit
+  # override for the same name wins, as it does for hostRecords.
+  publicHostRecords =
+    map
+      (h: {
+        name = toLower h.publicHostname;
+        type = "A";
+        value = h.staticIp;
+        ttl = 300;
+        ptr = false;
+      })
+      (
+        filter (
+          h:
+          h.publicHostname != null && h.staticIp != null && !(elem (toLower h.publicHostname) overrideNames)
+        ) cfg.hosts
+      );
+
+  localDnsRecords = overrideRecords ++ hostRecords ++ publicHostRecords;
 
   # FWD record set mirroring the global upstreams — the "fall through to the
   # public horizon" half of every zone this feature creates.
@@ -540,17 +561,6 @@ let
   '';
 in
 {
-  # `router.dns.upstreamServers` predates this branch — it fed AdGuard Home's
-  # `upstream_dns` — so it is sitting in every existing settings JSON. Renaming
-  # rather than deleting keeps those configs evaluating, with a warning naming
-  # the new path, instead of failing the rebuild on an unknown option.
-  imports = [
-    (mkRenamedOptionModule
-      [ "router" "dns" "upstreamServers" ]
-      [ "router" "dns" "technitium" "upstreamServers" ]
-    )
-  ];
-
   options.router._dnsToolsConfig = mkOption {
     type = types.path;
     internal = true;
