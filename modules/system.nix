@@ -762,9 +762,8 @@ in
     # Automated housekeeping:
     #   • Nix GC: weekly cleanup of store paths older than 30 days.
     #     Keeps disk usage bounded on long-running routers.
-    #   • Auto-upgrade: daily check for NixOS updates at 04:00.
-    #     allowReboot=false by default — upgrades apply on next
-    #     manual reboot (safe for headless routers).
+    #   • Auto-upgrade: daily at 03:00, rebooting if the kernel moved.
+    #   • Binary cache: the project's Cachix cache, below.
     #   • Flakes + nix-command enabled for modern Nix CLI.
     nix = {
       gc = {
@@ -772,10 +771,33 @@ in
         dates = "weekly";
         options = "--delete-older-than 30d";
       };
-      settings.experimental-features = [
-        "nix-command"
-        "flakes"
-      ];
+      settings = {
+        experimental-features = [
+          "nix-command"
+          "flakes"
+        ];
+
+        # The project's binary cache. It holds what cache.nixos.org cannot
+        # serve: the Technitium DNS apps (a .NET build from source),
+        # router-dns-tools, suricata-update-preflight, the Cockpit plugin
+        # bundle, and the NixOS system derivations. CI builds and pushes them
+        # (.github/workflows/checks.yml, `cache` job) from THIS repository's
+        # lock, so a router hits it when its nixpkgs is that lock's — which is
+        # why the host flake follows `nixos-router/nixpkgs` rather than
+        # tracking nixos-unstable on its own (local/flake.nix).
+        #
+        # Adding a substituter is a trust decision: whoever holds this
+        # cache's signing key can put any store path on any router running
+        # this module, the power cache.nixos.org already has. The keypair is
+        # generated and held by Cachix, so no private key lives in this
+        # repository; CI pushes with an auth token alone. Priority 41 sits
+        # behind cache.nixos.org (40), which the NixOS module appends itself.
+        # Same key as `nixConfig` in flake.nix; keep them equal.
+        substituters = [ "https://nixos-router.cachix.org?priority=41" ];
+        trusted-public-keys = [
+          "nixos-router.cachix.org-1:SVg1w5V/8cCwagilNr0r64yhGEjnP/p71J10ULx9v+o="
+        ];
+      };
     };
 
     system = {
@@ -786,10 +808,13 @@ in
         # one configured location instead of a hardcoded path.
         flake = "${cfg.cockpit.flakePath}#${cfg.hostName}";
         allowReboot = mkDefault true;
+        # nixos-router only: the host flake's nixpkgs follows
+        # nixos-router/nixpkgs, so moving nixos-router moves nixpkgs to the
+        # rev CI built and cached. Updating nixpkgs on its own would float it
+        # past that lock, off the cache and out of step with the Technitium
+        # apps pinned there.
         flags = mkDefault [
           "--refresh"
-          "--update-input"
-          "nixpkgs"
           "--update-input"
           "nixos-router"
         ];

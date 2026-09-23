@@ -1,10 +1,23 @@
 {
+  # The project's binary cache, for the build `deploy.sh` runs on the
+  # operator's machine: nixos-anywhere builds THIS flake, and only the flake
+  # being built has its nixConfig read. Once installed, the router module
+  # configures the same cache on the router itself.
+  nixConfig = {
+    extra-substituters = [ "https://nixos-router.cachix.org" ];
+    extra-trusted-public-keys = [
+      "nixos-router.cachix.org-1:SVg1w5V/8cCwagilNr0r64yhGEjnP/p71J10ULx9v+o="
+    ];
+  };
+
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-    nixos-router = {
-      url = "github:Avunu/nixos-router";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
+    nixos-router.url = "github:Avunu/nixos-router";
+    # nixpkgs is nixos-router's own, locked in that repository and tested and
+    # cached by its CI. Updating nixos-router therefore updates nixpkgs to a
+    # rev whose router-specific builds (the Technitium apps, the Cockpit
+    # plugin) are already on the binary cache, and whose Technitium DNS
+    # server matches the apps compiled against it.
+    nixpkgs.follows = "nixos-router/nixpkgs";
   };
 
   outputs =

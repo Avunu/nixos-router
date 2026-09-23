@@ -12,10 +12,16 @@ updates:
   # pinned to a TAG in flake.nix, which never moves, so a nixpkgs bump leaves it
   # behind. The `technitium-version` check fails the PR when that happens; the
   # fix is to bump the ref in flake.nix by hand and run `nix run .#update-deps`.
+  #
+  # Daily, because this lock is now what routers run: a router's host flake
+  # follows nixos-router/nixpkgs (local/flake.nix), so its nightly upgrade
+  # lands on this lock's nixpkgs — the rev the `cache` CI job built and
+  # published — and nothing newer. There is no auto-merge here, so routers
+  # move forward only when a human merges one of these pull requests.
   - package-ecosystem: nix
     directory: /
     schedule:
-      interval: weekly
+      interval: daily
     commit-message:
       prefix: chore
     groups:
