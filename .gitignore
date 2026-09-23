@@ -8,3 +8,5 @@ result
 pkgs/cockpit-router/pkg/
 __pycache__/
 *.pyc
+# Cargo build output (pkgs/router-proxy)
+target/
