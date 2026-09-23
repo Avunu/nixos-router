@@ -18,7 +18,11 @@
       # The cockpit-managed router config. The web UI reads and writes this same
       # JSON file (deployed to /etc/nixos/router-settings.json); on rebuild its
       # values flow into the router module below. Edit it by hand or from Cockpit.
-      settings = builtins.fromJSON (builtins.readFile ./router-settings.json);
+      #
+      # Always read it through nixos-router.lib: settings written for an older
+      # version of the module are upgraded on the way in (and the file itself
+      # rewritten at activation), so a module update never fails on them.
+      settings = nixos-router.lib.readSettings ./router-settings.json;
     in
     {
       nixosConfigurations.${settings.hostName} = nixpkgs.lib.nixosSystem {
@@ -30,7 +34,7 @@
           # JSON-managed settings, applied as defaults so that anything you set
           # normally in the "locked settings" module below overrides them — and
           # such overridden fields show as read-only in the Cockpit UI.
-          { router = nixpkgs.lib.mkDefault settings; }
+          (nixos-router.lib.settingsModule ./router-settings.json)
 
           # Locked / non-serializable settings live here in Nix; the Cockpit UI
           # cannot change them. The Cockpit web UI itself (transport, port,

@@ -11,6 +11,15 @@
 #
 # Devices without a static IP fall back to their network's default policy —
 # device-tier and user-tier policies require a pinned address (warned below).
+#
+# Two optional fields make a host reachable from the internet:
+#   • ipv6Suffix     — the host's IPv6 interface identifier. The delegated
+#                      prefix is dynamic, so the host is identified by the low
+#                      64 bits alone; firewall.nix matches on them for IPv6
+#                      port-forward pinholes and ddns.nix combines them with the
+#                      live prefix for the host's AAAA record.
+#   • publicHostname — a public DNS name router.ddns keeps pointed at the host
+#                      (A = WAN IPv4, AAAA = delegated prefix + ipv6Suffix).
 {
   config,
   lib,
@@ -19,6 +28,7 @@
 with lib;
 let
   cfg = config.router;
+  netLib = import ./lib/net.nix { inherit lib; };
 
   # ── IPv4 helpers ─────────────────────────────────────────
   # Minimal pure-Nix IPv4 arithmetic for subnet-containment assertions.
@@ -58,6 +68,14 @@ let
 
   groupNames = map (g: g.name) cfg.hostGroups;
   staticHosts = filter (h: h.staticIp != null) cfg.hosts;
+  suffixHosts = filter (h: h.ipv6Suffix != null) cfg.hosts;
+  publicNames = map (h: toLower h.publicHostname) (filter (h: h.publicHostname != null) cfg.hosts);
+
+  # Suffixes are compared normalized ("::0042" == "::42") and per network:
+  # the same interface ID on LAN and guest names two different addresses.
+  suffixKeys = map (h: "${h.network}/${toString (netLib.parseSuffix h.ipv6Suffix)}") (
+    filter (h: netLib.parseSuffix h.ipv6Suffix != null) suffixHosts
+  );
 
   dupsOf =
     xs:
@@ -105,6 +123,31 @@ in
               type = types.nullOr types.str;
               default = null;
               description = "Directory user (id or email) this device belongs to.";
+            };
+            ipv6Suffix = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              example = "::42";
+              description = ''
+                IPv6 interface identifier (the low 64 bits) this device uses on
+                its network, e.g. `::42` for a token configured on the device, or
+                its EUI-64 identifier. The ISP-delegated prefix is dynamic, so the
+                device is identified by this suffix alone. Required for IPv6 port
+                forwards and for an AAAA record on `publicHostname`. Use a stable
+                identifier: RFC 7217 "stable-privacy" and temporary addresses
+                change when the prefix does.
+              '';
+            };
+            publicHostname = mkOption {
+              type = types.nullOr types.str;
+              default = null;
+              example = "nas.example.com";
+              description = ''
+                Public DNS name kept up to date by router.ddns: an A record for
+                the WAN IPv4 address (reach the device through a port forward)
+                and, when `ipv6Suffix` is set, an AAAA record for the device's
+                own global IPv6 address.
+              '';
             };
             notes = mkOption {
               type = types.str;
@@ -163,6 +206,14 @@ in
         assertion = dupsOf groupNames == [ ];
         message = "router.hostGroups: duplicate group name(s): ${concatStringsSep ", " (dupsOf groupNames)}";
       }
+      {
+        assertion = dupsOf suffixKeys == [ ];
+        message = "router.hosts: duplicate IPv6 suffix(es) on one network: ${concatStringsSep ", " (dupsOf suffixKeys)}";
+      }
+      {
+        assertion = dupsOf publicNames == [ ];
+        message = "router.hosts: duplicate public hostname(s): ${concatStringsSep ", " (dupsOf publicNames)}";
+      }
     ]
     # Per-host referential and subnet checks.
     ++ concatMap (
@@ -186,6 +237,14 @@ in
         {
           assertion = h.staticIp == null || h.staticIp != net.gateway;
           message = "router.hosts: device '${h.name}' static IP collides with the ${h.network} gateway ${net.gateway}";
+        }
+        {
+          assertion = h.ipv6Suffix == null || netLib.parseSuffix h.ipv6Suffix != null;
+          message = "router.hosts: device '${h.name}' IPv6 suffix '${toString h.ipv6Suffix}' is not an interface identifier — it must be a bare IPv6 address with only the low 64 bits set (e.g. ::42), and not ::";
+        }
+        {
+          assertion = h.publicHostname == null || netLib.isHostname h.publicHostname;
+          message = "router.hosts: device '${h.name}' public hostname '${toString h.publicHostname}' is not a valid DNS name (e.g. nas.example.com)";
         }
       ]
     ) cfg.hosts;

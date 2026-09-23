@@ -75,6 +75,7 @@ let
     "suricata"
     "upnp"
     "portForwards"
+    "ddns"
     "adminUser"
     "wireless"
   ];
@@ -229,12 +230,24 @@ in
         description = ''
           Path to the editable JSON config the Cockpit plugin reads and
           writes. The host flake feeds this same file into the router
-          module with `router = builtins.fromJSON (builtins.readFile ...)`,
-          so changes saved from the web UI take effect on the next rebuild.
-          Only used to tell the plugin where the file lives — the module
-          itself does not read it.
+          module through `nixos-router.lib.settingsModule`, so changes saved
+          from the web UI take effect on the next rebuild. The module never
+          reads it; it only rewrites it at activation when a settings
+          migration upgraded its contents (see `_settingsFile`).
         '';
       };
+    };
+
+    # Set by nixos-router.lib.settingsModule (lib/settings.nix), never by hand.
+    # When a settings migration changed the JSON this evaluation read,
+    # `migrated` holds the upgraded settings and activation writes them back
+    # to cockpit.settingsFile — but only if that file still hashes to
+    # `rawHash`, so an edit made after the build is never overwritten.
+    _settingsFile = mkOption {
+      type = types.nullOr types.attrs;
+      default = null;
+      internal = true;
+      description = "Settings file provenance from nixos-router.lib.settingsModule.";
     };
 
     # ── Admin user ─────────────────────────────────────────
@@ -498,6 +511,32 @@ in
     # fields are locked in Nix. Root-only because it includes secrets
     # (adminUser.initialPassword, ssh keys). The plugin also writes an
     # "applied" snapshot to /var/lib/cockpit-router for the changes tray.
+    # Persist a settings migration (see `_settingsFile`). Activation runs
+    # before /run/current-system is re-linked, so the rewritten file is not
+    # newer than the running system and the changes tray takes it as applied.
+    # The previous contents are kept beside it as *.pre-migration.
+    system.activationScripts.routerSettingsMigrate =
+      mkIf (cfg._settingsFile != null && (cfg._settingsFile.migrated or null) != null)
+        (
+          let
+            # Pretty-printed like Cockpit writes it, so diffs stay readable.
+            migratedFile = pkgs.runCommand "router-settings.json" { nativeBuildInputs = [ pkgs.jq ]; } ''
+              jq . ${pkgs.writeText "router-settings.min.json" (builtins.toJSON cfg._settingsFile.migrated)} > $out
+            '';
+          in
+          ''
+            f=${escapeShellArg cfg.cockpit.settingsFile}
+            if [ -f "$f" ] && [ "$(sha256sum "$f" | cut -d' ' -f1)" = ${escapeShellArg cfg._settingsFile.rawHash} ]; then
+              cp -p "$f" "$f.pre-migration"
+              cat ${migratedFile} > "$f.migrating"
+              chmod --reference="$f" "$f.migrating"
+              chown --reference="$f" "$f.migrating"
+              mv -f "$f.migrating" "$f"
+              echo "router: upgraded $f to the current settings format (previous: $f.pre-migration)"
+            fi
+          ''
+        );
+
     environment.etc."router/effective.json" = mkIf cfg.cockpit.enable {
       mode = "0600";
       text = builtins.toJSON (genAttrs effectiveKeys (k: cfg.${k}));
@@ -685,10 +724,10 @@ in
     # Cap journald storage to 500MB and 30 days to prevent the
     # system journal from consuming all disk space on routers
     # with limited storage (common with eMMC/SSD appliances).
-    services.journald.extraConfig = ''
-      SystemMaxUse=500M
-      MaxRetentionSec=30day
-    '';
+    services.journald.settings.Journal = {
+      SystemMaxUse = "500M";
+      MaxRetentionSec = "30day";
+    };
 
     # ── 10. Hardening ────────────────────────────────────
     # SSH is the primary remote management interface. Security:

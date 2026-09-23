@@ -13,9 +13,11 @@ interface CockpitSpawnOptions {
 }
 
 // A spawned process resolves to its stdout; `.stream` delivers incremental
-// output and `.close` terminates it.
+// output, `.input` writes to stdin (closing it unless `stream` is true), and
+// `.close` terminates it.
 interface CockpitProcess extends Promise<string> {
   stream: (callback: (data: string) => void) => CockpitProcess;
+  input: (data: string, stream?: boolean) => CockpitProcess;
   close: (problem?: string) => void;
 }
 
@@ -78,6 +80,7 @@ interface Window {
     directoryStatePath?: string;
     directoryStatusPath?: string;
     reportsDir?: string;
+    ddnsStatusPath?: string;
     macPrefixesPath?: string;
     // Baked in by package.nix: where the editable JSON config lives, the host
     // name, and the flake path used for nixos-rebuild.

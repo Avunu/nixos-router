@@ -168,16 +168,6 @@
             pkgs = nixpkgs.legacyPackages.${system}.extend self.overlays.router;
           };
 
-          # Eval-only guard on the AdGuard Home → Technitium migration. This
-          # branch switches the DNS engine for every existing deployment, so
-          # the compatibility shim is the one code path they all run through.
-          #   nix build .#checks.<system>.legacy-adguard
-          legacy-adguard = import ./tests/legacy-adguard.nix {
-            pkgs = nixpkgs.legacyPackages.${system};
-            routerModule = self.nixosModules.router;
-            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
-          };
-
           # The Cockpit plugin's own checks — format, lint, type-aware lint,
           # tsc, and the node --test suite. The plugin PACKAGE only runs
           # `npm run build` (npmBuildScript), so without this none of them gate
@@ -255,6 +245,48 @@
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
           };
 
+          # Eval-only guard on host-based, dual-stack port forwards: the DNAT
+          # and pinhole rules each forward produces (nft --check'd), the
+          # split-horizon and DDNS wiring for public host names, and that every
+          # misconfiguration is rejected with a message naming the forward.
+          #   nix build .#checks.<system>.port-forwards-eval
+          port-forwards-eval = import ./tests/port-forwards-eval.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
+          # Eval-only guard on the settings loader every router reads its JSON
+          # through: old-shape settings are upgraded (and the file rewritten at
+          # activation) instead of failing the rebuild on a retired option.
+          #   nix build .#checks.<system>.settings-loader
+          settings-loader = import ./tests/settings-loader.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            settingsLib = self.lib;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
+          # router-ddns against a fake Cloudflare API in the build sandbox (no
+          # VM): names held by CNAMEs are taken over, and the CNAMEs restored
+          # when the names are dropped.
+          #   nix build .#checks.<system>.ddns-cloudflare
+          ddns-cloudflare = import ./tests/ddns-cloudflare.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerDnsTools = (nixpkgs.legacyPackages.${system}.extend self.overlays.router).router-dns-tools;
+          };
+
+          # NixOS VM test: port forwards on the wire — IPv4 DNAT to the host's
+          # staticIp, IPv6 pinholes to exactly the host's own address, per-family
+          # source restrictions — and router-ddns publishing the router's and a
+          # host's addresses into a fake Cloudflare API.
+          #   nix build .#checks.<system>.port-forwards-vm
+          port-forwards-vm = import ./tests/port-forwards.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
           # NixOS VM test: the podman substrate itself — static IPs on the
           # container bridge, host-service reachability from a container, a
           # published port on the LAN address, and that all of it survives the
@@ -295,6 +327,11 @@
               '';
         }
       );
+
+      # ── Settings loader ──────────────────────────────────────────────────────
+      # How a router's host flake reads router-settings.json: settings-format
+      # migrations are applied on the way in (see lib/settings.nix).
+      lib = import ./lib/settings.nix { inherit lib; };
 
       # ── Overlay ──────────────────────────────────────────────────────────────
       # Adds the router's from-source packages to nixpkgs, closing over the flake
@@ -483,6 +520,8 @@
       #    • directory-sync.nix    — SSSD (LDAP/AD) user+group resolution.
       #    • reporting.nix         — router-logd query-log store + PDF reports.
       #    • firewall.nix          — nftables ruleset, NAT, port-forwards, UPnP.
+      #    • ddns.nix              — Cloudflare dynamic DNS for the router and
+      #                              for hosts with a public name.
       #    • wireless.nix          — podman substrate + `router.wireless.*`
       #                              options shared by the two controllers.
       #    • wireless-unifi.nix    — UniFi Network Application + MongoDB +
@@ -503,6 +542,7 @@
           ./modules/directory-sync.nix
           ./modules/reporting.nix
           ./modules/firewall.nix
+          ./modules/ddns.nix
           ./modules/wireless.nix
           ./modules/wireless-unifi.nix
           ./modules/wireless-openwisp.nix

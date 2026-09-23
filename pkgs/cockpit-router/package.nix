@@ -15,7 +15,8 @@
   wireguard-tools,
   # Local service endpoints/paths baked into config.js at install time:
   # Technitium web API port + the read-only dashboard token, router-logd's
-  # port + query token, the directory sync state files, and the reports dir.
+  # port + query token, the directory sync state files, the reports dir, and
+  # the dynamic DNS status file.
   technitiumPort ? 5380,
   technitiumTokenPath ? "/var/lib/cockpit-router/technitium-token",
   logdPort ? 8067,
@@ -23,6 +24,9 @@
   directoryStatePath ? "/var/lib/router-directory/directory.json",
   directoryStatusPath ? "/var/lib/router-directory/status.json",
   reportsDir ? "/var/lib/router-reports",
+  # router-ddns's last-run summary (a DynamicUser StateDirectory, so the real
+  # directory is /var/lib/private/router-ddns; root reads it via the symlink).
+  ddnsStatusPath ? "/var/lib/router-ddns/status.json",
   # Baked into config.js so the frontend knows where the editable JSON config
   # lives, the host name, and the flake path for nixos-rebuild. Defaults match
   # the standard deployment layout.
@@ -80,7 +84,7 @@ buildNpmPackage (finalAttrs: {
     runHook preInstall
     mkdir -p $out/share/cockpit/router
     cp -r dist/* $out/share/cockpit/router/
-    echo 'window.cockpitRouterConfig = { technitiumPort: ${toString technitiumPort}, technitiumTokenPath: "${technitiumTokenPath}", logdPort: ${toString logdPort}, logdTokenPath: "${logdTokenPath}", directoryStatePath: "${directoryStatePath}", directoryStatusPath: "${directoryStatusPath}", reportsDir: "${reportsDir}", macPrefixesPath: "${nmap}/share/nmap/nmap-mac-prefixes", hostName: "${hostName}", flakePath: "${flakePath}", settingsFile: "${settingsFile}" };' \
+    echo 'window.cockpitRouterConfig = { technitiumPort: ${toString technitiumPort}, technitiumTokenPath: "${technitiumTokenPath}", logdPort: ${toString logdPort}, logdTokenPath: "${logdTokenPath}", directoryStatePath: "${directoryStatePath}", directoryStatusPath: "${directoryStatusPath}", reportsDir: "${reportsDir}", ddnsStatusPath: "${ddnsStatusPath}", macPrefixesPath: "${nmap}/share/nmap/nmap-mac-prefixes", hostName: "${hostName}", flakePath: "${flakePath}", settingsFile: "${settingsFile}" };' \
       > $out/share/cockpit/router/config.js
     runHook postInstall
   '';

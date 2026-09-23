@@ -1,7 +1,7 @@
 // Reusable building blocks for the Settings tabs and config pages: the native
 // Cockpit sub-nav, a string-list editor, save-status, and the `useSettings` hook
 // that loads the JSON config and tracks a working copy for the forms.
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import type { ReactNode } from "react";
 import {
   Alert,
@@ -19,7 +19,7 @@ import {
   PageSection,
 } from "@patternfly/react-core";
 import { HelpIcon } from "@patternfly/react-icons";
-import { loadState, writeDesired, getPath, setPath, isLocked, errMsg } from "./nix";
+import { loadState, writeDesired, getPath, setPath, isLocked, errMsg, rebaseEdits } from "./nix";
 import type { SettingsState, Json } from "./nix";
 
 const _ = cockpit.gettext;
@@ -112,26 +112,41 @@ export const SaverStatus = ({ status }: { status: { ok: boolean; msg: string } |
 // Loads the JSON config + effective/applied companions and exposes a working
 // copy of `desired` that forms edit by leaf path. `save()` writes the JSON;
 // `saveAndApply()` writes it then asks the changes tray to rebuild.
+//
+// The working copy follows the file. Every write of the settings file
+// (writeDesired) and every apply announces itself with "router:changed", and
+// the hook then rebuilds its copy from disk rather than keeping the one it
+// loaded — otherwise a page left open across the changes tray's Revert, or
+// another form's save, would write its stale copy straight back over them.
+// Edits the admin has not saved yet survive the rebuild (see rebaseEdits).
 export function useSettings() {
   const [state, setState] = useState<SettingsState | null>(null);
   const [desired, setDesired] = useState<Json>({});
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  // Unsaved edits, leaf path → value, in the order they were last made.
+  const pending = useRef(new Map<string, Json>());
 
   const reload = useCallback(() => {
     loadState()
       .then((s) => {
         setState(s);
-        setDesired(s.desired || {});
+        setDesired(rebaseEdits(s.desired || {}, pending.current));
       })
       .catch((e: unknown) => setError(errMsg(e)));
   }, []);
   useEffect(() => {
     reload();
+    window.addEventListener("router:changed", reload);
+    return () => window.removeEventListener("router:changed", reload);
   }, [reload]);
 
   const setLeaf = useCallback((path: string, val: Json) => {
+    // Delete first so a repeated edit moves to the end: re-applying in order
+    // then lets a later edit of a parent path win over an earlier child one.
+    pending.current.delete(path);
+    pending.current.set(path, val);
     setDesired((d) => setPath(d, path, val));
   }, []);
 

@@ -11,7 +11,35 @@ export interface RouterHost {
   network?: "lan" | "guest";
   group?: string | null;
   user?: string | null;
+  // IPv6 interface identifier (low 64 bits, e.g. "::42"): the delegated prefix
+  // is dynamic, so IPv6 port forwards and AAAA records identify the device by
+  // this alone.
+  ipv6Suffix?: string | null;
+  // Public DNS name router.ddns keeps pointed at the device.
+  publicHostname?: string | null;
   notes?: string;
+}
+
+// router.portForwards[] — `host` names a RouterHost. IPv4 DNATs to its
+// staticIp, IPv6 opens a pinhole to its own address (ipv6Suffix).
+export interface PortForward {
+  name?: string;
+  protocol?: "tcp" | "udp";
+  host: string;
+  family?: "both" | "ipv4" | "ipv6";
+  ports: number[];
+  sources?: string[];
+}
+
+export interface DdnsSettings {
+  enable?: boolean;
+  cloudflare?: { apiTokenFile?: string | null };
+  names?: string[];
+  ipv4?: boolean;
+  ipv6?: boolean;
+  intervalMinutes?: number;
+  ttl?: number;
+  proxied?: boolean;
 }
 
 export interface HostGroup {
@@ -145,6 +173,25 @@ export interface DirectoryStatus {
   // Referenced names NSS could not resolve. NOT a sync failure — a typo must
   // not blank the user tier for everyone else (see directory_sync/__init__.py).
   unresolved?: string[];
+}
+
+// ── Dynamic DNS status (router-ddns status.json, read-only) ─────────────────
+export interface DdnsRecordStatus {
+  name: string;
+  // CNAME rows appear when a record replaced to take the name over is restored.
+  type: "A" | "AAAA" | "CNAME";
+  host?: string | null; // set for a host's publicHostname, absent for router names
+  content: string | null;
+  state: "created" | "updated" | "unchanged" | "skipped" | "removed" | "error";
+  detail?: string;
+}
+
+export interface DdnsStatus {
+  lastRun?: string;
+  ok?: boolean;
+  error?: string | null;
+  addresses?: { ipv4?: string | null; ipv4Source?: string; ipv6?: string | null };
+  records?: DdnsRecordStatus[];
 }
 
 // ── router-logd API shapes ───────────────────────────────────────────────────

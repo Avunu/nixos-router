@@ -131,6 +131,7 @@ Secrets are always **file paths** in the settings JSON, never inline values. Rec
 | /etc/router/secrets/directory-ca.pem | directory.sssd.tlsCaCertFile |
 | /etc/router/secrets/secure-ldap.key | directory.sssd.tlsClientKeyFile |
 | /etc/router/secrets/cloudflare-email.token | reporting.email.apiTokenFile |
+| /etc/router/secrets/cloudflare-ddns.token | ddns.cloudflare.apiTokenFile (see [port-forwards-ddns.md](port-forwards-ddns.md)) |
 
 The bind password file holds the **bare password**. A pre-start unit (`router-sssd-env.service`) copies it into a 0600 env file that SSSD substitutes into its generated config, so the secret never enters the Nix store. Anonymous bind (empty `bindDn`) needs no secret at all.
 
@@ -211,15 +212,6 @@ logs are operational data on a retention window (`reporting.retentionDays`,
 ```
 rm -f /var/lib/router-logd/querylogs.db
 ```
-
-## Migration from AdGuard Home
-
-AdGuard Home was removed. Settings JSON still containing `dns.adguard`:
-
--   keeps evaluating for one release — the module synthesizes a "Base" policy from the old keys (loud warning) so auto-upgrading routers never lose filtering;
--   Cockpit shows a **Migrate settings** banner that rewrites the JSON (old filters → the "Base" default policy, `dns.technitium` enabled, `dns.adguard` removed). Do this promptly: schema validation blocks other saves until migrated.
-
-Old AdGuard state can be removed manually: `rm -rf /var/lib/AdGuardHome`.
 
 ## Troubleshooting
 
