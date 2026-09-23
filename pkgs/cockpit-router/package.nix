@@ -14,6 +14,7 @@
   avahi,
   nmap,
   wireguard-tools,
+  openssl,
 }:
 
 # Two derivations, so that the expensive one is the same on every router.
@@ -163,6 +164,7 @@ buildNpmPackage (finalAttrs: {
     avahi
     nmap
     wireguard-tools # `wg genkey`/`wg pubkey` for the Network → WireGuard keypair helper
+    openssl # `openssl x509` for Routing → Reverse proxy certificate expiry
   ];
 
   meta = {

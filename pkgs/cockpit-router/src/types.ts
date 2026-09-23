@@ -42,6 +42,53 @@ export interface DdnsSettings {
   proxied?: boolean;
 }
 
+// router.acme — account settings for the reverse proxy's certificates.
+export interface AcmeSettings {
+  email?: string;
+  acceptTerms?: boolean;
+  staging?: boolean;
+  defaultChallenge?: "dns-cloudflare" | "http";
+  cloudflare?: { apiTokenFile?: string | null };
+}
+
+export type AcmeChallenge = "default" | "dns-cloudflare" | "http";
+
+// router.reverseProxy.routes[] — public hostnames proxied to a RouterHost's
+// staticIp, all covered by one certificate named after the first hostname.
+export interface ProxyRoute {
+  name?: string;
+  hostnames: string[];
+  host: string;
+  port?: number;
+  scheme?: "http" | "https";
+  tlsVerify?: boolean;
+  challenge?: AcmeChallenge;
+  hsts?: boolean;
+}
+
+export interface ReverseProxySettings {
+  enable?: boolean;
+  publishDns?: boolean;
+  routes?: ProxyRoute[];
+}
+
+// router.cloudflareTunnel.ingress[] — a public name served through the
+// router's Cloudflare Tunnel to a RouterHost's staticIp.
+export interface TunnelIngress {
+  hostname: string;
+  host: string;
+  port?: number;
+  scheme?: "http" | "https";
+  noTLSVerify?: boolean;
+  httpHostHeader?: string;
+}
+
+export interface CloudflareTunnelSettings {
+  enable?: boolean;
+  apiTokenFile?: string | null;
+  ingress?: TunnelIngress[];
+}
+
 export interface HostGroup {
   name: string;
   description?: string;
@@ -192,6 +239,23 @@ export interface DdnsStatus {
   error?: string | null;
   addresses?: { ipv4?: string | null; ipv4Source?: string; ipv6?: string | null };
   records?: DdnsRecordStatus[];
+}
+
+// ── Cloudflare Tunnel status (router-cloudflare-tunnel status.json) ───────
+export interface TunnelConnection {
+  colo: string;
+  originIp: string;
+  openedAt: string;
+  clientVersion: string;
+}
+
+export interface TunnelStatus {
+  updated?: string;
+  ok?: boolean;
+  error?: string | null;
+  tunnel?: { id: string; name: string; status: string } | null;
+  connections?: TunnelConnection[];
+  records?: Record<string, { ok: boolean; message: string }>;
 }
 
 // ── router-logd API shapes ───────────────────────────────────────────────────

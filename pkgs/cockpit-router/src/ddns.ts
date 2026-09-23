@@ -1,6 +1,6 @@
 // Dynamic DNS runtime: the router-ddns status file (read-only, written by the
 // timer-driven oneshot) plus the manual "Update now" trigger and the helper
-// that stores the Cloudflare API token as a root-owned file.
+// that stores a Cloudflare API token (or any secret) as a root-owned file.
 import { DDNS_STATUS_PATH } from "./nix";
 import type { DdnsStatus } from "./types";
 
@@ -30,15 +30,18 @@ export function updateNow(): Promise<void> {
     .then(() => {});
 }
 
-// Write the token to `path` (mode 0600, directory 0700). The token travels on
-// stdin, never on the command line, where any local user could read it from
-// the process list.
-export function saveToken(path: string, token: string): Promise<void> {
+// Write a secret (an API token, …) to `path` (mode 0600, directory 0700). The
+// value travels on stdin, never on the command line, where any local user
+// could read it from the process list.
+export function saveSecret(path: string, value: string): Promise<void> {
   return cockpit
     .spawn(
       ["sh", "-c", 'umask 077 && install -d -m700 "$(dirname "$1")" && cat > "$1"', "--", path],
       { superuser: "require", err: "message" },
     )
-    .input(`${token.trim()}\n`)
+    .input(`${value.trim()}\n`)
     .then(() => {});
 }
+
+// The dynamic DNS token is one such secret.
+export const saveToken = saveSecret;

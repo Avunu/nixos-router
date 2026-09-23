@@ -9,6 +9,7 @@ import { Reports } from "./reports";
 import { Firewall } from "./firewall";
 import { System } from "./system";
 import { Network } from "./network";
+import { Routing } from "./routing-page";
 import { Wireless } from "./wireless";
 import { ChangesTray } from "./changes";
 
@@ -28,6 +29,7 @@ export const views: Record<string, ReactNode> = {
   dns: <Dns />,
   users: <Users />,
   network: <Network />,
+  routing: <Routing />,
   "threat-protection": <Suricata />,
   firewall: <Firewall />,
   wireless: <Wireless />,
