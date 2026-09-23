@@ -54,25 +54,6 @@ export const ChangesTray = () => {
     });
   }, []);
 
-  useEffect(() => {
-    refresh();
-    const onChanged = () => refresh();
-    const onApply = () => apply();
-    window.addEventListener("router:changed", onChanged);
-    window.addEventListener("router:apply", onApply);
-    return () => {
-      window.removeEventListener("router:changed", onChanged);
-      window.removeEventListener("router:apply", onApply);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [refresh]);
-
-  useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight;
-    }
-  }, [log]);
-
   const apply = useCallback(() => {
     if (procRef.current) {
       return;
@@ -116,6 +97,28 @@ export const ChangesTray = () => {
         });
     });
   }, []);
+
+  // Both callbacks are stable (useCallback with stable deps), so the listeners
+  // are registered once.
+  useEffect(() => {
+    refresh();
+    const onChanged = () => refresh();
+    const onApply = () => apply();
+    window.addEventListener("router:changed", onChanged);
+    window.addEventListener("router:apply", onApply);
+    return () => {
+      window.removeEventListener("router:changed", onChanged);
+      window.removeEventListener("router:apply", onApply);
+    };
+  }, [refresh, apply]);
+
+  // Keep the log scrolled to the newest output (nothing to follow while empty).
+  useEffect(() => {
+    const el = logRef.current;
+    if (el && log) {
+      el.scrollTop = el.scrollHeight;
+    }
+  }, [log]);
 
   const revert = useCallback(() => {
     void writeDesired(applied).then(refresh);

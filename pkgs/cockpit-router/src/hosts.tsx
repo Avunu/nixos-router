@@ -660,10 +660,10 @@ const DevicesTab = ({ s }: { s: S }) => {
   }, []);
 
   const loadLive = useCallback(() => {
-    setLiveError("");
     loadNeighbors()
       .then((list) => {
         setNeighbors(list);
+        setLiveError("");
         // Enrich with hostnames asynchronously (don't block the table).
         void resolveNames(list.flatMap((n) => n.ips)).then((m) =>
           setNames((prev) => ({ ...prev, ...m })),
@@ -1234,15 +1234,9 @@ const GroupsTab = ({ s }: { s: S }) => {
                       />
                     </Td>
                     <Td>
-                      {members > 0 ? (
-                        <Label color="blue" isCompact>
-                          {members}
-                        </Label>
-                      ) : (
-                        <Label color="grey" isCompact>
-                          0
-                        </Label>
-                      )}
+                      <Label color={members > 0 ? "blue" : "grey"} isCompact>
+                        {members}
+                      </Label>
                     </Td>
                     <Td>
                       {confirmDelete === g.name ? (

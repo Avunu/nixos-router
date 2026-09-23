@@ -309,6 +309,13 @@ const QUICK_RANGES: { id: string; label: string; ms: number }[] = [
   { id: "30d", label: _("Last 30 days"), ms: 2_592_000_000 },
 ];
 
+// A query's filters with its time window starting `ms` before now. Called when
+// the query runs, never during render: the clock is not render input.
+const inWindow = (f: LogFilters, ms: number): LogFilters => ({
+  ...f,
+  start: new Date(Date.now() - ms).toISOString(),
+});
+
 const isBlockedResponse = (responseType: string): boolean =>
   responseType === "Blocked" || responseType.startsWith("UpstreamBlocked");
 
@@ -324,9 +331,12 @@ const QueryLog = ({ hostGroups }: { hostGroups: HostGroup[] }) => {
   const [error, setError] = useState("");
   const [exporting, setExporting] = useState(false);
 
+  // Everything but the time window. Its start is taken when a query runs (the
+  // effect and the CSV export below) rather than during render, so "the last
+  // hour" is the last hour from when you asked.
+  const rangeMs = QUICK_RANGES.find((r) => r.id === rangeId)?.ms ?? 86_400_000;
   const filters = useMemo<LogFilters>(() => {
-    const ms = QUICK_RANGES.find((r) => r.id === rangeId)?.ms ?? 86_400_000;
-    const f: LogFilters = { start: new Date(Date.now() - ms).toISOString() };
+    const f: LogFilters = {};
     if (client.trim()) {
       f.client = client.trim();
     }
@@ -340,12 +350,12 @@ const QueryLog = ({ hostGroups }: { hostGroups: HostGroup[] }) => {
       f.blocked = true;
     }
     return f;
-  }, [rangeId, client, qname, group, blockedOnly]);
+  }, [client, qname, group, blockedOnly]);
 
   // Debounced fetch: text filters re-query 300 ms after the last keystroke.
   useEffect(() => {
     const t = setTimeout(() => {
-      void logsQuery(filters, page, PAGE_SIZE)
+      void logsQuery(inWindow(filters, rangeMs), page, PAGE_SIZE)
         .then((p) => {
           setData(p);
           setError("");
@@ -354,11 +364,11 @@ const QueryLog = ({ hostGroups }: { hostGroups: HostGroup[] }) => {
         .finally(() => setLoading(false));
     }, 300);
     return () => clearTimeout(t);
-  }, [filters, page]);
+  }, [filters, rangeMs, page]);
 
   const exportCsv = () => {
     setExporting(true);
-    void logsCsv(filters)
+    void logsCsv(inWindow(filters, rangeMs))
       .then((csv) => {
         const stamp = new Date().toISOString().slice(0, 19).replaceAll(":", "-");
         downloadBlob(`query-log-${stamp}.csv`, new Blob([csv], { type: "text/csv" }));

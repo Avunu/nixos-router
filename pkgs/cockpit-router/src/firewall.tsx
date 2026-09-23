@@ -528,13 +528,14 @@ const ActiveRules = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const load = useCallback(() => {
-    setLoading(true);
-    setError("");
+  // Fetch only (`loading` starts true for the mount effect); Refresh shows
+  // the spinner first.
+  const fetchRules = useCallback(() => {
     cockpit
       .spawn(["nft", "list", "ruleset"], { superuser: "require", err: "message" })
       .then((out: string) => {
         setText(out || "");
+        setError("");
         setLoading(false);
       })
       .catch((e: unknown) => {
@@ -543,9 +544,15 @@ const ActiveRules = () => {
       });
   }, []);
 
+  const load = () => {
+    setLoading(true);
+    setError("");
+    fetchRules();
+  };
+
   useEffect(() => {
-    load();
-  }, [load]);
+    fetchRules();
+  }, [fetchRules]);
 
   return (
     <Stack hasGutter className="ct-router-stack">

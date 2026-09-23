@@ -218,7 +218,6 @@ const SuricataOverview = () => {
   const [error, setError] = useState("");
 
   const load = useCallback(() => {
-    setError("");
     cockpit
       .spawn(["sh", "-c", "systemctl is-active suricata.service 2>/dev/null || true"], {
         superuser: "try",
@@ -233,6 +232,7 @@ const SuricataOverview = () => {
     fetchEvents({ since: sinceDays(7) })
       .then((r) => {
         setEvents(r.events);
+        setError("");
         setLoading(false);
         const ips = [...new Set(r.events.map((e) => e.src_ip).filter(Boolean))] as string[];
         void resolveNames(ips.slice(0, 50)).then((m) => setNames((prev) => ({ ...prev, ...m })));
@@ -705,14 +705,15 @@ const SuricataStatistics = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
+  // Fetch for the current range. `loading` starts true, and a range change
+  // shows the spinner again from its own handler (selectRange).
   useEffect(() => {
-    setLoading(true);
-    setError("");
     const days = RANGES.find((r) => r.id === range)?.days ?? null;
     fetchEvents(days ? { since: sinceDays(days) } : {})
       .then((r) => {
         setEvents(r.events);
         setCapped(r.capped);
+        setError("");
         setLoading(false);
       })
       .catch((e: unknown) => {
@@ -720,6 +721,13 @@ const SuricataStatistics = () => {
         setLoading(false);
       });
   }, [range]);
+
+  const selectRange = (v: string) => {
+    if (v !== range) {
+      setLoading(true);
+      setRange(v);
+    }
+  };
 
   return (
     <Stack hasGutter className="ct-router-stack">
@@ -729,7 +737,7 @@ const SuricataStatistics = () => {
             <ToolbarItem>
               <FormSelect
                 value={range}
-                onChange={(_e, v) => setRange(v)}
+                onChange={(_e, v) => selectRange(v)}
                 aria-label={_("Time range")}
                 style={{ minWidth: "10rem" }}
               >

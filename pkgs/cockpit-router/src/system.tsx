@@ -47,13 +47,14 @@ const SystemOps = () => {
   const procRef = useRef<CockpitProcess | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
-  const loadGenerations = useCallback(() => {
-    setGensLoading(true);
-    setGensError("");
+  // Fetch only (`gensLoading` starts true for the mount effect); after an
+  // upgrade or rollback, `loadGenerations` shows the spinner first.
+  const fetchGenerations = useCallback(() => {
     cockpit
       .spawn(["nixos-rebuild", "list-generations", "--json"], { superuser: "try", err: "message" })
       .then((out: string) => {
         setGens(JSON.parse(out || "[]") as Generation[]);
+        setGensError("");
         setGensLoading(false);
       })
       .catch((e: unknown) => {
@@ -62,14 +63,21 @@ const SystemOps = () => {
       });
   }, []);
 
-  useEffect(() => {
-    loadGenerations();
-  }, [loadGenerations]);
+  const loadGenerations = useCallback(() => {
+    setGensLoading(true);
+    setGensError("");
+    fetchGenerations();
+  }, [fetchGenerations]);
 
-  // Keep the log scrolled to the newest output.
   useEffect(() => {
-    if (logRef.current) {
-      logRef.current.scrollTop = logRef.current.scrollHeight;
+    fetchGenerations();
+  }, [fetchGenerations]);
+
+  // Keep the log scrolled to the newest output (nothing to follow while empty).
+  useEffect(() => {
+    const el = logRef.current;
+    if (el && log) {
+      el.scrollTop = el.scrollHeight;
     }
   }, [log]);
 
@@ -185,11 +193,11 @@ const SystemOps = () => {
                   <SplitItem>
                     <Spinner size="md" />
                   </SplitItem>
-                  <SplitItem>{running}…</SplitItem>
+                  <SplitItem>{cockpit.format(_("$0…"), running)}</SplitItem>
                 </Split>
               ) : done ? (
                 <Label color={done.ok ? "green" : "red"}>
-                  {done.label}: {done.ok ? _("succeeded") : _("failed")}
+                  {cockpit.format(done.ok ? _("$0: succeeded") : _("$0: failed"), done.label)}
                 </Label>
               ) : null}
             </CardTitle>
