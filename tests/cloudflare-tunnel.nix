@@ -107,11 +107,14 @@ pkgs.runCommand "router-cloudflare-tunnel"
     router-cloudflare-tunnel --config ${both} || fail "the first run failed"
     [ "$(stat -c %a state/credentials.json)" = 600 ] || fail "credentials.json is mode $(stat -c %a state/credentials.json)"
     first=$(tid)
+    # The secret is 32 random bytes: canonical base64 of that is 43 characters
+    # and one "=". (Not `@base64d | length` — jq decodes to text and counts
+    # characters, which for random bytes is almost never 32.)
     live | jq -e --slurpfile c state/credentials.json '
       [.tunnels[] | select(.deleted_at == null)] as $t
       | ($t | length) == 1 and $t[0].id == $c[0].TunnelID and $t[0].name == "router"
         and $t[0].config_src == "local" and $t[0].tunnel_secret == $c[0].TunnelSecret
-        and $c[0].AccountTag == "acct1" and ($c[0].TunnelSecret | @base64d | length) == 32' >/dev/null \
+        and $c[0].AccountTag == "acct1" and ($c[0].TunnelSecret | test("^[A-Za-z0-9+/]{43}=$"))' >/dev/null \
       || fail "the tunnel or its credentials are wrong: $(live | jq -c .tunnels) vs $(jq -c 'del(.TunnelSecret)' state/credentials.json)"
     want "[$(cname app.example.com),$(cname wiki.example.com),$wikiTXT]" "after the first run"
     live | jq -e '[.records[] | select(.type == "CNAME")] | all(.proxied == true and .ttl == 1 and .comment == "managed by nixos-router")' >/dev/null \
