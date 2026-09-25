@@ -820,7 +820,7 @@
         },
         "enable": {
           "default": false,
-          "description": "Whether to enable guest network with client isolation.",
+          "description": "Whether to enable guest network, isolated from the LAN and the router at layer 3.",
           "type": "boolean"
         },
         "interfaces": {

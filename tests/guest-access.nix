@@ -87,6 +87,7 @@ pkgs.testers.runNixOSTest {
             pkgs.iproute2
             pkgs.iputils
             pkgs.conntrack-tools
+            pkgs.socat
           ];
         }
       ];
@@ -190,5 +191,64 @@ pkgs.testers.runNixOSTest {
                 "chain's `policy drop`. Guest isolation is off whenever the IPS runs."
             )
         assert not problems, "\n  - " + "\n  - ".join(problems)
+
+    with subtest("mDNS reaches the router from the LAN only"):
+        # Nothing binds :5353 in this VM (Technitium, and with it Avahi, is
+        # off), so a socat sink stands in for Avahi. Guest sends first: once the
+        # LAN datagram has landed, an accepted guest one would have too.
+        router.succeed(
+            "systemd-run --unit mdns-sink "
+            "socat -u UDP4-RECV:5353,reuseaddr OPEN:/tmp/mdns-rx,creat,append"
+        )
+        router.wait_until_succeeds("ss -uln | grep -q ':5353 '", timeout=15)
+        router.succeed(
+            "echo from-guest | ip netns exec guesthost socat -u - UDP4-SENDTO:192.168.20.1:5353"
+        )
+        router.succeed(
+            "echo from-lan | ip netns exec lanhost socat -u - UDP4-SENDTO:10.48.4.1:5353"
+        )
+        router.wait_until_succeeds("grep -q from-lan /tmp/mdns-rx", timeout=15)
+        rx = router.succeed("cat /tmp/mdns-rx")
+        assert "from-guest" not in rx, f"guest reached the router on 5353/udp: {rx!r}"
+
+    def rpf_drops():
+        import json
+        ruleset = json.loads(router.succeed("nft -j list chain inet antispoof prerouting"))
+        for item in ruleset["nftables"]:
+            rule = item.get("rule")
+            if rule and rule.get("comment") == "Reverse-path check":
+                return next(e["counter"]["packets"] for e in rule["expr"] if "counter" in e)
+        raise AssertionError(f"no reverse-path rule in {ruleset}")
+
+    with subtest("the reverse-path check drops spoofed sources from the guest network"):
+        # A guest host borrowing a LAN address (IPv4) and a prefix routed
+        # nowhere near br-guest (IPv6). Neither is ever answered: the input
+        # chain would drop the probes anyway, so the counter on the
+        # reverse-path rule is what proves which rule did it.
+        before = rpf_drops()
+        router.succeed("ip -n guesthost addr add 10.48.4.77/32 dev guesthost-c")
+        router.execute("ip netns exec guesthost ping -c2 -W1 -I 10.48.4.77 192.168.20.1")
+        after_v4 = rpf_drops()
+        assert after_v4 > before, f"IPv4 spoof not dropped by the reverse-path check ({before} -> {after_v4})"
+
+        ll = router.succeed(
+            "ip -6 -o addr show dev br-guest scope link | awk '{print $4}' | cut -d/ -f1"
+        ).strip()
+        router.succeed("ip -n guesthost addr add 2001:db8:dead::1/128 dev guesthost-c nodad")
+        router.execute(f"ip netns exec guesthost ping -6 -c2 -W1 -I 2001:db8:dead::1 {ll}%guesthost-c")
+        after_v6 = rpf_drops()
+        assert after_v6 > after_v4, f"IPv6 spoof not dropped by the reverse-path check ({after_v4} -> {after_v6})"
+
+        # And the legitimate address still works through the same hook.
+        router.succeed("conntrack -F 2>/dev/null || true")
+        assert ping("lanhost", GUEST_IP), "LAN→guest broke after the spoofing probes"
+
+    with subtest("DoT and DoQ are both dropped from LAN and guest"):
+        out = router.succeed("nft list chain inet dns_bypass forward")
+        for br in ("br-lan", "br-guest"):
+            assert any(
+                br in line and "853" in line and "tcp" in line and "udp" in line
+                for line in out.splitlines()
+            ), f"no tcp+udp :853 drop for {br}:\n{out}"
   '';
 }

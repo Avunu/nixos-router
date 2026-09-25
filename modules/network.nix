@@ -264,10 +264,13 @@ in
     #   • Guest clients can reach DHCP (port 67) and DNS (port 53)
     #     on the router, but nothing else on the router itself.
     #   • IPv4 DNS is hijacked to the local resolver (same as LAN).
-    #   • DoT (port 853) and IPv6 :53 are blocked to prevent DNS bypass.
+    #   • DoT/DoQ (port 853) and IPv6 :53 are blocked to prevent DNS bypass.
     #   • Shorter default DHCP lease (1h) encourages address rotation.
+    #   • Isolation is at layer 3, in the router. Guest clients on the same
+    #     wire or access point still reach each other directly; client
+    #     isolation between them is the access point's or switch's job.
     guest = {
-      enable = mkEnableOption "guest network with client isolation";
+      enable = mkEnableOption "guest network, isolated from the LAN and the router at layer 3";
 
       interfaces = mkOption {
         type = types.listOf types.str;
@@ -399,6 +402,18 @@ in
       {
         assertion = all (c: stringLength c.child <= 15) allChildren;
         message = "router: a VLAN sub-interface name (<port>.<vid>) exceeds the 15-char kernel limit (IFNAMSIZ); use a shorter parent interface name.";
+      }
+      # Interface names are interpolated into the nftables ruleset and the
+      # networkd units verbatim, so anything outside a plain kernel name (a
+      # quote, a space, a newline) would rewrite the firewall rather than name
+      # an interface.
+      {
+        assertion = all (n: builtins.match "[A-Za-z0-9_.-]{1,15}" n != null) (allPhys ++ wgNames);
+        message = "router: interface names (physical ports and router.wireguard tunnel names) must be 1–15 characters of letters, digits, '_', '.' or '-'; got [ ${
+          concatStringsSep ", " (
+            filter (n: builtins.match "[A-Za-z0-9_.-]{1,15}" n == null) (allPhys ++ wgNames)
+          )
+        } ].";
       }
     ];
 
