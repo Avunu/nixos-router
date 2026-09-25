@@ -57,6 +57,12 @@ let
   lanGW = filtering.router.lan.address;
   stubExtra = fallback.services.resolved.settings.Resolve.DNSStubListenerExtra or [ ];
 
+  # What router-technitium-reconcile sets Technitium's listeners to.
+  dnsTools = builtins.fromJSON (
+    builtins.unsafeDiscardStringContext filtering.router._dnsToolsConfig.text
+  );
+  endpoints = lib.splitString "," dnsTools.settings.dnsServerLocalEndPoints;
+
   checks = [
     {
       name = "fallback-resolver-enabled";
@@ -80,6 +86,17 @@ let
       name = "technitium-serves-when-enabled";
       ok = filtering.systemd.services ? technitium-dns-server;
       detail = "the technitium-dns-server unit is missing with enable = true";
+    }
+    {
+      # Clients are handed an address, never a port, and the firewall's DNAT
+      # sends them to :53, so Technitium listening anywhere else is a dead LAN.
+      name = "technitium-listens-on-53";
+      ok =
+        endpoints != [ ]
+        && lib.all (e: lib.hasSuffix ":53" e) endpoints
+        && lib.elem "0.0.0.0:53" endpoints
+        && lib.elem "[::]:53" endpoints;
+      detail = "dnsServerLocalEndPoints = ${dnsTools.settings.dnsServerLocalEndPoints} (want 0.0.0.0:53,[::]:53)";
     }
     {
       # Running unfiltered is a legitimate choice, but never a silent one.

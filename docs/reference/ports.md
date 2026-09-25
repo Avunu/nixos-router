@@ -34,7 +34,7 @@ A service bound to `127.0.0.1` is reachable from the router itself only.
 | Port | Service | Reachable from | Notes |
 | --- | --- | --- | --- |
 | 22/tcp | SSH (OpenSSH) | LAN, WireGuard | Key authentication only; no passwords and no root login. |
-| 53/udp, 53/tcp | DNS: Technitium, or systemd-resolved when Technitium is off | LAN, WireGuard, guest | The WAN is dropped. See [Redirected and blocked traffic](#redirected-and-blocked-traffic). |
+| 53/udp, 53/tcp | DNS: Technitium, or systemd-resolved when Technitium is off | LAN, WireGuard, guest | Always port 53: DHCP gives clients the router's address, never a port. The WAN is dropped. See [Redirected and blocked traffic](#redirected-and-blocked-traffic). |
 | 67/udp | DHCPv4 server (systemd-networkd) | LAN, guest | One server per bridge. |
 | 546/udp | DHCPv6 client | WAN | Only replies sent from port 547, for the IPv6 prefix delegation. |
 | 5353/udp | mDNS (Avahi) | LAN | Publishes `<hostName>.local`. Avahi answers on the LAN bridge only, and the firewall drops 5353 from the guest network and the WAN. |
@@ -44,10 +44,6 @@ A service bound to `127.0.0.1` is reachable from the router itself only.
 | ICMP, ICMPv6 | Ping and error messages | LAN, WireGuard, WAN | From the WAN, ping is rate-limited to 20 per second, and only the error and neighbor-discovery messages IPv4 and IPv6 need are admitted. From the guest network, only IPv6 neighbor discovery and replies to the router's own traffic. |
 
 Technitium, `router-logd`, Avahi and the block page only run while `dns.technitium.enable` is on, which is the default.
-
-:::doc-warning
-Leave **DNS listen port** on **Access Policies → DNS settings** at 53. DHCP tells clients to use the router on port 53, and the DNS redirect always sends queries to port 53, so another port stops DNS for the whole network.
-:::
 
 ## When a feature is on
 

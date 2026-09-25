@@ -753,13 +753,6 @@
               "description": "Enable Technitium DNS Server (the router's filtering resolver).",
               "type": "boolean"
             },
-            "listenPort": {
-              "default": 53,
-              "description": "DNS listen port.",
-              "maximum": 65535,
-              "minimum": 0,
-              "type": "integer"
-            },
             "resolveMdns": {
               "default": false,
               "description": "Resolve arbitrary `.local` mDNS (Avahi/Bonjour) hostnames via a live\nmulticast DNS probe, in addition to the router's always-on live\nresolution of adopted (router.hosts) devices under router.lan.domain.\n",

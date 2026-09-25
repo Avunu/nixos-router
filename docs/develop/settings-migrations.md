@@ -52,7 +52,7 @@ The loader also exports `readSettings`, for a flake that needs a value outside a
    ```
 5. **Add a row** to the migrations table in `docs/start/settings-file.md`.
 
-## The existing migration
+## An existing migration
 
 `portForwardsToHosts` (2026-09) moved port forwards from an address to a registered host. An old forward:
 
@@ -97,7 +97,10 @@ portForwardsToHosts =
     settings;
 
 # Oldest first. Append new migrations at the end.
-migrations = [ portForwardsToHosts ];
+migrations = [
+  portForwardsToHosts
+  dropDnsListenPort
+];
 ```
 
 It shows each rule at work:
@@ -130,6 +133,7 @@ upnpExtraLines =
 
 migrations = [
   portForwardsToHosts
+  dropDnsListenPort
   upnpExtraLines
 ];
 ```

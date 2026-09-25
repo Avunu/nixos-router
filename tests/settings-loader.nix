@@ -52,9 +52,13 @@ let
     sources = [ "203.0.113.0/24" ];
   };
 
+  # The retired DNS listen port, as the old DNS form saved it.
+  legacyDns = lib.recursiveUpdate baseSettings.dns { technitium.listenPort = 53; };
+
   legacy = baseSettings // {
     hosts = [ nas ];
     portForwards = [ legacyForward ];
+    dns = legacyDns;
   };
   migrated = migrateSettings legacy;
 
@@ -132,6 +136,36 @@ let
           }
         ];
       detail = "a forward carrying only the old `source` was not upgraded in place";
+    }
+    {
+      name = "dns-listen-port-dropped";
+      ok = migrated.dns == baseSettings.dns;
+      detail = "got dns = ${builtins.toJSON migrated.dns}";
+    }
+    {
+      # Only the retired key goes, whatever its value; the rest of the
+      # section, and a second pass, are left alone.
+      name = "dns-listen-port-only-key-removed";
+      ok =
+        let
+          once = migrateSettings {
+            dns.technitium = {
+              enable = true;
+              listenPort = 5353;
+            };
+          };
+        in
+        once == { dns.technitium.enable = true; } && migrateSettings once == once;
+      detail = "dropping dns.technitium.listenPort changed other keys or was not idempotent";
+    }
+    {
+      name = "dns-absent-stays-absent";
+      ok =
+        migrateSettings { hostName = "router"; } == {
+          hostName = "router";
+        }
+        && migrateSettings { dns.technitium.enable = false; } == { dns.technitium.enable = false; };
+      detail = "settings without dns.technitium.listenPort were changed";
     }
     {
       name = "unresolvable-forward-stops-evaluation";

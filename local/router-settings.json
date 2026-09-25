@@ -57,7 +57,6 @@
     "technitium": {
       "blockDoHProviders": true,
       "enable": true,
-      "listenPort": 53,
       "safeSearch": true,
       "upstreamServers": [
         "https://dns.cloudflare.com/dns-query",

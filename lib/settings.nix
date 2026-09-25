@@ -73,8 +73,32 @@ let
     else
       settings;
 
+  # 2026-09 — dns.technitium.listenPort is removed; Technitium always listens
+  # on 53, the only port clients can be pointed at.
+  #   { dns.technitium = { listenPort = 53; ... }; } → { dns.technitium = { ... }; }
+  # Any other value broke DNS, since clients still query :53, so dropping the
+  # key restores what they expect rather than guessing.
+  dropDnsListenPort =
+    settings:
+    let
+      dns = settings.dns or { };
+      technitium = dns.technitium or { };
+    in
+    if technitium ? listenPort then
+      settings
+      // {
+        dns = dns // {
+          technitium = removeAttrs technitium [ "listenPort" ];
+        };
+      }
+    else
+      settings;
+
   # Oldest first. Append new migrations at the end.
-  migrations = [ portForwardsToHosts ];
+  migrations = [
+    portForwardsToHosts
+    dropDnsListenPort
+  ];
 
   migrateSettings = settings: lib.foldl' (s: m: m s) settings migrations;
 

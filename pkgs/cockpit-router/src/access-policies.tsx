@@ -1172,9 +1172,6 @@ const DnsSettingsTab = () => {
           </FormSection>
 
           <FormSection title={_("Ports")} titleElement="h2">
-            <FormGroup label={_("DNS listen port")} fieldId="dns-listen">
-              {portInput("dns.technitium.listenPort", 53, _("DNS listen port"))}
-            </FormGroup>
             <FormGroup label={_("Web console port")} fieldId="dns-web">
               {portInput("dns.technitium.webPort", 5380, _("Web console port"))}
             </FormGroup>

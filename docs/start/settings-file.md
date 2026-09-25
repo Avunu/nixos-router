@@ -141,6 +141,7 @@ Register the device on the **Hosts** page with that static IP, then apply again.
 | Introduced | What changes |
 | --- | --- |
 | 2026-09 | Port forwards: `destination` becomes `host` (the device reserving that address), `source` becomes `sources`, and `family` is set to `ipv4`. |
+| 2026-09 | `dns.technitium.listenPort` is removed. The resolver always listens on port 53. |
 
 Maintainers add migrations as described in [Settings migrations](/docs/develop/settings-migrations/).
 

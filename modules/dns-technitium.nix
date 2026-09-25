@@ -96,9 +96,13 @@ let
   # nftables drops :53 from WAN and recursion is limited to internal networks
   # (recursionNetworkACL below). Matches Technitium's first-boot default, so the
   # reconcile never has to rebind the listener.
+  #
+  # The port is fixed at 53 rather than an option: DHCP gives clients a DNS
+  # server's address but no port, and the firewall's DNS redirect and
+  # Suricata's DNS_PORTS assume 53 too.
   listenEndpoints = [
-    "0.0.0.0:${toString tcfg.listenPort}"
-    "[::]:${toString tcfg.listenPort}"
+    "0.0.0.0:53"
+    "[::]:53"
   ];
 
   # Bind the block-page web server on all interfaces (WAN :80/:443 stays
@@ -794,11 +798,6 @@ in
         default = pkgs.technitium-dns-server;
         defaultText = literalExpression "pkgs.technitium-dns-server";
         description = "Technitium DNS Server package.";
-      };
-      listenPort = mkOption {
-        type = types.port;
-        default = 53;
-        description = "DNS listen port.";
       };
       webPort = mkOption {
         type = types.port;
