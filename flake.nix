@@ -74,7 +74,7 @@
       inputs.disko.follows = "disko";
     };
     technitium-dns = {
-      url = "github:TechnitiumSoftware/DnsServer/v15.5.0";
+      url = "github:TechnitiumSoftware/DnsServer/v15.4.0";
       flake = false;
     };
   };
@@ -296,6 +296,17 @@
           # misconfiguration is rejected with a message naming the forward.
           #   nix build .#checks.<system>.port-forwards-eval
           port-forwards-eval = import ./tests/port-forwards-eval.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
+          # Eval-only guard on WireGuard tunnels: the router's forwarding and
+          # rp_filter settings land in the one networkd unit that matches the
+          # tunnel (the one nixpkgs writes too), and Cockpit accepts a login
+          # at each tunnel's own address.
+          #   nix build .#checks.<system>.wireguard-eval
+          wireguard-eval = import ./tests/wireguard-eval.nix {
             pkgs = nixpkgs.legacyPackages.${system};
             routerModule = self.nixosModules.router;
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);

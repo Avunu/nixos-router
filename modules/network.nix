@@ -614,15 +614,23 @@ in
       # `router.wireguard` entries. Each tunnel gets forwarding
       # enabled and relaxed rp_filter (WG traffic arrives from the
       # tunnel, not the physical interface the route points to).
+      #
+      # The key must be "40-<name>", the one nixpkgs' wireguard-networkd
+      # module generates for the same interface (from `ips` below).
+      # networkd applies only the first matching .network file, so a unit
+      # of our own under any other name is either shadowed by that one
+      # (the forwarding and rp_filter settings silently never apply) or
+      # shadows it. Under the same key the two definitions merge into one
+      # file; the address comes from nixpkgs, since list options
+      # concatenate and repeating it here would list it twice.
       // listToAttrs (
         imap0 (
           i: name:
           let
             wg = cfg.wireguard.${name};
           in
-          nameValuePair "50-${name}" {
+          nameValuePair "40-${name}" {
             matchConfig.Name = name;
-            address = [ wg.address ];
             routes = map (dest: { Destination = dest; }) wg.routes;
             networkConfig = {
               IPv4Forwarding = true;

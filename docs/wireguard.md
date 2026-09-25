@@ -57,10 +57,8 @@ Never put `0.0.0.0/0` or `::/0` in a peer's **Allowed IPs** on the router. The r
 - **Routes each peer's Allowed IPs** into the tunnel.
 - **Forwards between the LAN and the tunnel**, in both directions.
 - **Forwards from the tunnel to the internet.** Traffic that leaves by the WAN is masqueraded behind the WAN's IPv4 address, like LAN traffic. Replies come back in, but the internet can't open new connections into the tunnel.
-- **Trusts the tunnel like the LAN.** Anything that comes out of the tunnel can reach every service on the router, including Cockpit, SSH and DNS. Open Cockpit by the router's LAN address, not its tunnel address; see [Open Cockpit over the tunnel](/docs/wireguard/remote-access/#open-cockpit-over-the-tunnel).
+- **Trusts the tunnel like the LAN.** Anything that comes out of the tunnel can reach every service on the router, including Cockpit, SSH and DNS. Cockpit accepts logins at the router's tunnel address as well as its LAN address; see [Open Cockpit over the tunnel](/docs/wireguard/remote-access/#open-cockpit-over-the-tunnel).
 - **Counts the tunnel as an internal network.** The tunnel address and every peer's Allowed IPs join Suricata's home networks ([Threat protection](/docs/threat-protection/)), may use the router's DNS resolver, and make up the **WireGuard** network that you can assign an access policy to.
-
-A known issue currently keeps the two forwarding items from working; see [Limits](#limits).
 
 The router doesn't translate addresses inside the tunnel. Devices on your LAN reach the other side with their own addresses, and devices over there arrive with theirs. That's why both ends need each other's subnets in their Allowed IPs.
 
@@ -74,7 +72,7 @@ The steps are the same for every kind of peer. [Site-to-site VPN](/docs/wireguar
    - **Address (CIDR):** the router's own address on the tunnel subnet, with its prefix length, such as `10.100.0.1/30`. Use a subnet that isn't in use at either end.
    - **Listen port:** the UDP port, 51820 by default. Every tunnel needs its own port. A new tunnel always starts at 51820, so change it for the second one, for example to 51821.
    - **Private key file:** where the key is stored. It defaults to `/etc/wireguard/<name>.key`. Its help reads "Path to the private key on the router (never in the Nix store)." Keep the default.
-   - **Routes:** leave it empty. Its help reads "Extra destinations routed through this tunnel.", but every peer's Allowed IPs are routed already, and WireGuard drops traffic for any address outside all peers' Allowed IPs, so an extra route has nowhere to go. The field also has no effect at the moment; see [Limits](#limits).
+   - **Routes:** leave it empty. Its help reads "Extra destinations routed through this tunnel.", but every peer's Allowed IPs are routed already, and WireGuard drops traffic for any address outside all peers' Allowed IPs, so an extra route has nowhere to go.
 4. Click **Generate keypair**. The router writes a new private key to the file straight away and shows **Public key (share with peers)**. Click the copy button and keep the key: the page shows it only until you leave. See [Keys](#keys).
 5. Under **Peers**, click **Add peer** and fill in the new card. Repeat for each peer.
    - **Public key:** the peer's public key.
@@ -161,10 +159,6 @@ The `wg` command is installed once the router has at least one tunnel.
 Peers can't connect between steps 2 and 3, so do them close together.
 
 ## Limits
-
-:::doc-warning
-**Known issue: traffic that arrives through a tunnel isn't forwarded.** The router leaves IPv4 forwarding off on its tunnels. Devices behind a peer reach the router's own services, such as Cockpit, SSH and DNS, but not the LAN or the internet, and LAN connections to them get no replies. The **Routes** field has no effect either. As a workaround, run `sudo sysctl -w net.ipv4.conf.wg0.forwarding=1` for each tunnel; it lasts until the next reboot. [Forwarding workaround](/docs/wireguard/site-to-site/#forwarding-workaround) shows how to keep it.
-:::
 
 - **No routing between tunnels, or between the peers of one tunnel.** The router forwards only between each tunnel and the LAN, and from each tunnel to the internet. Two branches can't reach each other through HQ (hub and spoke), and a laptop connected to HQ can't reach the branch. Give each pair of sites that must talk a direct tunnel of their own.
 - **No NAT inside the tunnel.** The far side must route your LAN into its tunnel and list your LAN in its Allowed IPs, or replies never come back.

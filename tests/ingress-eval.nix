@@ -69,6 +69,9 @@ let
   sys = evalWith {
     router.hosts = hosts;
     router.guest.enable = true;
+    # Blocked names resolve to the LAN gateway, which guest must keep
+    # reaching on 80/443 past the hairpin redirect.
+    router.accessPolicies.blockPage.enable = true;
     # effective.json (the UI's view of the new keys) is Cockpit's.
     router.cockpit.enable = true;
     router.ddns = {
@@ -137,6 +140,11 @@ let
   ruleset = sys.networking.nftables.ruleset;
   rulesScript = lib.elemAt sys.systemd.services.nftables.serviceConfig.ExecStart 1;
   has = s: lib.hasInfix s ruleset;
+
+  blockPageExemption = ''iifname { "br-lan", "br-guest" } ip daddr 10.48.4.1 tcp dport { 80, 443 } return comment "Block page: blocked names resolve to the LAN gateway"'';
+  # The ruleset before and after the exemption: it only works ahead of the
+  # redirects.
+  aroundExemption = lib.splitString blockPageExemption ruleset;
 
   certs = sys.security.acme.certs;
   proxyUnit = sys.systemd.services.router-proxy;
@@ -262,6 +270,25 @@ let
       name = "hairpin-spares-gateway-addresses";
       ok = has ''iifname { "br-lan", "br-guest" } fib daddr type local fib daddr . iif type != local tcp dport 443 redirect to :10443'';
       detail = "the hairpin redirect is missing, misses guest, or would capture the gateway addresses";
+    }
+    {
+      # Blocked names resolve to the LAN gateway for every client, and from
+      # guest or WireGuard that address is not on the ingress interface — so
+      # without the exemption the hairpin rule hands the Block Page's
+      # visitors to the proxy.
+      name = "block-page-exempt-from-hairpin";
+      ok =
+        lib.length aroundExemption == 2
+        && !(lib.hasInfix ''comment "Reverse proxy hairpin"'' (lib.head aroundExemption))
+        && lib.hasInfix ''comment "Reverse proxy hairpin"'' (lib.last aroundExemption);
+      detail = "the Block Page exemption is missing, repeated, or not ahead of the hairpin redirects";
+    }
+    {
+      # Only while the Block Page is on: without it nothing listens on the
+      # gateway's 80/443. `bad` keeps the sample settings' Block Page off.
+      name = "no-block-page-exemption-without-block-page";
+      ok = !(lib.hasInfix "Block page: blocked names" bad.networking.nftables.ruleset);
+      detail = "the Block Page exemption is emitted with the Block Page off";
     }
     {
       name = "input-accepts-only-redirected-flows";
