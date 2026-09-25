@@ -10,7 +10,9 @@
 #     as EVE JSON under SYSLOG_IDENTIFIER=suricata — the exact path the Events /
 #     Overview / Statistics tabs consume, and a real check that eve→stdout→journald
 #     works under the suricata service's systemd hardening (PrivateDevices, which
-#     blocks the /dev/log socket that filetype "syslog" would need).
+#     blocks the /dev/log socket that filetype "syslog" would need);
+#   • logrotate.service rotates eve.json and Suricata reopens it on the HUP, so
+#     later events land in the new file rather than the rotated one.
 #
 # The "LAN client" is a network namespace wired into the LAN bridge, so the whole
 # round-trip runs on a single node: its ping is routed out the WAN interface,
@@ -91,6 +93,9 @@ pkgs.testers.runNixOSTest {
           # suricata-update normally installs classification.config into the rules
           # dir; without it (masked here) use the copy bundled in the package.
           services.suricata.settings.classification-file = lib.mkForce "${pkgs.suricata}/etc/suricata/classification.config";
+          # The test framework turns logrotate off (mkOverride 150); the
+          # rotation subtest needs the real unit.
+          services.logrotate.enable = true;
 
           virtualisation = {
             vlans = [
@@ -188,5 +193,35 @@ pkgs.testers.runNixOSTest {
         assert ev["event_type"] in ("alert", "drop"), ev
         assert ev["alert"]["signature"] == "VM-TEST ICMP forwarded", ev
         assert ev["src_ip"] == "10.48.4.50", ev
+
+    with subtest("logrotate rotates eve.json and Suricata reopens it"):
+        sig = "VM-TEST ICMP forwarded"
+        # The regular EVE file holds the alert from above too.
+        router.wait_until_succeeds(f"grep -q '{sig}' /var/log/suricata/eve.json", timeout=30)
+        # The boot-time dry run (logrotate --debug) accepted the config.
+        router.succeed("systemctl is-active logrotate-checkconf.service")
+        # Drive the real, hardened unit, so the postrotate HUP goes out from the
+        # same sandbox as on a router. Its first run only records the files in
+        # the state file; backdating them makes the daily rotation due.
+        router.succeed("systemctl start logrotate.service")
+        router.succeed(
+            r"""sed -i -E 's|^("/var/log/suricata/[^"]+") .*|\1 2000-1-1-0:0:0|' /var/lib/logrotate.status"""
+        )
+        router.succeed("systemctl start logrotate.service")
+        router.succeed(f"grep -q '{sig}' /var/log/suricata/eve.json.1")
+        router.succeed("test -s /var/log/suricata/fast.log.1")
+        rotated = router.succeed(f"grep -c '{sig}' /var/log/suricata/eve.json.1").strip()
+        # Ping until the next alert reaches the new eve.json. `|| true`: the
+        # pings get no reply, and the driver runs commands under `set -e`.
+        router.wait_until_succeeds(
+            "ip netns exec lanclient ping -c1 -W1 203.0.113.2 >/dev/null 2>&1 || true; "
+            f"grep -q '{sig}' /var/log/suricata/eve.json",
+            timeout=60,
+        )
+        still = router.succeed(f"grep -c '{sig}' /var/log/suricata/eve.json.1").strip()
+        assert still == rotated, (
+            f"eve.json.1 went from {rotated} to {still} alerts: Suricata kept "
+            "writing to the rotated file instead of reopening eve.json"
+        )
   '';
 }

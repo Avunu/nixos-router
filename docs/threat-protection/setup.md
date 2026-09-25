@@ -69,7 +69,7 @@ A drop rule that matches legitimate traffic breaks it for your users, without an
 - **Start-up time.** Before Suricata starts, systemd runs a configuration test (`suricata -T`) that loads every rule. That takes about 2 minutes on low-power hardware, and Suricata then loads the rules again to start. The service allows 300 seconds to start (`TimeoutStartSec=300`), instead of systemd's default 90.
 - **CPU and throughput.** Every forwarded packet goes to Suricata in user space and back before it leaves. That costs CPU and lowers the throughput the router can forward, more so on low-power hardware. Measure it on your own hardware and traffic.
 - **Memory.** Suricata holds the loaded rules in memory. Stream tracking is capped at 64 MB and stream reassembly at 256 MB.
-- **Disk.** `/var/log/suricata/eve.json` records DNS, TLS, HTTP and flow events as well as alerts, so it grows with your traffic. See [Events and logs](/docs/threat-protection/monitoring/#logs-on-disk).
+- **Disk.** `/var/log/suricata/eve.json` records DNS, TLS, HTTP and flow events as well as alerts, so its size follows your traffic. It's rotated daily and kept for 14 days, mostly compressed, so plan the disk for two weeks of it. See [Events and logs](/docs/threat-protection/monitoring/#logs-on-disk).
 
 ## Rule updates
 

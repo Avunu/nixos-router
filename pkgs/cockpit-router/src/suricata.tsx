@@ -14,6 +14,9 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import { loadState, writeDesired, getPath, setPath, errMsg } from "./nix";
 import type { Json } from "./nix";
 import { resolveNames } from "./hosts-live";
+import { isPrefix } from "./ip-math";
+import { BUILTIN_SID_MAX, BUILTIN_SID_MIN, lintExtraRules } from "./suricata-rules";
+import type { RuleIssue } from "./suricata-rules";
 import suricataCategories from "./suricata-categories.json";
 import {
   followEvents,
@@ -41,9 +44,12 @@ import {
   SplitItem,
   Form,
   FormGroup,
+  FormHelperText,
   FormSection,
   FormSelect,
   FormSelectOption,
+  HelperText,
+  HelperTextItem,
   Switch,
   TextInput,
   TextArea,
@@ -83,6 +89,53 @@ interface Suppression {
   track?: "by_src" | "by_dst" | "by_either";
   comment?: string;
 }
+
+// A suppression's host goes verbatim into threshold.config; the rebuild
+// rejects anything modules/lib/net.nix's isPrefix doesn't accept.
+const badHostMsg = () =>
+  _("Enter an IPv4 or IPv6 address or prefix, for example 192.168.1.5 or 192.168.1.0/24.");
+
+const ruleIssueText = (it: RuleIssue) => {
+  switch (it.code) {
+    case "indented": {
+      return cockpit.format(
+        _("Line $0 starts with a space or tab, so Suricata skips it."),
+        it.line,
+      );
+    }
+    case "noAction": {
+      return cockpit.format(
+        _("Line $0 isn't a rule: rules start with an action such as alert, drop or pass."),
+        it.line,
+      );
+    }
+    case "noClosingParen": {
+      return cockpit.format(_("Line $0 doesn't end with a closing parenthesis."), it.line);
+    }
+    case "noSid": {
+      return cockpit.format(_("Line $0 has no signature ID (sid:)."), it.line);
+    }
+    case "dupSid": {
+      return cockpit.format(
+        _("Line $0: SID $1 is already used on line $2."),
+        it.line,
+        it.sid,
+        it.firstLine,
+      );
+    }
+    case "builtinSid": {
+      return cockpit.format(
+        _("Line $0: SIDs $1 to $2 belong to the built-in rules. Use 1000100 or above."),
+        it.line,
+        BUILTIN_SID_MIN,
+        BUILTIN_SID_MAX,
+      );
+    }
+    default: {
+      return it.code;
+    }
+  }
+};
 
 const fmtTime = (iso: string) => {
   const d = new Date(iso);
@@ -374,9 +427,10 @@ const EventDetail = ({ event, onClose }: { event: Ev; onClose: () => void }) => 
   const [comment, setComment] = useState("");
   const [saving, setSaving] = useState(false);
   const [done, setDone] = useState<{ ok: boolean; msg: string } | null>(null);
+  const ipOk = isPrefix(ip.trim());
 
   const save = () => {
-    if (sid === undefined) {
+    if (sid === undefined || (action === "suppress" && !ipOk)) {
       return;
     }
     setSaving(true);
@@ -385,7 +439,7 @@ const EventDetail = ({ event, onClose }: { event: Ev; onClose: () => void }) => 
       action === "suppress"
         ? appendSetting("suricata.suppressions", {
             sid,
-            ip,
+            ip: ip.trim(),
             track,
             ...(comment ? { comment } : {}),
           })
@@ -474,10 +528,18 @@ const EventDetail = ({ event, onClose }: { event: Ev; onClose: () => void }) => 
                     <TextInput
                       id="evIp"
                       value={ip}
+                      validated={ipOk ? "default" : "error"}
                       onChange={(_e, v) => setIp(v)}
                       placeholder="10.0.0.5"
                       aria-label={_("Host IP")}
                     />
+                    {!ipOk && (
+                      <FormHelperText>
+                        <HelperText>
+                          <HelperTextItem variant="error">{badHostMsg()}</HelperTextItem>
+                        </HelperText>
+                      </FormHelperText>
+                    )}
                   </FormGroup>
                   <FormGroup label={_("Track by")} fieldId="evTrack">
                     <FormSelect
@@ -514,7 +576,7 @@ const EventDetail = ({ event, onClose }: { event: Ev; onClose: () => void }) => 
                 variant="primary"
                 onClick={save}
                 isLoading={saving}
-                isDisabled={saving || (action === "suppress" && !ip.trim())}
+                isDisabled={saving || (action === "suppress" && !ipOk)}
               >
                 {_("Save policy")}
               </Button>
@@ -968,11 +1030,12 @@ const SuppressionEditor = ({
 }) => {
   const [sid, setSid] = useState("");
   const [ip, setIp] = useState("");
+  const ipOk = isPrefix(ip.trim());
   const set = (i: number, patch: Partial<Suppression>) =>
     onChange(value.map((p, j) => (j === i ? { ...p, ...patch } : p)));
   const add = () => {
     const n = Number(sid);
-    if (!Number.isInteger(n) || n <= 0 || !ip.trim()) {
+    if (!Number.isInteger(n) || n <= 0 || !ipOk) {
       return;
     }
     onChange([...value, { sid: n, ip: ip.trim(), track: "by_src" }]);
@@ -996,7 +1059,16 @@ const SuppressionEditor = ({
             {value.map((p, i) => (
               <Tr key={`${p.sid}-${p.ip}`}>
                 <Td>{p.sid}</Td>
-                <Td>{p.ip}</Td>
+                <Td>
+                  {p.ip}
+                  {!isPrefix(p.ip) && (
+                    <HelperText>
+                      <HelperTextItem variant="error">
+                        {_("Not an IP address or prefix; remove this entry and add it again.")}
+                      </HelperTextItem>
+                    </HelperText>
+                  )}
+                </Td>
                 <Td>
                   <FormSelect
                     value={p.track ?? "by_src"}
@@ -1048,17 +1120,23 @@ const SuppressionEditor = ({
           <SplitItem isFilled>
             <TextInput
               value={ip}
+              validated={ip.trim() && !ipOk ? "error" : "default"}
               aria-label={_("Host IP / subnet")}
               placeholder={_("Host IP / subnet")}
               onChange={(_e, v) => setIp(v)}
             />
           </SplitItem>
           <SplitItem>
-            <Button variant="secondary" onClick={add} isDisabled={!sid.trim() || !ip.trim()}>
+            <Button variant="secondary" onClick={add} isDisabled={!sid.trim() || !ipOk}>
               {_("Add suppression")}
             </Button>
           </SplitItem>
         </Split>
+      )}
+      {!isDisabled && ip.trim() && !ipOk && (
+        <HelperText>
+          <HelperTextItem variant="error">{badHostMsg()}</HelperTextItem>
+        </HelperText>
       )}
     </>
   );
@@ -1139,6 +1217,8 @@ const SuricataPolicies = () => {
 // ── Settings tab ────────────────────────────────────────────────────────────
 const SuricataSettings = () => {
   const s = useSettings();
+  const extraRules = s.valueOf("suricata.extraRules", "");
+  const ruleIssues = useMemo(() => lintExtraRules(extraRules), [extraRules]);
 
   if (!s.ready && !s.error) {
     return <Loading />;
@@ -1184,17 +1264,39 @@ const SuricataSettings = () => {
           <FormGroup
             label={_("Extra local rules")}
             fieldId="extraRules"
-            labelHelp={hint(_("Custom Suricata rules, one per line"))}
+            labelHelp={hint(
+              _(
+                "Custom Suricata rules, one per line. Applying checks them with Suricata first: a rule it rejects fails the apply, and the running system stays as it was.",
+              ),
+            )}
           >
             <TextArea
               id="extraRules"
-              value={s.valueOf("suricata.extraRules", "")}
+              value={extraRules}
+              validated={
+                ruleIssues.some((it) => it.level === "error")
+                  ? "error"
+                  : ruleIssues.length > 0
+                    ? "warning"
+                    : "default"
+              }
               isDisabled={s.lockedOf("suricata.extraRules")}
               onChange={(_e, v) => s.setLeaf("suricata.extraRules", v)}
               rows={10}
               resizeOrientation="vertical"
               aria-label={_("Extra local rules")}
             />
+            {ruleIssues.length > 0 && (
+              <FormHelperText>
+                <HelperText>
+                  {ruleIssues.map((it) => (
+                    <HelperTextItem key={`${it.line}-${it.code}`} variant={it.level}>
+                      {ruleIssueText(it)}
+                    </HelperTextItem>
+                  ))}
+                </HelperText>
+              </FormHelperText>
+            )}
           </FormGroup>
           <SaveBar
             saving={s.saving}
