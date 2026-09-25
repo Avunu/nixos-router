@@ -105,7 +105,7 @@ Changes are checked at three points:
 
 ## Fields locked in Nix
 
-A setting in the host flake (`/etc/nixos/flake.nix` or `local.nix`) overrides the same setting in the file; see [The settings file](/docs/start/settings-file/#nix-overrides-the-file). The UI shows such a field disabled, and some pages add a banner, such as "Interface assignment is locked in the Nix configuration."
+A setting made in Nix, in `/etc/nixos/flake.nix` or, on a router installed from the installer image, `/etc/nixos/local.nix`, overrides the same setting in the file; see [The settings file](/docs/start/settings-file/#nix-overrides-the-file). The UI shows such a field disabled, and some pages add a banner, such as "Interface assignment is locked in the Nix configuration."
 
 The UI finds locked fields by comparing the last-applied file with the values the running system actually uses, in `/etc/router/effective.json`. So a field shows as locked only once the file holds a value that Nix overrides. A locked field displays the file's value; the value in effect is the one in `/etc/router/effective.json`.
 

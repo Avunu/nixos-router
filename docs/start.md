@@ -33,7 +33,7 @@ This section explains how the pieces fit together, then walks you through instal
 
 A router's whole configuration lives in `/etc/nixos`, in two parts:
 
-- **The host flake** (`flake.nix` and `flake.lock`) is a short Nix file that pulls in nixos-router and says where the settings are. You rarely touch it.
+- **The host flake** (`flake.nix` and `flake.lock`) is a short Nix file that pulls in nixos-router and says where the settings are. A router installed from the installer image also has `local.nix`, which the flake imports. You rarely touch either.
 - **`router-settings.json`** holds every setting you see in the web UI: addresses, hosts, policies, port forwards and so on.
 
 ![A browser talks to Cockpit on port 9090, which saves router-settings.json. Applying runs nixos-rebuild, which builds a new NixOS generation that runs the router's services. Rolling back switches to the previous generation.](./images/architecture.svg)
@@ -45,7 +45,7 @@ A router's whole configuration lives in `/etc/nixos`, in two parts:
 
 Every night at `03:00` the router also updates nixos-router and rebuilds itself, so fixes and security updates arrive without anyone logging in. See [Upgrades and rollback](/docs/start/upgrades/).
 
-A few settings are not in the web UI at all, such as Cockpit's own port and extra software packages. They live in the host flake, in Nix. Anything set there overrides the settings file, and the web UI shows those fields as locked.
+A few settings are not in the web UI at all, such as Cockpit's own port and extra software packages. They live in Nix, in the host flake or `local.nix`; see [Nix overrides the file](/docs/start/settings-file/#nix-overrides-the-file). Anything set there overrides the settings file, and the web UI shows those fields as locked.
 
 ## Hardware
 

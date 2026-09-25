@@ -24,7 +24,7 @@ Repeat until the remaining events are ones you want to see.
 
 ## Find events
 
-The **Events** tab loads the 500 most recent alerts and drops, then adds new ones as they arrive. It keeps up to 2,000 rows. The toolbar has three filters:
+The **Events** tab loads up to 500 of the most recent alerts and drops, then adds new ones as they arrive. It keeps up to 2,000 rows. The toolbar has three filters:
 
 - The search box, **Filter by IP, signature, category, SID**, matches text in the source or destination IP, protocol, event type, signature name, category or SID. It ignores case.
 - The severity list: **All severities**, **High**, **Medium** or **Low**. Suricata's priority 1 is High, 2 is Medium, and 3 or higher is Low.
@@ -127,7 +127,7 @@ Keep these rules in mind:
 
 - **Pick unused SIDs.** SIDs 1000000 to 1999999 are the conventional range for local rules. The built-in rules use 1000001 to 1000011, so start yours at 1000100 or above.
 - **A broken rule stops Suricata.** A rule that doesn't parse, or a SID that's already loaded, fails Suricata's configuration test with `Loading signatures failed.`, and Suricata won't start until you fix it. Traffic then passes uninspected. The UI doesn't check rules, so check Suricata's messages after you apply; see [Events and logs](/docs/threat-protection/monitoring/#suricata-wont-start-or-is-slow-to-start).
-- **`$HOME_NET` is IPv4 only.** A rule keyed on it won't match your hosts' IPv6 traffic; see [What counts as your network](/docs/threat-protection/#what-counts-as-your-network).
+- **`$HOME_NET` holds no IPv6 LAN or guest prefix.** A rule keyed on it won't match your hosts' IPv6 traffic; see [What counts as your network](/docs/threat-protection/#what-counts-as-your-network).
 - **`$HTTP_PORTS` is port 80 only.**
 
 The router writes the built-in rules, then yours, to `/etc/suricata/rules/local.rules`.

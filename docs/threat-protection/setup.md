@@ -75,7 +75,8 @@ A drop rule that matches legitimate traffic breaks it for your users, without an
 
 `suricata-update` downloads the rules and builds the rule set Suricata loads. It runs:
 
-- on the `suricata-update.timer`: 30 seconds after boot, then daily, with a random delay of up to one hour (`RandomizedDelaySec=1h`). `Persistent=true` catches up on a run missed while the router was off.
+- at boot, before Suricata starts. The service is part of the normal boot target, and Suricata is ordered after it.
+- on the `suricata-update.timer`: daily at midnight (`OnCalendar=daily`), plus the NixOS module's own triggers, 30 seconds after boot and 24 hours after the last run. Each trigger adds a random delay of up to one hour (`RandomizedDelaySec=1h`). `Persistent=true` catches up on a daily run missed while the router was off.
 - whenever you apply settings. This is how changes on the **Policies** tab reach the rule set.
 
 Each run does the following:

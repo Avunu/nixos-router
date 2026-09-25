@@ -81,7 +81,7 @@ When [threat protection](/docs/threat-protection/) is on, Suricata loads local r
 | 1000002 to 1000007 | `POLICY DoH bypass`: a TLS connection whose server name is Cloudflare, Google DNS, Quad9, NextDNS, Mullvad or AdGuard DNS |
 | 1000010, 1000011 | `POLICY SafeSearch bypass`: `safe=off` or `safeSearch=off` in an unencrypted HTTP request |
 
-The DoH rules catch clients that already know a resolver's IP address, for example from a built-in list, and connect without asking DNS, which DNS blocking can't stop. The SafeSearch rules only see plain HTTP, so they rarely fire. The DoT rule fires mostly for traffic the port 853 drop doesn't cover, such as from WireGuard peers.
+The DoH rules catch clients that already know a resolver's IP address, for example from a built-in list, and connect without asking DNS, which DNS blocking can't stop. The SafeSearch rules only see plain HTTP, so they rarely fire. The DoT rule fires only for WireGuard peers: the port 853 drop stops LAN and guest traffic before Suricata sees it.
 
 ## What the router does not enforce
 

@@ -91,14 +91,14 @@ The **Last update** card at the bottom of **Network → Dynamic DNS** shows the 
 | --- | --- |
 | `created` | The record didn't exist and was created, or a replaced CNAME was restored. |
 | `updated` | The record was changed, or extra records of the same type were deleted. |
-| `unchanged` | The record already matched. A run that didn't need to contact Cloudflare also shows every record as `unchanged`. |
+| `unchanged` | The record already matched. A run that didn't need to contact Cloudflare also shows its records as `unchanged`, or `skipped` where there's no address. |
 | `skipped` | There was no address of that family this run, so the record was left as it is. |
 | `removed` | The name or family is no longer configured, so the router's own records were deleted. |
 | `error` | The Cloudflare API call failed. The note shows the call and Cloudflare's message. |
 
 ## In the settings file
 
-Dynamic DNS is the `ddns` key of `/etc/nixos/router-settings.json`. A device name is the host's `publicHostname`, with `ipv6Suffix` for its AAAA record. Keys you leave out take the defaults shown here:
+Dynamic DNS is the `ddns` key of `/etc/nixos/router-settings.json`. A device name is the host's `publicHostname`, with `ipv6Suffix` for its AAAA record. `ipv4`, `ipv6`, `proxied`, `ttl` and `intervalMinutes` are shown at their defaults, so you can leave them out. `enable` defaults to `false`, `names` to an empty list, and `cloudflare.apiTokenFile` to no path:
 
 ```json
 {
@@ -143,7 +143,7 @@ The service runs as a temporary system user with most privileges removed. It nev
 
 ### What it writes to Cloudflare
 
-- **Only what changed.** Each run reads the addresses locally. It contacts Cloudflare only when an address changed, a name or record type was added or removed, the previous run had errors, or 6 hours have passed since the last full check. Otherwise it reports every record as `unchanged` without an API call.
+- **Only what changed.** Each run reads the addresses from the router's interfaces, or from Cloudflare's trace endpoint behind another NAT. It contacts the Cloudflare API only when an address changed, a name or record type was added or removed, the previous run had errors, or 6 hours have passed since the last full check. Otherwise it reports the records as `unchanged` without an API call.
 - **A full check every 6 hours.** That check compares every record with what it should be, which repairs records someone edited by hand.
 - **One record per type per name.** If a name holds several A records, the router keeps one, preferring its own, and deletes the rest.
 - **Tagged records.** Records the router writes carry the comment `managed by nixos-router`. An A or AAAA record that already existed at the name is overwritten and tagged. It isn't remembered, so it isn't restored later.
@@ -202,7 +202,7 @@ sudo cat /var/lib/router-ddns/status.json
 
 ### Turn dynamic DNS off
 
-Turning off **Enable dynamic DNS** removes the service and its timer. Nothing is deleted from Cloudflare: the records keep the last addresses, and replaced CNAMEs aren't restored. To clean up, first remove the names (and clear the hosts' **Public hostname**) and click **Save & apply**. The run that follows deletes the router's records and puts back any CNAMEs it replaced. Check in the Cloudflare dashboard that they're gone, then turn dynamic DNS off.
+Turning off **Enable dynamic DNS** removes the service and its timer. Nothing is deleted from Cloudflare: the records keep the last addresses, and replaced CNAMEs aren't restored. To clean up, first remove the names (clear the hosts' **Public hostname**, and turn off **Publish hostnames** on **Ingress → Reverse proxy**) and click **Save & apply**. The run that follows deletes the router's records and puts back any CNAMEs it replaced. Check in the Cloudflare dashboard that they're gone, then turn dynamic DNS off.
 
 ## LAN clients
 
@@ -270,7 +270,7 @@ A **Check every (minutes)** value outside 1 to 1440 turns the field red, and the
 
 ### A record shows an authentication or permission error
 
-The **Result** is `error`, and the note shows the failed call and Cloudflare's message, such as `POST /zones/.../dns_records:` followed by an authentication error. The token is wrong, revoked or expired, or it lacks a permission on that zone.
+The **Result** is `error`, and the note shows the failed call and Cloudflare's message, such as `GET /zones/.../dns_records:` followed by an authentication error. The token is wrong, revoked or expired, or it lacks a permission on that zone.
 
 Check the token in the Cloudflare dashboard. It needs **Zone → Zone → Read** and **Zone → DNS → Edit** on the zone of every name, including reverse proxy hostnames and device names. Fix the token or create a new one, then click **Set token…**, save it, and click **Update now**. See [Cloudflare API tokens](/docs/reference/cloudflare-tokens/).
 
@@ -311,7 +311,7 @@ systemctl list-timers router-ddns.timer
 sudo cat /var/lib/router-ddns/status.json
 ```
 
-Each run logs one line per record: the result, the type, the name, the address and any note. A run that contacted Cloudflare also logs how many changes it made, and a failed run ends with the error:
+Each run logs one line per record: the result, the type, the name, the address and any note. A run that contacted Cloudflare also logs how many write calls it made to the API, and a failed run ends with the error:
 
 ```text
 router-ddns: 1 API write(s)

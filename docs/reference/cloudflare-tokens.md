@@ -74,7 +74,7 @@ A scheduled report can be emailed through Cloudflare's Email Sending API, using 
 - **Also needed:** your Cloudflare account ID in **Cloudflare account id**, and a **From address** on a domain set up for Cloudflare Email Routing.
 - **Where:** **Reports → Scheduled reports**, in the **Email delivery** section, **API token file**. This field takes a path only: there's no **Set token…** button and no default path, so you create the file yourself (see below).
 - **Settings:** `reporting.email.accountId`, `reporting.email.apiTokenFile` and `reporting.email.fromAddress`.
-- **Failures don't stop the report.** The PDF is still generated and kept in Cockpit. The report's log says `Cloudflare email not configured (accountId/apiTokenFile) — skipping delivery` when the token or account ID is missing, and `Cloudflare email delivery failed:` followed by the reason when the API refuses. Read it with `journalctl -u router-report-weekly.service`, using your schedule's name in place of `weekly`.
+- **Delivery failures don't stop the report.** The PDF is still generated and kept in Cockpit. The report's log says `Cloudflare email not configured (accountId/apiTokenFile) — skipping delivery` when the token or account ID is missing, and `Cloudflare email delivery failed:` followed by the reason when the API refuses. Read it with `journalctl -u router-report-weekly.service`, using your schedule's name in place of `weekly`. The exception is a path in **API token file** that doesn't exist: systemd then can't load the credential, the report service fails to start, and no PDF is made.
 
 To create the token file by hand, run this on the router, paste the token, press Enter, then press Ctrl-D:
 
@@ -113,7 +113,7 @@ Cloudflare's dashboard changes over time, so these steps name the permissions ra
 
 ## How the router stores tokens
 
-- **In a root-only file.** **Set token…** writes the token to the path in the field, by default a `*.token` file under `/etc/router/secrets/`. The file is owned by root with mode `0600`, and a directory it creates gets mode `0700`. The token travels to the router on standard input, so it never shows up in the process list. The card says where the token goes, for example "Written to /etc/router/secrets/cloudflare-ddns.token (root only, never to the settings file).", and the field confirms "Token saved to" that path once it's written.
+- **In a root-only file.** **Set token…** writes the token to the path in the field, by default a `*.token` file under `/etc/router/secrets/`. A new file is owned by root with mode `0600`, and the directory is set to mode `0700`. The token travels to the router on standard input, so it never shows up in the process list. The card says where the token goes, for example "Written to /etc/router/secrets/cloudflare-ddns.token (root only, never to the settings file).", and the field confirms "Token saved to" that path once it's written.
 - **Only the path in the settings file.** `/etc/nixos/router-settings.json` holds the path, never the token, so the token stays out of the settings file, the Nix store and any git repository you keep your configuration in:
 
   ```json
@@ -142,7 +142,7 @@ Cloudflare's dashboard changes over time, so these steps name the permissions ra
 | Feature | Service that reads the token |
 | --- | --- |
 | Dynamic DNS | `router-ddns.service` |
-| Certificates | `acme-cloud.example.com.service`, one per route that uses the Cloudflare DNS challenge, named after the route's first hostname |
+| Certificates | `acme-order-renew-cloud.example.com.service`, one per route that uses the Cloudflare DNS challenge, named after the route's first hostname |
 | Cloudflare Tunnel | `router-cloudflare-tunnel.service` |
 | Report email | `router-report-weekly.service`, one per schedule, named after the schedule |
 

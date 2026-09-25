@@ -46,12 +46,12 @@ See [Install a router](https://avunu.github.io/nixos-router/docs/start/install/)
 
 ## Manage
 
--   **Web UI:** Cockpit at `https://<router>:9090`, reachable from the LAN or WireGuard. Edit settings there, then press **Apply**.
+-   **Web UI:** Cockpit at `https://<router>:9090`, reachable from the LAN, or over WireGuard at the router's LAN address. Edit settings there, then press **Apply**.
 -   **Upgrade:** `system-upgrade` on the router. Upgrades also run nightly.
 
 ## Binary cache
 
-Routers download their router-specific packages from [nixos-router.cachix.org](https://nixos-router.cachix.org) instead of compiling them. These are the Technitium DNS apps, `router-dns-tools`, the Cockpit plugin bundle and the NixOS system derivations. CI builds them from this repository's `flake.lock` and pushes whatever cache.nixos.org doesn't have. The `cache` job in `.github/workflows/checks.yml` does this on every pull request, every push to `main`, and nightly. The router module adds the substituter, and `flake.nix` declares it in `nixConfig` for deploys and development machines.
+Routers download their router-specific packages from [nixos-router.cachix.org](https://nixos-router.cachix.org) instead of compiling them. These are the Technitium DNS apps, `router-dns-tools`, the Cockpit plugin bundle and the NixOS system derivations. CI builds them from this repository's `flake.lock` and pushes whatever cache.nixos.org doesn't have. The `cache` job in `.github/workflows/checks.yml` does this on every push to `main` and nightly; pull requests build but never publish. The router module adds the substituter, and `flake.nix` declares it in `nixConfig` for deploys and development machines.
 
 A router only hits the cache when its nixpkgs is the rev CI built, so the host flake takes nixpkgs from nixos-router rather than tracking nixos-unstable itself:
 

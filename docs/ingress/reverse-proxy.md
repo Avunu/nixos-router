@@ -155,7 +155,7 @@ It doesn't listen on 80 and 443 because the Technitium [block page](/docs/access
 nftables redirects tcp 80 and 443 to the proxy's ports in two cases:
 
 - **From the WAN,** when the destination is one of the router's own addresses. An IPv6 port forward of 443 to a host's own address is routed rather than delivered to the router, so it isn't redirected and keeps working.
-- **From inside** (the LAN, WireGuard, and the guest network when it's on), when the destination is a router address that isn't on the interface the packet came in on. In practice, that's the WAN address a public name resolves to. This "hairpin" lets LAN clients use the public names without split-horizon DNS. Connections to the gateway address itself, such as `192.168.1.1`, still reach the block page.
+- **From inside** (the LAN, WireGuard, and the guest network when it's on), when the destination is a router address that isn't on the interface the packet came in on. In practice, that's the WAN address a public name resolves to. This "hairpin" lets LAN clients use the public names without split-horizon DNS. A client's connection to its own network's gateway, such as `192.168.1.1` from the LAN, still reaches the block page. Blocked names point every client at the LAN gateway, though, so a guest or WireGuard client that opens a blocked site gets the proxy (a 404, or a failed TLS handshake) instead of the block page.
 
 Direct connections from the WAN to ports 10080 and 10443 are dropped. Only redirected traffic gets in.
 

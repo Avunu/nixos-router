@@ -58,12 +58,21 @@ The loader parses the JSON, upgrades anything written in an older format (see [A
 
 ## Nix overrides the file
 
-The loader applies every value from the file as a default, with `lib.mkDefault`. So a value set in Nix, in the host flake or in `/etc/nixos/local.nix`, wins over the file:
+The loader applies every value from the file as a default, with `lib.mkDefault`. So a value set in Nix wins over the file. Where that Nix goes depends on how the router was installed:
+
+- **Network install** (`local/deploy.sh`): the inline module in `/etc/nixos/flake.nix` that sets `router.cockpit`. This flake doesn't import a `local.nix`, so a file by that name has no effect.
+- **Installer image:** `/etc/nixos/local.nix`. The generated `flake.nix` imports it when it exists, and has no inline module of its own.
+
+For example, to lock the WAN port, add this line inside that module's attribute set:
 
 ```nix
-{
-  router.wan.interface = "enp1s0";
-}
+router.wan.interface = "enp1s0";
+```
+
+Then apply from Cockpit, or rebuild from a shell:
+
+```bash
+sudo nixos-rebuild switch --flake /etc/nixos#default --impure
 ```
 
 The web UI then shows that field as locked; see [The web UI](/docs/start/cockpit/#fields-locked-in-nix). Use this for settings that must not change from the UI.
@@ -72,7 +81,7 @@ Some settings exist only in Nix and never appear in the file:
 
 - **Cockpit itself:** `router.cockpit.enable`, `port`, `allowedOrigins` and the other `router.cockpit.*` options.
 - **Packages:** `router.extraPackages`, and anything else that takes a Nix package rather than a string.
-- **Everything outside `router.*`:** any other NixOS option, set in the host flake or `local.nix`.
+- **Everything outside `router.*`:** any other NixOS option, set in the same place.
 
 ## Secrets
 
@@ -101,7 +110,7 @@ Paste the token, press Enter, then Ctrl+D. Then enter the path in the matching f
 
 ## The effective config
 
-After each build, the router writes `/etc/router/effective.json` (mode 0600). It holds every setting the running system actually uses: the file's values, the option defaults, and anything Nix overrode. The web UI reads it to fill in defaults and to spot locked fields. To see what the router is running, read it rather than the settings file:
+After each build, a router with Cockpit enabled writes `/etc/router/effective.json` (mode 0600). It holds every setting the running system actually uses: the file's values, the option defaults, and anything Nix overrode. The web UI reads it to fill in defaults and to spot locked fields. To see what the router is running, read it rather than the settings file:
 
 ```bash
 sudo jq .lan /etc/router/effective.json

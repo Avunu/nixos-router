@@ -217,7 +217,7 @@ Until a release fixes the known issue at the top of this page, turn on forwardin
 sudo sysctl -w net.ipv4.conf.wg0.forwarding=1
 ```
 
-That lasts until the next reboot. To keep it, add one line per tunnel to the Nix module in the host flake, `/etc/nixos/flake.nix`, where your other Nix-only settings live ([Nix overrides the file](/docs/start/settings-file/#nix-overrides-the-file)):
+That lasts until the next reboot. To keep it, add one line per tunnel to your router's Nix settings: the inline module in `/etc/nixos/flake.nix` on a network install, or `/etc/nixos/local.nix` on an installer-image router ([Nix overrides the file](/docs/start/settings-file/#nix-overrides-the-file)):
 
 ```nix
 boot.kernel.sysctl."net.ipv4.conf.wg0.forwarding" = 1;

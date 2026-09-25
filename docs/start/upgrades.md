@@ -35,7 +35,7 @@ To follow an upgrade, or find out why one failed:
 journalctl -u flake-update.service -u nixos-upgrade.service
 ```
 
-The schedule and the reboot are NixOS defaults set by the router module, so you can override them in the host flake, next to the Cockpit settings:
+The schedule and the reboot are NixOS defaults set by the router module, so you can override them in Nix, where the router's other Nix-only settings live (see [Nix overrides the file](/docs/start/settings-file/#nix-overrides-the-file)):
 
 ```nix
 {

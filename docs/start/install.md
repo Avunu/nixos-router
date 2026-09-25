@@ -36,7 +36,7 @@ There are two ways to put nixos-router on a machine: a network install over SSH 
 
 ## Prepare the settings
 
-Both paths read a settings file: `local/router-settings.json` for the network install and `local/install-settings.json` for the installer image. The copies in the repository are examples from a real site, down to the SSH keys. **Replace the SSH keys with your own**, or those keys get admin access to your router.
+Both paths read a settings file: `local/router-settings.json` for the network install and `local/install-settings.json` for the installer image. The copies in the repository are examples from a real site, down to the SSH keys. **Replace the SSH keys with your own**, or those keys get admin access to your router. The examples also turn on Suricata and a guest network on VLAN 20 across the LAN ports; change `suricata` and `guest` if you don't want those.
 
 At a minimum, set these keys:
 
@@ -133,7 +133,7 @@ The finished image is under `result/iso/`. When the target boots from it:
 2. If the disk already holds an installed system, the installer waits 10 seconds for you to press Enter to wipe it. If you don't, it leaves the disk alone and stops; remove the stick and reboot to start the existing system.
 3. It installs offline, since everything it needs is on the image, and reboots.
 
-The installed router's `/etc/nixos` holds a generated `flake.nix`, a `local.nix` for your own additions, and `router-settings.json`.
+The installed router's `/etc/nixos` holds a generated `flake.nix`, a `local.nix` for your own additions, and `router-settings.json`. The generated flake imports `local.nix`, so that file is where this router's Nix settings go.
 
 ### Turn Cockpit on after an installer-image install
 
@@ -156,10 +156,10 @@ sudo nixos-rebuild switch --flake /etc/nixos#default --impure
 
 ## The host flake
 
-`local/flake.nix` is the template for a router's `/etc/nixos/flake.nix`. It is short:
+`local/flake.nix` is the template for the `/etc/nixos/flake.nix` of a router installed over the network. It is short:
 
 - **Inputs:** `nixos-router` (`github:Avunu/nixos-router`), and `nixpkgs`, which follows nixos-router's own nixpkgs.
-- **Modules:** the router module; the settings file, loaded through `nixos-router.lib.settingsModule`; and a module of locked settings, which turns Cockpit on and sets its port and allowed origins.
+- **Modules:** the router module; the settings file, loaded through `nixos-router.lib.settingsModule`; and a module of locked settings, which turns Cockpit on and sets its port and allowed origins. Your own Nix settings go in that module too. This flake doesn't import a `local.nix`.
 - **Outputs:** one NixOS configuration, named after the `hostName` in the settings file, plus a `default` alias. The nightly upgrade, `system-upgrade` and Cockpit's apply all build `/etc/nixos#<hostName>`.
 
 The settings part looks like this:

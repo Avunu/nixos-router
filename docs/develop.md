@@ -113,7 +113,7 @@ If the change renames, removes or reshapes an option that settings files can hol
 
 The docs are Markdown files in `docs/`, one per page. A page's address is its path under `docs/` without `.md`: `docs/network/hosts.md` is `/docs/network/hosts/`. The sidebar is `docs/nav.json`, and every page must be listed there. The site in `site/` is a [Jx](https://jxsuite.com) project that reads the pages from `docs/`.
 
-Preview with live reload:
+Install the site's dependencies once, then preview with live reload:
 
 ```bash
 cd site
@@ -121,15 +121,18 @@ bun install
 bun run dev
 ```
 
-Or build the static site and serve it with `bun run build && bun run preview`. Use the `bun run` scripts rather than `bunx jx` directly: they also bundle the search client, which isn't committed.
+`bun install` also installs `oxfmt`, a development dependency the Jx dev server needs. `bun run dev` bundles the search client, which isn't committed, and then runs `jx dev`; `bunx jx dev` on its own leaves search broken. To preview a production build, run `bun run build`, then `bun run preview`.
 
-Before you push, run the linter from `site/`:
+Before you push, run the checks from `site/`:
 
 ```bash
-bun scripts/lint-docs.ts
+bun run lint
+bun run check
 ```
 
-It checks each page's frontmatter (`title`, `description`, and that the paths listed under `code` exist), that the H1 matches the title, links and heading anchors between pages, image paths and alt text, and that `docs/nav.json` and the pages agree.
+`bun run lint` runs the docs linter, `scripts/lint-docs.ts`. `bun run check` runs `jx schema`, `jx validate`, the linter and the build, most of what CI's **site build** job runs.
+
+The linter checks each page's frontmatter (`title`, `description`, and that the paths listed under `code` exist), that the H1 matches the title, links and heading anchors between pages, image paths and alt text, and that `docs/nav.json` and the pages agree.
 
 Two Markdown rules of Jx break pages without any warning, and the linter catches both:
 

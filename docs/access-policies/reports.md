@@ -57,7 +57,7 @@ A schedule generates a PDF report and a CSV file on a timer, and can email the P
 
 ### Before you start
 
-To email reports, you need a Cloudflare account set up to send email for the domain of your sender address, and an API token that can send email for that account. The token goes in a file on the router, like any other secret. See [Cloudflare API tokens](/docs/reference/cloudflare-tokens/). To keep reports on the router only, you need neither.
+To email reports, you need a Cloudflare account set up to send email for the domain of your sender address, and an API token with the permission [Cloudflare API tokens](/docs/reference/cloudflare-tokens/) lists for report email. The token goes in a file on the router, like any other secret. See [Cloudflare API tokens](/docs/reference/cloudflare-tokens/). To keep reports on the router only, you need neither.
 
 ### Set up email delivery
 

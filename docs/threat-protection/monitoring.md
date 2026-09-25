@@ -67,7 +67,7 @@ The router sets its journal limits (500 MB, 30 days) for the main system journal
 | `/var/log/suricata/eve.json` | One JSON record per line: alerts, drops, DNS, TLS, HTTP and flow records, and engine statistics every 30 seconds. |
 | `/var/log/suricata/fast.log` | One line of text per alert. |
 
-`logrotate` rotates the `.log` and `.json` files in that directory daily and keeps 14 rotations. It compresses every rotated file except the newest.
+The router sets up `logrotate` for the `.log` and `.json` files in that directory (daily, 14 rotations), but the rule doesn't match the files, so in practice they aren't rotated. `eve.json` grows with your traffic until you clear it. Check the size with `sudo du -sh /var/log/suricata`. Suricata appends to these files, so you can empty them in place without stopping it: `sudo truncate -s 0 /var/log/suricata/eve.json /var/log/suricata/fast.log`.
 
 Because `eve.json` also has TLS and flow records, you can use it to see what a host was doing around the time of an alert:
 
@@ -157,7 +157,7 @@ To stop all drops at once while you investigate, turn off **Drop high-risk packe
 
 **Symptom:** an [IPv6 port forward](/docs/ingress/port-forwards/) gets no alerts where the same service over IPv4 does.
 
-**Cause:** `$HOME_NET` holds the IPv4 LAN, guest and WireGuard networks, but not the IPv6 prefix your ISP delegates. Your hosts' IPv6 addresses count as external, so rules keyed on `$HOME_NET` don't match. Rules written with `any` still do.
+**Cause:** `$HOME_NET` holds the IPv4 LAN and guest subnets and the WireGuard addresses and Allowed IPs, but not the IPv6 prefix your ISP delegates. Your hosts' IPv6 addresses count as external, so rules keyed on `$HOME_NET` don't match. Rules written with `any` still do.
 
 **Fix:** there's no setting that adds the delegated prefix. Forward only what must be reachable over IPv6, and narrow the forward's allowed sources where you can.
 
@@ -165,6 +165,6 @@ To stop all drops at once while you investigate, turn off **Drop high-risk packe
 
 - Of Suricata's event records, the journal namespace carries alerts only. DNS, TLS, HTTP and flow records are in `eve.json` alone.
 - The Overview and Statistics tabs read at most 5,000 events per query, and the Events tab keeps 2,000 rows.
-- The logs on disk are kept for 14 rotations. The router sets no retention limit specific to the `suricata` journal namespace.
+- The logs on disk aren't rotated; see [Logs on disk](#logs-on-disk). The router sets no retention limit specific to the `suricata` journal namespace.
 - There are no email or push notifications, and no export from the Cockpit tabs.
 - Events only cover forwarded traffic, and only while Suricata is running.
