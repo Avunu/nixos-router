@@ -193,7 +193,14 @@ const StatusCard = ({ canSync }: { canSync: boolean }) => {
                           </div>
                         </>
                       ) : (
-                        _("none")
+                        <>
+                          {_("none")}
+                          {status.message && (
+                            <div>
+                              <small>{status.message}</small>
+                            </div>
+                          )}
+                        </>
                       )}
                     </DescriptionListDescription>
                   </DescriptionListGroup>

@@ -15,9 +15,11 @@
 #
 # The work is done by `router-ddns` (pkgs/router-dns-tools), a timer-driven
 # oneshot that detects the addresses, reconciles the records through the
-# Cloudflare API and writes a status file the Cockpit Network page shows. The
-# API token is a path to a root-owned file (never the token itself), handed to
-# the unit through LoadCredential.
+# Cloudflare API and writes a status file the Cockpit Network page shows.
+# Disabling DDNS deletes its records and restores the CNAMEs they replaced, so
+# the unit stays installed while a token is set. The API token is a path to a
+# root-owned file (never the token itself), handed to the unit through
+# LoadCredential.
 {
   config,
   lib,
@@ -70,6 +72,7 @@ let
     ddns = {
       inherit stateDir records;
       inherit (dcfg)
+        enable
         ipv4
         ipv6
         ttl
@@ -101,6 +104,8 @@ in
         Path to a root-owned file holding a Cloudflare API token with
         Zone → Zone → Read and Zone → DNS → Edit on the zones of every managed
         name. The file holds the bare token — never put the token itself here.
+        Keep it set when disabling dynamic DNS: the router needs it to delete
+        the records and restore the CNAMEs they replaced.
       '';
     };
 
@@ -192,7 +197,9 @@ in
             } set a publicHostname, but router.ddns is disabled, so nothing publishes it.";
     }
 
-    (mkIf dcfg.enable {
+    # The unit also runs while DDNS is disabled, as long as the token is still
+    # there: that is how its records get deleted and the CNAMEs restored.
+    (mkIf (dcfg.enable || dcfg.cloudflare.apiTokenFile != null) {
       systemd.services.router-ddns = {
         # The unit name is a UI contract — Cockpit's "Update now" button starts it.
         description = "Update Cloudflare DNS records with the router's addresses";
@@ -257,6 +264,12 @@ in
         unitConfig = {
           StartLimitIntervalSec = 900;
           StartLimitBurst = 5;
+          # Disabled, the unit only cleans up, and without the token file
+          # (never saved — "Set token…", then Cancel — or since deleted) it
+          # could not: skip it rather than fail credential setup, which
+          # would fail the switch and so every apply. Enabled, a missing
+          # token still fails loudly.
+          ConditionPathExists = mkIf (!dcfg.enable) dcfg.cloudflare.apiTokenFile;
         };
       };
 

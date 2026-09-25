@@ -443,7 +443,7 @@
           "properties": {
             "apiTokenFile": {
               "default": null,
-              "description": "Path to a root-owned file holding a Cloudflare API token with\nZone → Zone → Read and Zone → DNS → Edit on the zones of every managed\nname. The file holds the bare token — never put the token itself here.\n",
+              "description": "Path to a root-owned file holding a Cloudflare API token with\nZone → Zone → Read and Zone → DNS → Edit on the zones of every managed\nname. The file holds the bare token — never put the token itself here.\nKeep it set when disabling dynamic DNS: the router needs it to delete\nthe records and restore the CNAMEs they replaced.\n",
               "type": [
                 "string",
                 "null"

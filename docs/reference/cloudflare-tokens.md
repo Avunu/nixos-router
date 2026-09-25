@@ -45,6 +45,7 @@ Dynamic DNS looks up the zone of each name, then reads, creates, updates and del
 - **Setting:** `ddns.cloudflare.apiTokenFile`.
 - **Missing token:** the build stops with `router.ddns: enabled without router.ddns.cloudflare.apiTokenFile`.
 - **Missing zone access:** a record fails with `no Cloudflare zone found for home.example.com — does the token have Zone:Read on it?`.
+- **Turning it off:** keep the token until the records are gone. See [Turn off dynamic DNS and the tunnel before removing their tokens](#turn-off-dynamic-dns-and-the-tunnel-before-removing-their-tokens).
 
 ## Reverse proxy certificates
 
@@ -58,13 +59,13 @@ A reverse proxy route whose certificate uses the Cloudflare DNS challenge proves
 
 ## Cloudflare Tunnel
 
-The router creates and owns the tunnel through the API. It looks up the zone of the first tunnel hostname, which also tells it the account that owns the zone. In that account it creates a tunnel named after the router, watches its connections, and deletes it when you turn the tunnel off. It also keeps one proxied CNAME per hostname pointing at the tunnel, replacing any A, AAAA or CNAME record already at the name.
+The router creates and owns the tunnel through the API. It looks up the zone of the first tunnel hostname, which also tells it the account that owns the zone, so it creates nothing until there's a hostname. In that account it creates a tunnel named after the router, watches its connections, and deletes it when you turn the tunnel off. It also keeps one proxied CNAME per hostname pointing at the tunnel, replacing any A, AAAA or CNAME record already at the name.
 
 - **Permissions:** "Create a token in the Cloudflare dashboard (My Profile → API Tokens) with Account → Cloudflare Tunnel → Edit, plus Zone → Zone → Read and Zone → DNS → Edit on the zones of the tunnel's hostnames." The account permission must cover the account that owns those zones. There's no account ID to enter.
 - **Where:** **Ingress → Tunnel**, **Cloudflare API token file**, then **Set token…**.
 - **Setting:** `cloudflareTunnel.apiTokenFile`.
 - **Missing token:** the tab shows "The tunnel needs a Cloudflare API token file.", and the build stops with `router.cloudflareTunnel: enabled without router.cloudflareTunnel.apiTokenFile`.
-- **Turning it off:** keep the token until the tunnel is gone. See [Turn off the tunnel before removing its token](#turn-off-the-tunnel-before-removing-its-token).
+- **Turning it off:** keep the token until the tunnel is gone. See [Turn off dynamic DNS and the tunnel before removing their tokens](#turn-off-dynamic-dns-and-the-tunnel-before-removing-their-tokens).
 
 ## Report email
 
@@ -154,24 +155,29 @@ Each service reads the file every time it starts. A token replaced at the same p
 2. On the feature's page, click **Set token…**, paste the new token and click **Save token**. The file is overwritten at the same path, so there's nothing to apply. Every feature that points at that file now uses the new token.
 3. Check that it works:
    - **Cloudflare Tunnel:** click **Sync now** on **Ingress → Tunnel** and check that **Last sync** shows **ok**.
-   - **Dynamic DNS:** click **Update now** on **Network → Dynamic DNS**. A run contacts Cloudflare only when something changed or the 6-hourly check is due, so a run that shows every record as `unchanged` may not have used the token. `journalctl -u router-ddns.service` logs a line such as `router-ddns: 0 API write(s)` for each run that did.
+   - **Dynamic DNS:** click **Update now** on **Network → Dynamic DNS**. A run contacts Cloudflare only when an address, a name, the TTL or the proxy setting changed, or the 6-hourly check is due, so a run that shows every record as `unchanged` may not have used the token. `journalctl -u router-ddns.service` logs a line such as `router-ddns: 0 API write(s)` for each run that did.
    - **Certificates:** the new token is used at the next certificate issue or renewal.
    - **Report email:** the next scheduled report uses it.
 4. Revoke the old token in the Cloudflare dashboard.
 
-## Turn off the tunnel before removing its token
+## Turn off dynamic DNS and the tunnel before removing their tokens
 
-The tunnel's setup service, `router-cloudflare-tunnel.service`, keeps running while a token file path is set, even with the tunnel turned off. That's how the router deletes the tunnel, its CNAME records and its credentials, and puts back any records the CNAMEs replaced. The **Ingress → Tunnel** tab says so: "Turning the tunnel off keeps the token, so the router can delete the tunnel and its DNS records — remove the token only after that has run."
+Dynamic DNS and the tunnel clean up after themselves when you turn them off, and they need the token to do it. Their services keep running while a token file path is set and the file exists, even with the feature turned off:
 
-1. Turn off **Enable Cloudflare Tunnel** and click **Save & apply**.
-2. Wait until the **Tunnel status** card shows a successful **Last sync**, or click **Sync now**.
+- **Dynamic DNS:** `router-ddns.service` deletes the router's A and AAAA records and puts back any CNAMEs they replaced. The **Network → Dynamic DNS** tab says so: "Turning dynamic DNS off keeps the token, so the router can delete its records and put back the CNAMEs they replaced — remove the token only after that has run." Records left from before the upgrade that added this, when dynamic DNS was already off, stay until you ask; see [Turned off before the upgrade](/docs/dynamic-dns/#turned-off-before-the-upgrade).
+- **Cloudflare Tunnel:** `router-cloudflare-tunnel.service` deletes the tunnel, its CNAME records and its credentials, and puts back any records the CNAMEs replaced. The **Ingress → Tunnel** tab says so: "Turning the tunnel off keeps the token, so the router can delete the tunnel and its DNS records — remove the token only after that has run."
+
+For either feature:
+
+1. Turn it off (**Enable dynamic DNS** or **Enable Cloudflare Tunnel**) and click **Save & apply**.
+2. Wait until the status card shows a successful run (**Last run** on **Last update**, or **Last sync** on **Tunnel status**), or click **Update now** or **Sync now**. If a row says a record is waiting until the tunnel or dynamic DNS releases the name, the other feature still holds a name you moved to it; keep the token until a later run puts that record back (see [Names moved to or from the tunnel](/docs/dynamic-dns/#names-moved-to-or-from-the-tunnel)).
 3. Clear **Cloudflare API token file**, click **Save & apply**, delete the file, and revoke the token in Cloudflare.
 
-If you remove the token first, the tunnel and its DNS records stay in your Cloudflare account, and you have to delete them in the dashboard.
+If you remove the token first, the records (and the tunnel) stay in your Cloudflare account, and you have to fix them in the dashboard.
 
 ## Remove a token
 
-1. Turn off the feature, or make sure it no longer needs the token. Dynamic DNS and the tunnel refuse to build without a token while they're enabled, and so does a route using the Cloudflare DNS challenge.
+1. Turn off the feature, or make sure it no longer needs the token. Dynamic DNS and the tunnel refuse to build without a token while they're enabled, and so does a route using the Cloudflare DNS challenge. After turning off dynamic DNS or the tunnel, wait for its cleanup run first (see the previous section).
 2. Clear the token file field and click **Save & apply**.
 3. Make sure no other feature still points at the same file, then delete it:
 
@@ -181,4 +187,4 @@ If you remove the token first, the tunnel and its DNS records stay in your Cloud
 
 4. Revoke the token in the Cloudflare dashboard.
 
-Turning dynamic DNS off leaves its records in Cloudflare. See [Turn dynamic DNS off](/docs/dynamic-dns/#turn-dynamic-dns-off).
+A token removed before the cleanup ran leaves the records in Cloudflare. See [Turn dynamic DNS off](/docs/dynamic-dns/#turn-dynamic-dns-off) and [Turn it off](/docs/ingress/cloudflare-tunnel/#turn-it-off).

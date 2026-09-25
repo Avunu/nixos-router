@@ -156,6 +156,20 @@ let
   tunnelConfig = sys.router._cloudflareTunnelConfig.tunnel;
   ddnsNames = map (r: r.name) sys.router._ddnsConfig.ddns.records;
 
+  # A tunnel with no hostnames yet: the provisioner runs, the connector does
+  # not (there is nothing to serve, and no credentials until a tunnel
+  # exists). Only unit names and warnings are forced, not a whole system.
+  idle = evalWith {
+    router.cloudflareTunnel = {
+      enable = true;
+      apiTokenFile = "/etc/router/secrets/cloudflare-tunnel.token";
+    };
+  };
+  # The tunnel turned off with its token path kept, for the teardown.
+  tunnelOff = evalWith {
+    router.cloudflareTunnel.apiTokenFile = "/etc/router/secrets/cloudflare-tunnel.token";
+  };
+
   failedAssertions = c: map (a: a.message) (lib.filter (a: !a.assertion) c.assertions);
 
   # Every misconfiguration at once, in ONE evaluation (each costs ~1 GB).
@@ -427,9 +441,29 @@ let
       detail = "router-cloudflare-tunnel does not receive the token through LoadCredential";
     }
     {
+      # Off, a token path whose file is missing must skip the teardown unit,
+      # not fail credential setup and with it every switch; on, a missing
+      # token must still fail.
+      name = "tunnel-disabled-skips-unit-without-token-file";
+      ok =
+        tunnelOff.systemd.services.router-cloudflare-tunnel.unitConfig.ConditionPathExists or null
+        == "/etc/router/secrets/cloudflare-tunnel.token"
+        && !(tunnelUnit.unitConfig ? ConditionPathExists);
+      detail = "router-cloudflare-tunnel is not conditioned on its token file while the tunnel is off, or is while it is on";
+    }
+    {
       name = "connector-ordered-after-provisioner";
       ok = lib.elem "router-cloudflare-tunnel.service" sys.systemd.services.cloudflared-tunnel-gw.after;
       detail = "cloudflared starts before its credentials file is written";
+    }
+    {
+      name = "tunnel-without-hostnames-runs-no-connector";
+      ok =
+        !idle.services.cloudflared.enable
+        && !(idle.systemd.services ? cloudflared-tunnel-gw)
+        && idle.systemd.services ? router-cloudflare-tunnel
+        && lib.any (lib.hasInfix "with no ingress hostnames, so no connector runs") idle.warnings;
+      detail = "with no ingress hostnames, cloudflared still runs, the provisioner is missing, or the warning is gone: ${lib.concatStringsSep " | " idle.warnings}";
     }
     {
       name = "effective-json-carries-new-keys";

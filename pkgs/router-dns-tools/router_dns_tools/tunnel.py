@@ -14,14 +14,21 @@ writes nothing:
              carrying the same managed-by comment as router-ddns. A configured
              name belongs to the router: A, AAAA and CNAME records already
              holding it are replaced, remembered in state.json, and put back
-             once the name is dropped from the configuration.
+             once the name is dropped from the configuration. router-ddns's
+             records are replaced but not remembered (it remembers what it
+             replaced), never put back even when older state remembers one,
+             and while it holds a dropped name, what the tunnel remembers
+             there stays in state.json for a later run to put back.
 
 enable=false tears it all down — the CNAMEs (restoring what they replaced),
 the tunnel, and the credentials — and does nothing at all when there is
 nothing recorded to tear down.
 
 The account is the one owning the zone of the first hostname; with no
-hostnames the one recorded in state.json is used.
+hostnames, the existing tunnel's. With no hostnames and no tunnel yet there is
+nothing to serve and no zone to name the account, so the run reports itself
+idle and succeeds without creating one; the tunnel is created once a hostname
+is added.
 
 State directory:
   credentials.json — cloudflared's tunnel credentials
@@ -46,6 +53,8 @@ from pathlib import Path
 
 from .cloudflare import (
     COMMENT,
+    OWN,
+    WAITING,
     Cloudflare,
     CloudflareError,
     load_json,
@@ -57,6 +66,7 @@ from .cloudflare import (
 
 TUNNEL_DOMAIN = "cfargotunnel.com"
 PROG = "router-cloudflare-tunnel"
+IDLE = "add a hostname to create the tunnel"
 
 
 def _iso(ts: float) -> str:
@@ -187,7 +197,14 @@ def point(cf: Cloudflare, zone: str, name: str, target: str, replaced: dict) -> 
 
 
 def release(cf: Cloudflare, zone: str, name: str, replaced: dict) -> str:
-    """Delete the managed CNAME at `name` and put back what it replaced."""
+    """Delete the managed CNAME at `name` and put back what it replaced.
+
+    While router-ddns holds the name (it took the name over before this run
+    dropped it), the replaced records stay in `replaced`, so every later run
+    releases the name again and puts them back once router-ddns lets go. A
+    remembered record of the router's own (state from before take_over()
+    skipped them) is forgotten, never put back.
+    """
     removed = 0
     for r in cf.records(zone, name, "CNAME"):
         if _is_ours(r):
@@ -195,14 +212,27 @@ def release(cf: Cloudflare, zone: str, name: str, replaced: dict) -> str:
             removed += 1
     note = f"removed {removed} record(s)"
     if replaced.get(name):
-        restore(cf, zone, replaced[name])
-        note += f"; restored {len(replaced[name])} replaced record(s)"
+        outcomes = restore(cf, zone, replaced[name])
+        own = sum(why == OWN for _, why in outcomes)
+        if own:
+            note += f"; {own} of the router's own record(s) not put back"
+        waiting = [r for r, why in outcomes if why == WAITING]
+        if waiting:
+            replaced[name] = waiting
+            return f"{note}; {len(waiting)} replaced record(s) waiting until dynamic DNS releases the name"
+        restored = sum(why == "restored" for _, why in outcomes)
+        note += f"; restored {restored} replaced record(s)"
     replaced.pop(name, None)
     return note
 
 
 def release_all(cf: Cloudflare, state: dict, names: list[str], records: dict) -> list[str]:
-    """Release `names`; returns the ones that failed, still to be tracked."""
+    """Release `names`; returns the ones that failed, still to be tracked.
+
+    A name whose replaced records are waiting is not a failure; it stays in
+    `replaced`, which every run releases again, and gets a status row so the
+    card shows what is still to come back.
+    """
     zones = state.setdefault("zones", {})
     replaced = state.setdefault("replaced", {})
     failed = []
@@ -210,6 +240,8 @@ def release_all(cf: Cloudflare, state: dict, names: list[str], records: dict) ->
         try:
             note = release(cf, cf.zone_for(name, zones)["id"], name, replaced)
             print(f"  released  {name} {note}", file=sys.stderr)
+            if name in replaced:
+                records[name] = {"ok": True, "message": note}
         except CloudflareError as exc:
             records[name] = {"ok": False, "message": f"removing: {exc}"}
             failed.append(name)
@@ -233,9 +265,19 @@ def apply(cf: Cloudflare, cfg: dict, state: dict, creds_file: Path, status: dict
     part-way still reports what was reached."""
     records = status["records"]
     hostnames = _hostnames(cfg)
-    acct = _account(cf, state, load_json(creds_file), hostnames)
+    creds = load_json(creds_file)
+    if not hostnames and not (state.get("tunnelId") or creds.get("TunnelID")):
+        # Nothing to serve and no tunnel to keep: wait for a hostname instead
+        # of creating a tunnel that serves nothing. Names a failed teardown
+        # left behind are still released.
+        dropped = sorted(set(state.get("managed", [])) | set(state.get("replaced", {})))
+        state["managed"] = release_all(cf, state, dropped, records)
+        status["message"] = IDLE
+        print(f"{PROG}: no hostnames and no tunnel — {IDLE}", file=sys.stderr)
+        return
+    acct = _account(cf, state, creds, hostnames)
     if not acct:
-        raise CloudflareError("no hostnames and no existing tunnel: cannot tell which Cloudflare account to use")
+        raise CloudflareError("the tunnel has no recorded account — add a hostname, whose zone names the account")
     state["accountId"] = acct
 
     tunnel, how = ensure_tunnel(cf, acct, cfg["name"], creds_file)

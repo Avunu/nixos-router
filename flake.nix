@@ -346,7 +346,8 @@
 
           # router-ddns against a fake Cloudflare API in the build sandbox (no
           # VM): names held by CNAMEs are taken over, and the CNAMEs restored
-          # when the names are dropped.
+          # when the names are dropped — also when a name moves between
+          # dynamic DNS and the tunnel.
           #   nix build .#checks.<system>.ddns-cloudflare
           ddns-cloudflare = import ./tests/ddns-cloudflare.nix {
             pkgs = nixpkgs.legacyPackages.${system};

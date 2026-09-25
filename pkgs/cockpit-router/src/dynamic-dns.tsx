@@ -3,6 +3,8 @@
 //
 // The API token itself never enters the settings JSON: the form stores a path,
 // and "Set token" writes the token to that root-owned file (TokenFileField).
+// Disabling dynamic DNS keeps the token: router-ddns needs it to delete the
+// records and restore the CNAMEs they replaced.
 import { useCallback, useEffect, useState } from "react";
 import {
   Alert,
@@ -46,7 +48,7 @@ const stateColor = (st: DdnsRecordStatus["state"]) =>
 const validTtl = (n: number) => n === 1 || (n >= 60 && n <= 86_400);
 
 // ── Last run ────────────────────────────────────────────────────────────────
-const StatusCard = ({ active }: { active: boolean }) => {
+const StatusCard = ({ canUpdate }: { canUpdate: boolean }) => {
   const [status, setStatus] = useState<DdnsStatus | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -75,7 +77,12 @@ const StatusCard = ({ active }: { active: boolean }) => {
         <Split hasGutter>
           <SplitItem isFilled>{_("Last update")}</SplitItem>
           <SplitItem>
-            <Button variant="secondary" onClick={run} isDisabled={!active || busy} isLoading={busy}>
+            <Button
+              variant="secondary"
+              onClick={run}
+              isDisabled={!canUpdate || busy}
+              isLoading={busy}
+            >
               {_("Update now")}
             </Button>
           </SplitItem>
@@ -83,7 +90,7 @@ const StatusCard = ({ active }: { active: boolean }) => {
       </CardTitle>
       <CardBody>
         <Stack hasGutter>
-          {!active && (
+          {!canUpdate && (
             <StackItem>
               <Alert
                 variant="info"
@@ -104,6 +111,11 @@ const StatusCard = ({ active }: { active: boolean }) => {
             <StackItem>{_("No update has run yet.")}</StackItem>
           ) : (
             <>
+              {status.message && (
+                <StackItem>
+                  <Alert variant="info" isInline isPlain title={status.message} />
+                </StackItem>
+              )}
               <StackItem>
                 <DescriptionList isHorizontal isCompact>
                   <DescriptionListGroup>
@@ -185,8 +197,11 @@ export const DynamicDnsTab = ({ s }: { s: S }) => {
   const interval = s.valueOf<number>("ddns.intervalMinutes", 5);
   const hosts = s.valueOf<RouterHost[]>("hosts", []).filter((h) => h.publicHostname);
   const badNames = names.filter((n) => !isHostname(n));
-  // The unit exists only once an enabled config has been applied.
-  const active = getPath(s.effective, "ddns.enable") === true;
+  // The unit is installed while dynamic DNS is on, and also while a token
+  // remains after turning it off (so it can delete the records).
+  const canUpdate =
+    getPath(s.effective, "ddns.enable") === true ||
+    typeof getPath(s.effective, "ddns.cloudflare.apiTokenFile") === "string";
 
   return (
     <Stack hasGutter>
@@ -200,6 +215,13 @@ export const DynamicDnsTab = ({ s }: { s: S }) => {
               onChange={(_e, c) => s.setLeaf("ddns.enable", c)}
               aria-label={_("Enable dynamic DNS")}
             />
+            <HelperText>
+              <HelperTextItem>
+                {_(
+                  "Turning dynamic DNS off keeps the token, so the router can delete its records and put back the CNAMEs they replaced — remove the token only after that has run.",
+                )}
+              </HelperTextItem>
+            </HelperText>
           </FormGroup>
           <TokenFileField
             s={s}
@@ -326,7 +348,7 @@ export const DynamicDnsTab = ({ s }: { s: S }) => {
         </Form>
       </StackItem>
       <StackItem>
-        <StatusCard active={active} />
+        <StatusCard canUpdate={canUpdate} />
       </StackItem>
     </Stack>
   );
