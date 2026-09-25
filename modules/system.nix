@@ -274,7 +274,12 @@ in
       initialPassword = mkOption {
         type = types.nullOr types.str;
         default = null;
-        description = "Initial password for the admin user (required for sudo access on first login; should be changed immediately)";
+        description = ''
+          Initial password for the admin user, applied only when the account is
+          first created (it is what sudo and the Cockpit login take until it is
+          changed). World-readable in the Nix store, like every value in this
+          file: change it after the first login and then clear it here.
+        '';
       };
     };
 
@@ -491,6 +496,16 @@ in
     #                         burst traffic without drops.
     #   nf_conntrack_max:     131K entries supports ~65K concurrent NAT
     #                         sessions (each needs 2 conntrack entries).
+    #
+    # Hardening:
+    #   accept_redirects=0:   ICMP redirects from a LAN or WireGuard host
+    #                         must not rewrite the router's routes.
+    #   send_redirects=0:     the router is every segment's only gateway,
+    #                         so it has no better next hop to point at.
+    #   accept_source_route=0: never honour source-routed packets.
+    #   dmesg/kptr_restrict:  kernel log and pointers are root-only.
+    #   unprivileged_bpf_disabled / bpf_jit_harden: only root loads BPF,
+    #                         and JIT-compiled programs are hardened.
     boot.kernel.sysctl = {
       "net.ipv4.conf.default.rp_filter" = 1;
       "net.ipv6.conf.all.forwarding" = 1;
@@ -498,6 +513,23 @@ in
       "net.core.wmem_max" = 26214400;
       "net.core.netdev_max_backlog" = 5000;
       "net.netfilter.nf_conntrack_max" = 131072;
+
+      "net.ipv4.conf.all.accept_redirects" = 0;
+      "net.ipv4.conf.default.accept_redirects" = 0;
+      "net.ipv4.conf.all.secure_redirects" = 0;
+      "net.ipv4.conf.default.secure_redirects" = 0;
+      "net.ipv4.conf.all.send_redirects" = 0;
+      "net.ipv4.conf.default.send_redirects" = 0;
+      "net.ipv4.conf.all.accept_source_route" = 0;
+      "net.ipv4.conf.default.accept_source_route" = 0;
+      "net.ipv6.conf.all.accept_redirects" = 0;
+      "net.ipv6.conf.default.accept_redirects" = 0;
+      "net.ipv6.conf.all.accept_source_route" = 0;
+      "net.ipv6.conf.default.accept_source_route" = 0;
+      "kernel.dmesg_restrict" = 1;
+      "kernel.kptr_restrict" = 2;
+      "kernel.unprivileged_bpf_disabled" = 1;
+      "net.core.bpf_jit_harden" = 2;
     };
 
     # nf_conntrack:      Required for stateful NAT and ct state matching
@@ -512,9 +544,13 @@ in
 
     # The cockpit-router plugin reads /etc/router/effective.json to show
     # the *applied* config (defaults + Nix overrides) and to detect which
-    # fields are locked in Nix. Root-only because it includes secrets
-    # (adminUser.initialPassword, ssh keys). The plugin also writes an
-    # "applied" snapshot to /var/lib/cockpit-router for the changes tray.
+    # fields are locked in Nix. The /etc copy is 0600, but its source is a
+    # world-readable store path like the rest of the evaluated config, so
+    # nothing in it is secret by virtue of the mode: real secrets are paths
+    # to root-owned files (*TokenFile, bindPasswordFile, privateKeyFile), and
+    # adminUser.initialPassword is a bootstrap value to clear after install
+    # (see the warning below). The plugin also writes an "applied" snapshot
+    # to /var/lib/cockpit-router for the changes tray.
     # Persist a settings migration (see `_settingsFile`). Activation runs
     # before /run/current-system is re-linked, so the rewritten file is not
     # newer than the running system and the changes tray takes it as applied.
@@ -583,14 +619,19 @@ in
       plugins = [ cockpitRouterPlugin ] ++ cfg.cockpit.plugins;
       openFirewall = false; # managed by nftables (LAN/WG already accepted)
       showBanner = cfg.cockpit.showBanner;
-      # BOTH schemes, deliberately. Setting WebService.Origins at all makes it
-      # the EXCLUSIVE allow-list: cockpit only falls back to accepting the
-      # request's own scheme+host when the key is absent entirely
-      # (cockpit_web_service_create_socket). Listing https:// alone while also
-      # setting AllowUnencrypted is self-contradictory — over http the browser
-      # sends `Origin: http://<host>:<port>`, which matches nothing, so the
-      # login POST succeeds and the WebSocket upgrade behind it is refused.
-      # That reads as "signed in, then bounced back to the login page".
+      # HTTPS only. AllowUnencrypted is left at its default (false), so
+      # cockpit-tls redirects plain HTTP to https instead of serving the login
+      # over it. The login password is also the admin's sudo password, and a
+      # browser given `router.lan:9090` without a scheme tries http first, so
+      # serving http would put that password on the LAN (and the Wi-Fi) in
+      # clear text. The price is the self-signed certificate's warning, once
+      # per browser.
+      #
+      # Setting WebService.Origins at all makes it the EXCLUSIVE allow-list:
+      # cockpit only falls back to accepting the request's own scheme+host
+      # when the key is absent entirely (cockpit_web_service_create_socket).
+      # So every name the router is reached by is listed, with and without
+      # the port (the latter for a reverse proxy in front on :443).
       #
       # Via allowed-origins rather than settings.WebService.Origins: it is a
       # list option the nixpkgs module folds into Origins itself, so this merges
@@ -605,25 +646,22 @@ in
           ];
         in
         concatMap (h: [
-          "http://${h}"
-          "http://${h}:${port}"
           "https://${h}"
           "https://${h}:${port}"
         ]) hosts
         ++ cfg.cockpit.allowedOrigins;
 
-      settings = mkMerge [
-        cfg.cockpit.settings
-        {
-          # cockpit-tls forwards plain HTTP straight to the http wsinstance
-          # instead of redirecting to https (require_https = !AllowUnencrypted).
-          # The router is reachable only from LAN/WG via nftables and ships a
-          # self-signed certificate, so an https redirect would trade a working
-          # LAN login for a certificate warning on every visit.
-          WebService.AllowUnencrypted = true;
-        }
-      ];
+      settings = cfg.cockpit.settings;
     };
+
+    # A pause after each failed password, so the Cockpit login (whose password
+    # is also the sudo password) cannot be guessed at wire speed from the LAN.
+    # A delay rather than faillock: locking the only admin account out would
+    # hand anyone on the LAN a way to shut the owner out of their router.
+    security.pam.services = mkMerge [
+      { sudo.failDelay.enable = true; }
+      (mkIf cfg.cockpit.enable { cockpit.failDelay.enable = true; })
+    ];
 
     # State dir for the cockpit-router plugin's "applied config" snapshot
     # (written by the web UI after a successful rebuild; drives the
@@ -735,8 +773,8 @@ in
 
     # ── 10. Hardening ────────────────────────────────────
     # SSH is the primary remote management interface. Security:
-    #   • PermitRootLogin=prohibit-password: root can only auth via
-    #     key (prevents brute-force; useful for emergency recovery).
+    #   • PermitRootLogin=no: root has no keys of its own; the admin
+    #     user signs in and uses sudo.
     #   • PasswordAuthentication=false: keys only for all users.
     #   • KbdInteractiveAuthentication=false: disables challenge-response.
     #   • openFirewall=false: access controlled by nftables (trusted IFs).
@@ -745,7 +783,7 @@ in
     services.openssh = {
       enable = true;
       settings = {
-        PermitRootLogin = "prohibit-password";
+        PermitRootLogin = "no";
         PasswordAuthentication = false;
         KbdInteractiveAuthentication = false;
       };
@@ -753,6 +791,14 @@ in
     };
 
     security.sudo.wheelNeedsPassword = true;
+
+    warnings = optional (cfg.adminUser.initialPassword != null) ''
+      router.adminUser.initialPassword is set. It only takes effect when the
+      admin account is first created, and it sits world-readable in the Nix
+      store (and in router-settings.json). Once the router is installed,
+      change the password (Cockpit → Accounts, or `passwd`) and clear
+      initialPassword from the settings.
+    '';
 
     users.users.${cfg.adminUser.name} = {
       isNormalUser = true;
@@ -778,6 +824,13 @@ in
         experimental-features = [
           "nix-command"
           "flakes"
+        ];
+
+        # Only root and admins talk to the Nix daemon. No service account
+        # needs it, so a compromised one gets no build or store access.
+        allowed-users = [
+          "root"
+          "@wheel"
         ];
 
         # The project's binary cache. It holds what cache.nixos.org cannot

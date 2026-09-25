@@ -354,7 +354,7 @@ const SystemSettings = () => {
                 isInline
                 isPlain
                 title={_(
-                  "Only sets the password when the account is first created. Change an existing password with `passwd` over SSH instead.",
+                  "Only sets the password when the account is first created, and is readable by every local user. After the first login, change the password under Accounts (or with `passwd`) and clear this field.",
                 )}
               />
             </FormGroup>

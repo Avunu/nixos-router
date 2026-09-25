@@ -189,9 +189,12 @@ let
     set -euo pipefail
     psql -v ON_ERROR_STOP=1 -d ${wcfg.database.name} \
       -c 'CREATE EXTENSION IF NOT EXISTS postgis'
-    # The password is hex, so single-quoting it is safe.
-    psql -v ON_ERROR_STOP=1 -d postgres \
-      -c "ALTER ROLE \"${wcfg.database.user}\" WITH PASSWORD '$(cat "$CREDENTIALS_DIRECTORY/db-pass")'"
+    # The password is hex, so single-quoting it is safe. It reaches psql on
+    # stdin — bash expands the heredoc itself — and never on its command line,
+    # where any local user could read it from /proc while psql runs.
+    psql -v ON_ERROR_STOP=1 -d postgres <<SQL
+    ALTER ROLE "${wcfg.database.user}" WITH PASSWORD '$(<"$CREDENTIALS_DIRECTORY/db-pass")';
+    SQL
   '';
 in
 mkIf wcfg.enable {
