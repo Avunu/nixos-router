@@ -1,0 +1,100 @@
+{
+  "id": "nav",
+  "sections": [
+    {
+      "path": "start",
+      "label": "Get started",
+      "pages": [
+        { "path": "start", "label": "Overview" },
+        { "path": "start/install", "label": "Install a router" },
+        { "path": "start/cockpit", "label": "The web UI" },
+        { "path": "start/settings-file", "label": "The settings file" },
+        { "path": "start/upgrades", "label": "Upgrades and rollback" }
+      ],
+      "groups": []
+    },
+    {
+      "path": "network",
+      "label": "Networking",
+      "pages": [
+        { "path": "network", "label": "Networks and VLANs" },
+        { "path": "network/hosts", "label": "Hosts and host groups" }
+      ],
+      "groups": []
+    },
+    {
+      "path": "access-policies",
+      "label": "Access policies",
+      "pages": [
+        { "path": "access-policies", "label": "Overview" },
+        { "path": "access-policies/policies", "label": "Build a policy" },
+        { "path": "access-policies/assignments", "label": "Assign policies" },
+        { "path": "access-policies/block-page", "label": "Block page and exceptions" },
+        { "path": "access-policies/dns-enforcement", "label": "DNS enforcement" },
+        { "path": "access-policies/directory", "label": "Directory groups" },
+        { "path": "access-policies/reports", "label": "Reports" },
+        { "path": "access-policies/troubleshooting", "label": "Troubleshooting" }
+      ],
+      "groups": []
+    },
+    {
+      "path": "threat-protection",
+      "label": "Threat protection",
+      "pages": [
+        { "path": "threat-protection", "label": "Overview" },
+        { "path": "threat-protection/setup", "label": "Turn it on" },
+        { "path": "threat-protection/tuning", "label": "Tune the rules" },
+        { "path": "threat-protection/monitoring", "label": "Events and logs" }
+      ],
+      "groups": []
+    },
+    {
+      "path": "dynamic-dns",
+      "label": "Dynamic DNS",
+      "pages": [{ "path": "dynamic-dns", "label": "Cloudflare dynamic DNS" }],
+      "groups": []
+    },
+    {
+      "path": "ingress",
+      "label": "Ingress",
+      "pages": [
+        { "path": "ingress", "label": "Choose an ingress" },
+        { "path": "ingress/port-forwards", "label": "Port forwards" },
+        { "path": "ingress/reverse-proxy", "label": "Reverse proxy" },
+        { "path": "ingress/cloudflare-tunnel", "label": "Cloudflare Tunnel" },
+        { "path": "ingress/walkthrough", "label": "Walkthrough: publish a web app" }
+      ],
+      "groups": []
+    },
+    {
+      "path": "wireguard",
+      "label": "WireGuard",
+      "pages": [
+        { "path": "wireguard", "label": "Overview" },
+        { "path": "wireguard/site-to-site", "label": "Site-to-site VPN" },
+        { "path": "wireguard/third-party-peer", "label": "Other WireGuard peers" },
+        { "path": "wireguard/remote-access", "label": "Remote access" }
+      ],
+      "groups": []
+    },
+    {
+      "path": "reference",
+      "label": "Reference",
+      "pages": [
+        { "path": "reference", "label": "Overview" },
+        { "path": "reference/cloudflare-tokens", "label": "Cloudflare API tokens" },
+        { "path": "reference/ports", "label": "Ports and services" }
+      ],
+      "groups": []
+    },
+    {
+      "path": "develop",
+      "label": "Develop",
+      "pages": [
+        { "path": "develop", "label": "Development" },
+        { "path": "develop/settings-migrations", "label": "Settings migrations" }
+      ],
+      "groups": []
+    }
+  ]
+}

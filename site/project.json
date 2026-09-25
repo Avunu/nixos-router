@@ -1,0 +1,283 @@
+{
+  "$schema": "https://jxsuite.com/schema/project/v1",
+  "name": "nixos-router",
+  "url": "https://avunu.github.io/nixos-router/",
+  "defaults": {
+    "layout": "./layouts/base.json",
+    "lang": "en"
+  },
+  "$head": [
+    {
+      "tagName": "meta",
+      "attributes": {
+        "name": "viewport",
+        "content": "width=device-width, initial-scale=1"
+      }
+    },
+    {
+      "tagName": "meta",
+      "attributes": {
+        "name": "color-scheme",
+        "content": "light dark"
+      }
+    },
+    {
+      "tagName": "meta",
+      "attributes": {
+        "name": "theme-color",
+        "content": "#ffffff",
+        "media": "(prefers-color-scheme: light)"
+      }
+    },
+    {
+      "tagName": "meta",
+      "attributes": {
+        "name": "theme-color",
+        "content": "#131416",
+        "media": "(prefers-color-scheme: dark)"
+      }
+    },
+    {
+      "tagName": "meta",
+      "attributes": {
+        "property": "og:site_name",
+        "content": "nixos-router"
+      }
+    },
+    {
+      "tagName": "link",
+      "attributes": {
+        "rel": "icon",
+        "href": "/favicon.svg",
+        "type": "image/svg+xml"
+      }
+    },
+    {
+      "tagName": "link",
+      "attributes": {
+        "rel": "preconnect",
+        "href": "https://fonts.googleapis.com"
+      }
+    },
+    {
+      "tagName": "link",
+      "attributes": {
+        "rel": "preconnect",
+        "href": "https://fonts.gstatic.com",
+        "crossorigin": ""
+      }
+    },
+    {
+      "tagName": "link",
+      "attributes": {
+        "rel": "stylesheet",
+        "href": "https://fonts.googleapis.com/css2?family=Red+Hat+Display:wght@500;700&family=Red+Hat+Mono:wght@400;500&family=Red+Hat+Text:wght@400;500;700&display=swap"
+      }
+    }
+  ],
+  "$media": {
+    "--": "1200px",
+    "--lg": "(max-width: 1024px)",
+    "--md": "(max-width: 768px)",
+    "--sm": "(max-width: 560px)",
+    "--dark": "(prefers-color-scheme: dark)"
+  },
+  "style": {
+    "--color-bg-primary": "#ffffff",
+    "--color-bg-secondary": "#f7f7f8",
+    "--color-bg-surface": "#f0f1f3",
+    "--color-bg-surface-hover": "#e4e6e9",
+    "--color-border": "#d2d4d8",
+    "--color-border-subtle": "#e4e6e9",
+    "--color-text-primary": "#151515",
+    "--color-text-secondary": "#4d4d4d",
+    "--color-text-muted": "#6a6e73",
+    "--color-accent": "#0066cc",
+    "--color-accent-hover": "#004d99",
+    "--color-accent-soft": "#e7f1fa",
+    "--color-on-accent": "#ffffff",
+    "--color-backdrop": "rgba(255, 255, 255, 0.85)",
+    "--color-backdrop-strong": "rgba(255, 255, 255, 0.92)",
+    "--color-shadow": "rgba(0, 0, 0, 0.12)",
+    "--color-shadow-strong": "rgba(0, 0, 0, 0.18)",
+    "--color-success": "#3d7317",
+    "--color-warning": "#8f6200",
+    "--color-danger": "#b1380b",
+    "--font-display": "'Red Hat Display', 'Red Hat Text', system-ui, sans-serif",
+    "--font-sans": "'Red Hat Text', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif",
+    "--font-mono": "'Red Hat Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace",
+    "--radius": "8px",
+    "--radius-lg": "12px",
+    "--max-width": "1200px",
+    "@--dark": {
+      "--color-bg-primary": "#131416",
+      "--color-bg-secondary": "#18191c",
+      "--color-bg-surface": "#212226",
+      "--color-bg-surface-hover": "#2a2b30",
+      "--color-border": "#35373c",
+      "--color-border-subtle": "#26272b",
+      "--color-text-primary": "#f2f2f2",
+      "--color-text-secondary": "#c7c7c7",
+      "--color-text-muted": "#a2a5aa",
+      "--color-accent": "#4394e5",
+      "--color-accent-hover": "#92c5f9",
+      "--color-accent-soft": "rgba(67, 148, 229, 0.14)",
+      "--color-on-accent": "#0b1a2b",
+      "--color-backdrop": "rgba(19, 20, 22, 0.8)",
+      "--color-backdrop-strong": "rgba(19, 20, 22, 0.92)",
+      "--color-shadow": "rgba(0, 0, 0, 0.4)",
+      "--color-shadow-strong": "rgba(0, 0, 0, 0.55)",
+      "--color-success": "#87bb62",
+      "--color-warning": "#ffcc17",
+      "--color-danger": "#f0561d",
+      "pre span": {
+        "color": "var(--shiki-dark)"
+      }
+    },
+    ":focus-visible": {
+      "outline": "2px solid var(--color-accent)",
+      "outlineOffset": "2px"
+    },
+    "margin": "0",
+    "padding": "0",
+    "maxWidth": "100vw",
+    "overflowX": "clip",
+    "fontFamily": "var(--font-sans)",
+    "fontSize": "16px",
+    "lineHeight": "1.6",
+    "backgroundColor": "var(--color-bg-primary)",
+    "color": "var(--color-text-primary)",
+    "-webkit-font-smoothing": "antialiased",
+    "h1": {
+      "fontFamily": "var(--font-display)",
+      "letterSpacing": "-0.02em",
+      "lineHeight": "1.15"
+    },
+    "h2": {
+      "fontFamily": "var(--font-display)",
+      "letterSpacing": "-0.01em",
+      "lineHeight": "1.25"
+    },
+    "h3": {
+      "fontFamily": "var(--font-display)",
+      "lineHeight": "1.3"
+    },
+    "a": {
+      "color": "var(--color-accent)"
+    },
+    "a:hover": {
+      "color": "var(--color-accent-hover)"
+    },
+    "code": {
+      "fontFamily": "var(--font-mono)",
+      "fontSize": "0.875em"
+    },
+    "pre": {
+      "fontFamily": "var(--font-mono)",
+      "fontSize": "0.875rem",
+      "lineHeight": "1.6",
+      "backgroundColor": "var(--color-bg-surface)",
+      "border": "1px solid var(--color-border)",
+      "borderRadius": "var(--radius)",
+      "padding": "1rem 1.25rem",
+      "overflowX": "auto"
+    },
+    "pre code": {
+      "fontSize": "inherit"
+    },
+    "table": {
+      "width": "100%",
+      "borderCollapse": "collapse",
+      "fontSize": "0.9375rem",
+      "margin": "1.25rem 0"
+    },
+    "th": {
+      "textAlign": "left",
+      "fontWeight": "600",
+      "padding": "0.6rem 0.85rem",
+      "borderBottom": "2px solid var(--color-border)",
+      "color": "var(--color-text-secondary)",
+      "fontSize": "0.875rem",
+      "verticalAlign": "bottom"
+    },
+    "td": {
+      "padding": "0.6rem 0.85rem",
+      "borderBottom": "1px solid var(--color-border-subtle)",
+      "verticalAlign": "top"
+    },
+    "pre span": {
+      "color": "var(--shiki-light)"
+    },
+    "img": {
+      "maxWidth": "100%",
+      "height": "auto"
+    }
+  },
+  "content": {
+    "docs": {
+      "source": "../docs",
+      "format": "Markdown",
+      "$elements": [
+        {
+          "$ref": "./components/doc-note.json"
+        },
+        {
+          "$ref": "./components/doc-tip.json"
+        },
+        {
+          "$ref": "./components/doc-warning.json"
+        }
+      ],
+      "schema": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "code": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Repository paths this page documents. Reviewing a change to one of them means re-reading this page."
+          },
+          "search": {
+            "type": "boolean",
+            "description": "false keeps the page out of search-index.json."
+          }
+        },
+        "required": [
+          "title",
+          "description"
+        ]
+      }
+    },
+    "docsNav": {
+      "source": "../docs/nav.json",
+      "format": "json"
+    }
+  },
+  "search": {
+    "output": "/search-index.json",
+    "collections": {
+      "docs": {
+        "basePath": "/docs/",
+        "boost": {
+          "title": 4,
+          "heading": 2
+        }
+      }
+    }
+  },
+  "build": {
+    "outDir": "./dist",
+    "trailingSlash": "always"
+  },
+  "extensions": [
+    "@jxsuite/parser",
+    "@jxsuite/search"
+  ]
+}

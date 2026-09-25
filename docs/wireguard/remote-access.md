@@ -1,0 +1,162 @@
+---
+title: Remote access
+description: Let laptops and phones reach the LAN, and optionally the internet, through the router from anywhere, with one WireGuard peer per device.
+code:
+  - modules/network.nix
+  - modules/firewall.nix
+  - modules/topology.nix
+  - modules/access-policies.nix
+  - modules/system.nix
+  - pkgs/cockpit-router/src/network.tsx
+  - pkgs/cockpit-router/src/access-policies.tsx
+  - pkgs/router-dns-tools/router_dns_tools/compile_policies.py
+---
+
+# Remote access
+
+WireGuard gives laptops and phones an encrypted way into your LAN from anywhere. Each device is a peer of the router with its own key and one address. You choose per device whether only LAN traffic goes through the tunnel (split tunnel) or everything does (full tunnel), in which case the device reaches the internet through the router.
+
+:::doc-warning
+**Known issue:** the router doesn't yet forward traffic that arrives through a tunnel. A connected device reaches the router's own services, including Cockpit, SSH and DNS, but not other LAN devices or, with a full tunnel, the internet. Once the tunnel exists, run `sudo sysctl -w net.ipv4.conf.wg1.forwarding=1` on the router. That lasts until the next reboot; [Forwarding workaround](/docs/wireguard/site-to-site/#forwarding-workaround) shows how to keep it.
+:::
+
+## Before you start
+
+- **A public name for the router,** such as `hq.example.com`, kept current by [dynamic DNS](/docs/dynamic-dns/), or a fixed public IP.
+- **The listen port reachable from the internet.** The router opens it on its WAN. An ISP modem in front of the router needs a UDP port forward to it. A router behind carrier-grade NAT (a WAN address in `100.64.0.0/10`) can't accept devices at all.
+- **WireGuard on each device.** There are official WireGuard apps for Windows, macOS, iOS and Android. Linux uses wg-quick or NetworkManager.
+
+## Use a tunnel of its own
+
+Put all remote devices on one tunnel, separate from any site-to-site tunnel.
+
+The router forwards only between a tunnel and the LAN, and from a tunnel to the internet. It never forwards between two tunnels, or between two peers of the same tunnel. So a device reaches this router's LAN and the router itself, but not a branch connected over a site-to-site tunnel, and not the other devices. That's true even if you add devices to the site-to-site tunnel as extra peers, so doing that gains nothing.
+
+A separate tunnel gives the devices a subnet with room for all of them, and its own port and key, so revoking a device or rotating a key never touches a site link. It also lets you aim an access policy at the devices by subnet.
+
+This page uses the tunnel `wg1` with the address `10.100.1.1/24` on UDP port 51821, because `wg0` already holds 51820 for a site link. On a router with no other tunnel, `wg0` and 51820 are fine.
+
+## Create the tunnel
+
+1. In Cockpit, open **Network → WireGuard**, type `wg1` next to **Add tunnel** and click **Add tunnel**.
+2. Set **Address (CIDR)** to `10.100.1.1/24`.
+3. Set **Listen port** to 51821.
+4. Click **Generate keypair** and copy the key under **Public key (share with peers)**. Every device needs it.
+5. Click **Save & apply**. A tunnel with no peers yet is fine.
+
+[Set up a tunnel](/docs/wireguard/#set-up-a-tunnel) describes every field.
+
+## Add a device
+
+Give each device the next free address in the tunnel subnet: `10.100.1.2`, `10.100.1.3` and so on.
+
+1. In the WireGuard app on the device, create a new, empty tunnel. The app generates the device's key pair and shows its public key. Always create a device's keys on the device. Don't use **Generate keypair** for a device: it replaces the router's own key for the tunnel. And a key made anywhere else has to be copied onto the device, which exposes it.
+2. Fill in the rest of the device's configuration, as in [The device's configuration](#the-devices-configuration), and save it.
+3. On the router, select `wg1`, click **Add peer** and enter:
+   - **Public key:** the key the app showed.
+   - **Endpoint (optional):** empty. Devices always connect to the router.
+   - **Allowed IPs:** the device's address as a `/32`, such as `10.100.1.2/32`, and nothing else.
+   - **Persistent keepalive (s):** 0. The router has no reason to hold a path open to a roaming device, and keepalives sent to a phone cost it battery.
+4. Click **Save & apply**.
+5. Turn the tunnel on in the app. On the router, `sudo wg show wg1` should show a `latest handshake` for the device's key.
+
+In `/etc/nixos/router-settings.json`, a tunnel with a laptop and a phone looks like this:
+
+```json
+{
+  "wireguard": {
+    "wg1": {
+      "address": "10.100.1.1/24",
+      "listenPort": 51821,
+      "privateKeyFile": "/etc/wireguard/wg1.key",
+      "routes": [],
+      "peers": [
+        {
+          "publicKey": "m9Ex2nTlRE2F1B7uJOtnrqVTZTynl0BTcNNU0djJQWY=",
+          "endpoint": null,
+          "allowedIPs": ["10.100.1.2/32"],
+          "persistentKeepalive": 0
+        },
+        {
+          "publicKey": "lOpUHKVMbMA9+z5HXgSzxd2fxU0CFCHi2babTGsjW2w=",
+          "endpoint": null,
+          "allowedIPs": ["10.100.1.3/32"],
+          "persistentKeepalive": 0
+        }
+      ]
+    }
+  }
+}
+```
+
+### The device's configuration
+
+In the app, the finished configuration for the laptop at `10.100.1.2` reads:
+
+```ini
+[Interface]
+PrivateKey = <generated by the app>
+Address = 10.100.1.2/32
+DNS = 10.100.1.1, lan
+
+[Peer]
+PublicKey = vVkn7ZOE4yJBDEGP2ezSBaLE4WzxVZxcmcpNQ0CW0Ck=
+Endpoint = hq.example.com:51821
+AllowedIPs = 10.100.1.1/32, 192.168.1.0/24
+```
+
+- **Address** is the address the router lists in this peer's **Allowed IPs**. The router drops anything the device sends from another address.
+- **DNS** points at the router's tunnel address, so the device's lookups go to the router and its access policies apply. `lan` is the router's **Local domain**; listing it makes short names such as `nas` resolve. Use your own domain if you changed it.
+- **PublicKey** is the router's public key for `wg1`.
+- **Endpoint** is the router's public name and the tunnel's listen port.
+- **AllowedIPs** decides what goes through the tunnel. This split tunnel sends only the router's tunnel address and the LAN; everything else uses the device's own connection.
+
+The device doesn't need `PersistentKeepalive = 25` for its own traffic. Add it only if something on the LAN must reach the device first, such as a remote-support tool.
+
+### Full tunnel
+
+To send all of a device's traffic through the router, for example on untrusted Wi-Fi, change its AllowedIPs:
+
+```ini
+AllowedIPs = 0.0.0.0/0
+```
+
+The router forwards traffic from the tunnel to the internet and masquerades it behind its WAN address, so the device browses from your office's public IP. The LAN and the router's tunnel address are inside `0.0.0.0/0`, so they stay reachable.
+
+This tunnel carries IPv4 only. With `0.0.0.0/0` alone, the device still sends IPv6 traffic over its local connection. `AllowedIPs = 0.0.0.0/0, ::/0` sends IPv6 into the tunnel too, where it goes nowhere, so most apps fall back to IPv4.
+
+## DNS and access policies
+
+A device that uses the router's tunnel address as its DNS server sends queries from its own tunnel address. That address belongs to the **WireGuard** network, which covers every tunnel's address and every peer's Allowed IPs. To filter remote devices, edit a policy under **Access Policies** and, under **Assignments**, either check **WireGuard** under **Networks**, or add `10.100.1.0/24` under **Subnets (CIDR)** to cover only this tunnel ([Assign policies](/docs/access-policies/assignments/)). Otherwise the default policy applies.
+
+The router doesn't force tunnel devices onto its DNS the way it does LAN devices ([DNS enforcement](/docs/access-policies/dns-enforcement/)). A device set to use another DNS server gets no access policy at all.
+
+## Open Cockpit over the tunnel
+
+Browse to the router's LAN address, such as `https://192.168.1.1:9090`. The device's AllowedIPs must include it, as the LAN range does in the example. A device that uses the router's DNS can also use `https://<host name>.lan:9090`, with the router's host name and your **Local domain**.
+
+Don't use the tunnel address. Cockpit accepts only the addresses it was set up with (the LAN gateway address, `<host name>.local` and `<host name>.<local domain>`) and refuses a browser that reached it as `https://10.100.1.1:9090`.
+
+SSH has no such limit. It answers on the LAN and tunnel addresses alike.
+
+## Revoke a device
+
+On **Network → WireGuard**, select the tunnel, click **Remove peer** on the device's card, and click **Save & apply**. The router drops the peer as the change is applied, and the device's key no longer gets in.
+
+Nothing else needs to change. A device holds only its own private key and the router's public key, so losing one exposes neither the router's key nor any other device.
+
+Peers have no names, so keep a list of which address and public key belong to which device. The WireGuard app shows the device's public key.
+
+## Security
+
+- **A connected device is on your LAN.** Tunnels are trusted like the LAN: a device reaches every LAN device, and Cockpit, SSH and DNS on the router. SSH accepts only keys unless you've let directory administrators in with passwords, and Cockpit asks for a password, but that's all. A lost laptop with a saved tunnel is a way in until you revoke it, so require a screen lock on devices and revoke lost ones right away.
+- **One key per device.** Never copy one configuration to several devices. You couldn't revoke one without the others, and the router would send replies to whichever of them connected last.
+- **Keys stay where they were made.** The router's private key stays on the router and each device's stays on the device. Only public keys are exchanged.
+
+## Troubleshooting
+
+- **No handshake.** Check that the device's `Endpoint` port is the tunnel's **Listen port** (51821 here, not 51820) and that its `PublicKey` is the router's key for this tunnel. An ISP modem in front of the router needs a UDP forward for this port too. Some guest and hotel networks block outgoing UDP, and the tunnel can't come up on them.
+- **Handshake, but nothing on the LAN answers.** First check the known issue at the top of this page: `sysctl net.ipv4.conf.wg1.forwarding` must print `1`. Then check that the device's `Address` equals its entry in the router's **Allowed IPs**, and that its `AllowedIPs` include the LAN.
+- **Names don't resolve.** The DNS server, `10.100.1.1`, must be inside the device's `AllowedIPs`.
+- **Cockpit won't connect.** Use the router's LAN address, not its tunnel address.
+- **Some pages stall on mobile networks.** Lower the device's MTU, for example with `MTU = 1280` in its `[Interface]` section.

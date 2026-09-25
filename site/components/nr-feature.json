@@ -1,0 +1,23 @@
+{
+  "tagName": "nr-feature",
+  "state": { "title": "", "text": "" },
+  "style": {
+    "display": "block",
+    "padding": "1.25rem 1.4rem",
+    "borderRadius": "var(--radius-lg)",
+    "border": "1px solid var(--color-border)",
+    "backgroundColor": "var(--color-bg-secondary)"
+  },
+  "children": [
+    {
+      "tagName": "h3",
+      "style": { "margin": "0 0 0.35rem", "fontSize": "1.0625rem", "fontWeight": "700" },
+      "textContent": "${state.title}"
+    },
+    {
+      "tagName": "p",
+      "style": { "margin": "0", "fontSize": "0.9375rem", "color": "var(--color-text-secondary)", "lineHeight": "1.55" },
+      "textContent": "${state.text}"
+    }
+  ]
+}

@@ -1,0 +1,379 @@
+{
+  "$layout": "./layouts/docs.json",
+  "title": "Documentation · nixos-router",
+  "$head": [
+    {
+      "tagName": "meta",
+      "attributes": {
+        "name": "description",
+        "content": "nixos-router documentation: install a router, then set up access policies, threat protection, dynamic DNS, ingress and WireGuard site-to-site VPN."
+      }
+    }
+  ],
+  "children": [
+    {
+      "tagName": "article",
+      "style": {
+        "maxWidth": "760px"
+      },
+      "children": [
+        {
+          "tagName": "h1",
+          "textContent": "Documentation"
+        },
+        {
+          "tagName": "p",
+          "style": {
+            "color": "var(--color-text-secondary)",
+            "fontSize": "1.0625rem"
+          },
+          "textContent": "nixos-router is a NixOS module and a Cockpit web UI that turn a multi-NIC machine into a small-business router. Start with the install guide, then pick the feature you are setting up. Every guide shows the steps in the web UI, the settings they write, and the limits worth knowing."
+        },
+        {
+          "tagName": "div",
+          "style": {
+            "display": "grid",
+            "gridTemplateColumns": "repeat(auto-fit, minmax(min(300px, 100%), 1fr))",
+            "gap": "0.85rem",
+            "marginTop": "1.75rem"
+          },
+          "children": [
+            {
+              "tagName": "a",
+              "attributes": {
+                "href": "/docs/start/"
+              },
+              "style": {
+                "display": "block",
+                "padding": "1.1rem 1.25rem",
+                "border": "1px solid var(--color-border)",
+                "borderRadius": "10px",
+                "textDecoration": "none",
+                ":hover": {
+                  "backgroundColor": "var(--color-bg-surface)",
+                  "borderColor": "var(--color-accent)"
+                }
+              },
+              "children": [
+                {
+                  "tagName": "strong",
+                  "style": {
+                    "color": "var(--color-text-primary)",
+                    "fontFamily": "var(--font-display)",
+                    "fontSize": "1.0625rem"
+                  },
+                  "textContent": "Get started"
+                },
+                {
+                  "tagName": "p",
+                  "style": {
+                    "color": "var(--color-text-secondary)",
+                    "margin": "0.3rem 0 0",
+                    "fontSize": "0.9375rem"
+                  },
+                  "textContent": "What the router is, how to install it, the web UI, the settings file, and upgrades."
+                }
+              ]
+            },
+            {
+              "tagName": "a",
+              "attributes": {
+                "href": "/docs/network/"
+              },
+              "style": {
+                "display": "block",
+                "padding": "1.1rem 1.25rem",
+                "border": "1px solid var(--color-border)",
+                "borderRadius": "10px",
+                "textDecoration": "none",
+                ":hover": {
+                  "backgroundColor": "var(--color-bg-surface)",
+                  "borderColor": "var(--color-accent)"
+                }
+              },
+              "children": [
+                {
+                  "tagName": "strong",
+                  "style": {
+                    "color": "var(--color-text-primary)",
+                    "fontFamily": "var(--font-display)",
+                    "fontSize": "1.0625rem"
+                  },
+                  "textContent": "Networking"
+                },
+                {
+                  "tagName": "p",
+                  "style": {
+                    "color": "var(--color-text-secondary)",
+                    "margin": "0.3rem 0 0",
+                    "fontSize": "0.9375rem"
+                  },
+                  "textContent": "WAN, LAN, guest network and VLANs, and the host registry the other features build on."
+                }
+              ]
+            },
+            {
+              "tagName": "a",
+              "attributes": {
+                "href": "/docs/access-policies/"
+              },
+              "style": {
+                "display": "block",
+                "padding": "1.1rem 1.25rem",
+                "border": "1px solid var(--color-border)",
+                "borderRadius": "10px",
+                "textDecoration": "none",
+                ":hover": {
+                  "backgroundColor": "var(--color-bg-surface)",
+                  "borderColor": "var(--color-accent)"
+                }
+              },
+              "children": [
+                {
+                  "tagName": "strong",
+                  "style": {
+                    "color": "var(--color-text-primary)",
+                    "fontFamily": "var(--font-display)",
+                    "fontSize": "1.0625rem"
+                  },
+                  "textContent": "Access policies"
+                },
+                {
+                  "tagName": "p",
+                  "style": {
+                    "color": "var(--color-text-secondary)",
+                    "margin": "0.3rem 0 0",
+                    "fontSize": "0.9375rem"
+                  },
+                  "textContent": "DNS filtering policies per device, group, subnet or network; block page, directory groups and reports."
+                }
+              ]
+            },
+            {
+              "tagName": "a",
+              "attributes": {
+                "href": "/docs/threat-protection/"
+              },
+              "style": {
+                "display": "block",
+                "padding": "1.1rem 1.25rem",
+                "border": "1px solid var(--color-border)",
+                "borderRadius": "10px",
+                "textDecoration": "none",
+                ":hover": {
+                  "backgroundColor": "var(--color-bg-surface)",
+                  "borderColor": "var(--color-accent)"
+                }
+              },
+              "children": [
+                {
+                  "tagName": "strong",
+                  "style": {
+                    "color": "var(--color-text-primary)",
+                    "fontFamily": "var(--font-display)",
+                    "fontSize": "1.0625rem"
+                  },
+                  "textContent": "Threat protection"
+                },
+                {
+                  "tagName": "p",
+                  "style": {
+                    "color": "var(--color-text-secondary)",
+                    "margin": "0.3rem 0 0",
+                    "fontSize": "0.9375rem"
+                  },
+                  "textContent": "Suricata IDS and IPS: turning it on, tuning rules from events, and reading the logs."
+                }
+              ]
+            },
+            {
+              "tagName": "a",
+              "attributes": {
+                "href": "/docs/dynamic-dns/"
+              },
+              "style": {
+                "display": "block",
+                "padding": "1.1rem 1.25rem",
+                "border": "1px solid var(--color-border)",
+                "borderRadius": "10px",
+                "textDecoration": "none",
+                ":hover": {
+                  "backgroundColor": "var(--color-bg-surface)",
+                  "borderColor": "var(--color-accent)"
+                }
+              },
+              "children": [
+                {
+                  "tagName": "strong",
+                  "style": {
+                    "color": "var(--color-text-primary)",
+                    "fontFamily": "var(--font-display)",
+                    "fontSize": "1.0625rem"
+                  },
+                  "textContent": "Dynamic DNS"
+                },
+                {
+                  "tagName": "p",
+                  "style": {
+                    "color": "var(--color-text-secondary)",
+                    "margin": "0.3rem 0 0",
+                    "fontSize": "0.9375rem"
+                  },
+                  "textContent": "Cloudflare A and AAAA records for the router and your devices."
+                }
+              ]
+            },
+            {
+              "tagName": "a",
+              "attributes": {
+                "href": "/docs/ingress/"
+              },
+              "style": {
+                "display": "block",
+                "padding": "1.1rem 1.25rem",
+                "border": "1px solid var(--color-border)",
+                "borderRadius": "10px",
+                "textDecoration": "none",
+                ":hover": {
+                  "backgroundColor": "var(--color-bg-surface)",
+                  "borderColor": "var(--color-accent)"
+                }
+              },
+              "children": [
+                {
+                  "tagName": "strong",
+                  "style": {
+                    "color": "var(--color-text-primary)",
+                    "fontFamily": "var(--font-display)",
+                    "fontSize": "1.0625rem"
+                  },
+                  "textContent": "Ingress"
+                },
+                {
+                  "tagName": "p",
+                  "style": {
+                    "color": "var(--color-text-secondary)",
+                    "margin": "0.3rem 0 0",
+                    "fontSize": "0.9375rem"
+                  },
+                  "textContent": "Port forwards, the reverse proxy with Let's Encrypt certificates, and Cloudflare Tunnel."
+                }
+              ]
+            },
+            {
+              "tagName": "a",
+              "attributes": {
+                "href": "/docs/wireguard/"
+              },
+              "style": {
+                "display": "block",
+                "padding": "1.1rem 1.25rem",
+                "border": "1px solid var(--color-border)",
+                "borderRadius": "10px",
+                "textDecoration": "none",
+                ":hover": {
+                  "backgroundColor": "var(--color-bg-surface)",
+                  "borderColor": "var(--color-accent)"
+                }
+              },
+              "children": [
+                {
+                  "tagName": "strong",
+                  "style": {
+                    "color": "var(--color-text-primary)",
+                    "fontFamily": "var(--font-display)",
+                    "fontSize": "1.0625rem"
+                  },
+                  "textContent": "WireGuard"
+                },
+                {
+                  "tagName": "p",
+                  "style": {
+                    "color": "var(--color-text-secondary)",
+                    "margin": "0.3rem 0 0",
+                    "fontSize": "0.9375rem"
+                  },
+                  "textContent": "Site-to-site VPN between offices, other WireGuard peers, and remote access."
+                }
+              ]
+            },
+            {
+              "tagName": "a",
+              "attributes": {
+                "href": "/docs/reference/"
+              },
+              "style": {
+                "display": "block",
+                "padding": "1.1rem 1.25rem",
+                "border": "1px solid var(--color-border)",
+                "borderRadius": "10px",
+                "textDecoration": "none",
+                ":hover": {
+                  "backgroundColor": "var(--color-bg-surface)",
+                  "borderColor": "var(--color-accent)"
+                }
+              },
+              "children": [
+                {
+                  "tagName": "strong",
+                  "style": {
+                    "color": "var(--color-text-primary)",
+                    "fontFamily": "var(--font-display)",
+                    "fontSize": "1.0625rem"
+                  },
+                  "textContent": "Reference"
+                },
+                {
+                  "tagName": "p",
+                  "style": {
+                    "color": "var(--color-text-secondary)",
+                    "margin": "0.3rem 0 0",
+                    "fontSize": "0.9375rem"
+                  },
+                  "textContent": "Cloudflare API tokens, and every port and service on the router."
+                }
+              ]
+            },
+            {
+              "tagName": "a",
+              "attributes": {
+                "href": "/docs/develop/"
+              },
+              "style": {
+                "display": "block",
+                "padding": "1.1rem 1.25rem",
+                "border": "1px solid var(--color-border)",
+                "borderRadius": "10px",
+                "textDecoration": "none",
+                ":hover": {
+                  "backgroundColor": "var(--color-bg-surface)",
+                  "borderColor": "var(--color-accent)"
+                }
+              },
+              "children": [
+                {
+                  "tagName": "strong",
+                  "style": {
+                    "color": "var(--color-text-primary)",
+                    "fontFamily": "var(--font-display)",
+                    "fontSize": "1.0625rem"
+                  },
+                  "textContent": "Develop"
+                },
+                {
+                  "tagName": "p",
+                  "style": {
+                    "color": "var(--color-text-secondary)",
+                    "margin": "0.3rem 0 0",
+                    "fontSize": "0.9375rem"
+                  },
+                  "textContent": "Working on nixos-router itself: checks, the Cockpit plugin, settings migrations and these docs."
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

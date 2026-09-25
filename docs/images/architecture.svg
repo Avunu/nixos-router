@@ -1,0 +1,86 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 440" width="800" height="440" role="img" aria-labelledby="title">
+  <title id="title">A browser talks to Cockpit on port 9090, which saves router-settings.json. Applying runs nixos-rebuild, which builds a new NixOS generation that runs the router's services. Rolling back switches to the previous generation.</title>
+  <style>
+    text { font-family: 'Red Hat Text', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 14px; fill: #151515; }
+    .muted { fill: #6a6e73; } .small { font-size: 12px; } .bold { font-weight: 600; }
+    .box { fill: #f0f1f3; stroke: #d2d4d8; stroke-width: 1.5; }
+    .accent { fill: #e7f1fa; stroke: #0066cc; stroke-width: 1.5; }
+    .zone { fill: none; stroke: #d2d4d8; stroke-width: 1.5; stroke-dasharray: 6 4; }
+    .line { fill: none; stroke: #6a6e73; stroke-width: 1.5; }
+    .flow { fill: none; stroke: #0066cc; stroke-width: 2; }
+    .deny { fill: none; stroke: #b1380b; stroke-width: 2; stroke-dasharray: 5 4; }
+    .head-line { fill: #6a6e73; } .head-flow { fill: #0066cc; } .head-deny { fill: #b1380b; }
+    @media (prefers-color-scheme: dark) {
+      text { fill: #f2f2f2; } .muted { fill: #a2a5aa; }
+      .box { fill: #212226; stroke: #35373c; } .accent { fill: #10243a; stroke: #4394e5; }
+      .zone { stroke: #35373c; } .line { stroke: #a2a5aa; } .flow { stroke: #4394e5; } .deny { stroke: #f0561d; }
+      .head-line { fill: #a2a5aa; } .head-flow { fill: #4394e5; } .head-deny { fill: #f0561d; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path class="head-flow" d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+    <marker id="arrow-line" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path class="head-line" d="M0,0 L10,5 L0,10 z"/>
+    </marker>
+  </defs>
+
+  <!-- Row 1: the edit path -->
+  <rect class="box" x="20" y="30" width="140" height="64" rx="8"/>
+  <text class="bold" x="90" y="58" text-anchor="middle">Browser</text>
+  <text class="muted small" x="90" y="78" text-anchor="middle">LAN or WireGuard</text>
+
+  <rect class="box" x="210" y="30" width="150" height="64" rx="8"/>
+  <text class="bold" x="285" y="58" text-anchor="middle">Cockpit :9090</text>
+  <text class="muted small" x="285" y="78" text-anchor="middle">router pages</text>
+
+  <rect class="accent" x="410" y="30" width="180" height="64" rx="8"/>
+  <text class="bold" x="500" y="58" text-anchor="middle">router-settings.json</text>
+  <text class="muted small" x="500" y="78" text-anchor="middle">/etc/nixos</text>
+
+  <rect class="box" x="640" y="30" width="140" height="64" rx="8"/>
+  <text class="bold" x="710" y="58" text-anchor="middle">nixos-rebuild</text>
+  <text class="muted small" x="710" y="78" text-anchor="middle">switch</text>
+
+  <path class="flow" d="M160,62 L208,62" marker-end="url(#arrow-flow)"/>
+  <text class="muted small" x="185" y="52" text-anchor="middle">HTTPS</text>
+  <path class="flow" d="M360,62 L408,62" marker-end="url(#arrow-flow)"/>
+  <text class="muted small" x="385" y="52" text-anchor="middle">Save</text>
+  <path class="flow" d="M590,62 L638,62" marker-end="url(#arrow-flow)"/>
+  <text class="muted small" x="615" y="52" text-anchor="middle">Apply</text>
+
+  <!-- Row 2: generations -->
+  <rect class="zone" x="20" y="140" width="760" height="136" rx="8"/>
+  <text class="muted small" x="36" y="162">NixOS generations (boot menu entries)</text>
+
+  <rect class="box" x="130" y="180" width="160" height="44" rx="8"/>
+  <text x="210" y="207" text-anchor="middle">Generation 41</text>
+  <rect class="box" x="360" y="180" width="160" height="44" rx="8"/>
+  <text x="440" y="207" text-anchor="middle">Generation 42</text>
+  <rect class="accent" x="590" y="180" width="170" height="44" rx="8"/>
+  <text class="bold" x="675" y="207" text-anchor="middle">Generation 43</text>
+
+  <path class="flow" d="M710,94 L710,178" marker-end="url(#arrow-flow)"/>
+  <text class="muted small" x="720" y="130">builds</text>
+
+  <path class="line" d="M620,224 C620,246 470,246 470,227" marker-end="url(#arrow-line)"/>
+  <text class="muted small" x="545" y="264" text-anchor="middle">Roll back</text>
+
+  <!-- Row 3: running services -->
+  <path class="flow" d="M675,224 L675,324" marker-end="url(#arrow-flow)"/>
+  <text class="muted small" x="685" y="300">runs</text>
+
+  <rect class="zone" x="20" y="326" width="760" height="94" rx="8"/>
+  <text class="muted small" x="36" y="348">Router services</text>
+  <rect class="box" x="30" y="360" width="140" height="44" rx="8"/>
+  <text x="100" y="387" text-anchor="middle">Technitium DNS</text>
+  <rect class="box" x="180" y="360" width="140" height="44" rx="8"/>
+  <text x="250" y="387" text-anchor="middle">nftables</text>
+  <rect class="box" x="330" y="360" width="140" height="44" rx="8"/>
+  <text x="400" y="387" text-anchor="middle">systemd-networkd</text>
+  <rect class="box" x="480" y="360" width="140" height="44" rx="8"/>
+  <text x="550" y="387" text-anchor="middle">Suricata</text>
+  <rect class="box" x="630" y="360" width="140" height="44" rx="8"/>
+  <text x="700" y="387" text-anchor="middle">router-proxy</text>
+</svg>

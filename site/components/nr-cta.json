@@ -1,0 +1,39 @@
+{
+  "tagName": "nr-cta",
+  "state": {
+    "href": "/",
+    "label": "Go",
+    "variant": "primary",
+    "newTab": false,
+    "isPrimary": "${state.variant === 'primary'}"
+  },
+  "style": { "display": "inline-block" },
+  "children": [
+    {
+      "tagName": "a",
+      "attributes": {
+        "href": "${state.href}",
+        "target": "${state.newTab ? '_blank' : '_self'}",
+        "rel": "${state.newTab ? 'noopener noreferrer' : ''}"
+      },
+      "style": {
+        "display": "inline-flex",
+        "alignItems": "center",
+        "padding": "0.7rem 1.4rem",
+        "borderRadius": "var(--radius)",
+        "textDecoration": "none",
+        "fontWeight": "600",
+        "fontSize": "0.9375rem",
+        "transition": "background-color 0.15s, border-color 0.15s",
+        "backgroundColor": "${state.isPrimary ? 'var(--color-accent)' : 'var(--color-bg-primary)'}",
+        "color": "${state.isPrimary ? 'var(--color-on-accent)' : 'var(--color-text-primary)'}",
+        "border": "${state.isPrimary ? '1px solid var(--color-accent)' : '1px solid var(--color-border)'}",
+        ":hover": {
+          "backgroundColor": "${state.isPrimary ? 'var(--color-accent-hover)' : 'var(--color-bg-surface)'}",
+          "color": "${state.isPrimary ? 'var(--color-on-accent)' : 'var(--color-text-primary)'}"
+        }
+      },
+      "textContent": "${state.label}"
+    }
+  ]
+}
