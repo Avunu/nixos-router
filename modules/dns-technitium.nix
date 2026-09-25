@@ -966,9 +966,14 @@ in
       ];
       services.resolved.enable = false;
 
-      # Publish the router's hostname via mDNS (hostname.local).
+      # Publish the router's hostname via mDNS (hostname.local) — on the LAN
+      # only. Unrestricted, Avahi also announces the router and every one of
+      # its addresses (LAN ones included) onto the WAN link and the guest
+      # network, and answers queries there. The firewall drops 5353/udp outside
+      # the trusted interfaces too (modules/firewall.nix).
       services.avahi = {
         enable = true;
+        allowInterfaces = [ brLAN ];
         publish = {
           enable = true;
           addresses = true;

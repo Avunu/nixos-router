@@ -242,12 +242,13 @@ let
   ) v6DnsDropTargets;
 
   # nftRuleset:
-  #   The complete nftables configuration, organized into three tables:
+  #   The complete nftables configuration, organized into these tables:
   #
   #   1. `inet filter` — Stateful firewall (input + forward chains)
-  #      • Input: loopback accepted; trusted IFs (LAN+WG) fully open;
-  #        guest limited to DHCP/DNS plus replies to router-initiated
-  #        flows; WAN allows established + ICMP + WireGuard ports;
+  #      • Input: loopback accepted; conntrack-invalid dropped; trusted
+  #        IFs (LAN+WG) fully open; guest limited to DHCP/DNS plus
+  #        replies to router-initiated flows; WAN allows established +
+  #        rate-limited ICMP + DHCPv6 replies + WireGuard ports;
   #        everything else dropped.
   #      • Forward: WG bidirectional; LAN→WAN; WAN→LAN established;
   #        guest→WAN only, plus LAN→guest one-way (guest is isolated
@@ -261,12 +262,17 @@ let
   #        external DNS servers; DNATs IPv4 port forwards.
   #      • Postrouting: masquerades outbound WAN traffic.
   #
-  #   3. `inet dns_bypass` — DNS bypass prevention
+  #   3. `inet antispoof` — Source address validation
+  #      • Prerouting at mangle+10: drops any packet whose source address
+  #        would not be routed back out the interface it arrived on
+  #        (strict reverse-path check, IPv4 and IPv6, every interface).
+  #
+  #   4. `inet dns_bypass` — DNS bypass prevention
   #      • Runs at priority filter-1 (before the main filter) to drop
-  #        DoT (:853) and IPv6 :53 from LAN/guest, on both the input
+  #        DoT/DoQ (:853) and IPv6 :53 from LAN/guest, on both the input
   #        and forward hooks.
   #
-  #   4. `inet ips` — Suricata NFQUEUE hand-off (only when enabled)
+  #   5. `inet ips` — Suricata NFQUEUE hand-off (only when enabled)
   #      • Runs at priority filter+10 (AFTER the main filter), so the
   #        forward chain's drop policy is applied before anything is
   #        handed to the IPS. See the table's own comment for why it
@@ -278,6 +284,10 @@ let
 
         # Loopback
         iifname "lo" accept
+
+        # Packets conntrack cannot place in any flow (out-of-window TCP, stray
+        # replies) are never legitimate, whichever interface they came in on.
+        ct state invalid counter drop
 
         # Trusted internal networks
         iifname { ${nftSet trustedIFs} } accept comment "Allow LAN and WG to router"
@@ -324,14 +334,22 @@ let
           iifname "${owIF}" tcp dport { 5432, 6379 } accept comment "OpenWISP containers → PostgreSQL/Redis"
         ''}
 
-        # mDNS (multicast DNS) for hostname resolution
-        udp dport 5353 accept comment "Allow mDNS queries"
+        # mDNS (5353/udp) has no rule of its own: the trusted-interface accept
+        # above already admits it from the LAN, where Avahi and the Router Live
+        # DNS resolver use it. Anywhere else it is dropped — Avahi would answer
+        # the WAN or guest network with the LAN's addresses, and the resolver
+        # would take their forged answers.
 
         # WAN: only established/related + select ICMP
         iifname "${wanIf}" ct state { established, related } accept
-        iifname "${wanIf}" icmp type { echo-request, destination-unreachable, time-exceeded } counter accept
-        iifname "${wanIf}" icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, echo-request, echo-reply, nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } counter accept
-        iifname "${wanIf}" udp dport 546 accept comment "DHCPv6 client"
+        iifname "${wanIf}" icmp type echo-request limit rate 20/second burst 50 packets counter accept
+        iifname "${wanIf}" icmp type { destination-unreachable, time-exceeded } counter accept
+        iifname "${wanIf}" icmpv6 type echo-request limit rate 20/second burst 50 packets counter accept
+        iifname "${wanIf}" icmpv6 type { destination-unreachable, packet-too-big, time-exceeded, parameter-problem, echo-reply, nd-router-solicit, nd-router-advert, nd-neighbor-solicit, nd-neighbor-advert } counter accept
+        # DHCPv6 servers and relays always answer from :547. The source address
+        # is left open: servers usually reply from link-local, but RFC 8415
+        # does not require it, and a missed reply costs the delegated prefix.
+        iifname "${wanIf}" udp sport 547 udp dport 546 accept comment "DHCPv6 client"
         ${wgInputRules}
         ${optionalString pcfg.enable ''
           iifname "${wanIf}" tcp dport ${proxyPorts} ct status dnat accept comment "Reverse proxy (redirected 80/443)"
@@ -343,6 +361,10 @@ let
 
       chain forward {
         type filter hook forward priority filter; policy drop;
+
+        # As in input. Without it, LAN→WAN below would also forward packets
+        # conntrack could not track, which then leave unmasqueraded.
+        ct state invalid counter drop
 
         ${wgForwardRules}
 
@@ -456,12 +478,32 @@ let
       }
     }
 
+    # ── Source address validation ─────────────────────────
+    # A packet is only accepted if a reply to its source address would leave
+    # through the interface it arrived on — the strict reverse-path check, for
+    # both families on every interface. networkd's IPv4 rp_filter is strict on
+    # the WAN but off on the bridges and WireGuard, and IPv6 has no rp_filter
+    # at all, so without this a guest host could send with a LAN source (or any
+    # IPv6 source, out the WAN), and the WAN could claim the delegated prefix.
+    # Mirrors the `rpfilter` chain of NixOS's own nftables firewall, which this
+    # router does not use: same hook and priority, the same DHCPv4 exemption
+    # (a client asks from 0.0.0.0, which has no route back), and `mark` so
+    # policy routing by fwmark still passes.
+    table inet antispoof {
+      chain prerouting {
+        type filter hook prerouting priority mangle + 10; policy accept;
+        meta nfproto ipv4 udp sport . udp dport { 67 . 68, 68 . 67 } accept comment "DHCPv4 client/server"
+        fib saddr . mark . iif oif missing counter drop comment "Reverse-path check"
+      }
+    }
+
     # ── DNS bypass prevention ─────────────────────────────
     # Priority filter-1 puts these chains BEFORE the main `inet filter`
     # chains, so the drops below win over the blanket trusted-interface
     # accept in the input chain and the LAN→WAN accept in the forward chain.
     #
-    #   • DoT (:853) — the router runs no DoT listener, so drop outright.
+    #   • DoT and DoQ (:853, tcp and udp) — the router runs neither
+    #     listener, so drop outright.
     #   • IPv6 :53 — the access-policy compiler anchors the device, host
     #     group and directory-user tiers to each device's IPv4 DHCP
     #     reservation, so an IPv6-sourced query can only ever match the
@@ -480,8 +522,8 @@ let
 
       chain forward {
         type filter hook forward priority filter - 1; policy accept;
-        iifname "${brLAN}" tcp dport 853 counter drop comment "Block DoT bypass"
-        ${optionalString cfg.guest.enable ''iifname "${brGuest}" tcp dport 853 counter drop comment "Block guest DoT bypass"''}
+        iifname "${brLAN}" meta l4proto { tcp, udp } th dport 853 counter drop comment "Block DoT/DoQ bypass"
+        ${optionalString cfg.guest.enable ''iifname "${brGuest}" meta l4proto { tcp, udp } th dport 853 counter drop comment "Block guest DoT/DoQ bypass"''}
         ${v6DnsDropRules}
       }
     }
@@ -636,6 +678,15 @@ in
       {
         assertion = dupsOf unrestrictedV4Keys == [ ];
         message = "router.portForwards: more than one unrestricted IPv4 forward claims ${concatStringsSep ", " (dupsOf unrestrictedV4Keys)} — only the first DNAT would ever match";
+      }
+      # The gateway addresses appear unquoted in the DNS-hijack DNAT rules, so
+      # validate them as plain IPv4 addresses here rather than let the ruleset
+      # take whatever the settings hold.
+      {
+        assertion = all (a: netLib.isV4Prefix a && !(hasInfix "/" a)) (
+          [ lanGW ] ++ optional cfg.guest.enable guestGW
+        );
+        message = "router.lan.address / router.guest.address must be plain IPv4 addresses (no prefix length).";
       }
     ];
     warnings = forwardWarnings;

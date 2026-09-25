@@ -400,6 +400,18 @@ in
         assertion = all (c: stringLength c.child <= 15) allChildren;
         message = "router: a VLAN sub-interface name (<port>.<vid>) exceeds the 15-char kernel limit (IFNAMSIZ); use a shorter parent interface name.";
       }
+      # Interface names are interpolated into the nftables ruleset and the
+      # networkd units verbatim, so anything outside a plain kernel name (a
+      # quote, a space, a newline) would rewrite the firewall rather than name
+      # an interface.
+      {
+        assertion = all (n: builtins.match "[A-Za-z0-9_.-]{1,15}" n != null) (allPhys ++ wgNames);
+        message = "router: interface names (physical ports and router.wireguard tunnel names) must be 1–15 characters of letters, digits, '_', '.' or '-'; got [ ${
+          concatStringsSep ", " (
+            filter (n: builtins.match "[A-Za-z0-9_.-]{1,15}" n == null) (allPhys ++ wgNames)
+          )
+        } ].";
+      }
     ];
 
     # ── 3. systemd-networkd — interfaces + bridge ────────
