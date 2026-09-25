@@ -101,14 +101,11 @@ The same settings appear in two places: **Access Policies → DNS settings** and
 | SafeSearch | **Enforce SafeSearch** | **Enforce SafeSearch** | `dns.technitium.safeSearch` | off |
 | DoH blocking | **Block DoH providers** | **Block public DoH resolvers** | `dns.technitium.blockDoHProviders` | on |
 | Local names for reserved devices | | **Publish static hosts** | `dns.registerStaticHosts` | on |
-| Listening port | **DNS listen port** | | `dns.technitium.listenPort` | 53 |
 | Technitium console port | **Web console port** | | `dns.technitium.webPort` | 5380 |
 
 The router forwards queries it can't answer to the upstream servers over DNS-over-HTTPS, queries them concurrently and validates DNSSEC. It answers recursive queries only from the LAN, guest and WireGuard networks, and the firewall drops port 53 from the WAN.
 
-:::doc-warning
-Leave **DNS listen port** at 53. The DHCP settings and the port 53 redirect always send clients to port 53, so any other value stops DNS for the whole network.
-:::
+The resolver always listens on port 53. DHCP can tell clients the router's address but not a port, so there is no setting to move it.
 
 ```json
 {

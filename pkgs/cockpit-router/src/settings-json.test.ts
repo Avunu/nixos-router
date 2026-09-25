@@ -16,6 +16,7 @@ import {
   appliedBaseline,
   changedTopKeys,
   deepEqual,
+  dropRetiredKeys,
   getPath,
   isLocked,
   rebaseEdits,
@@ -206,6 +207,16 @@ void test("appliedBaseline: a real Nix override still locks", () => {
   );
 });
 
+void test("appliedBaseline: Update system clears the tray only when it switched", () => {
+  // system-upgrade exits 0 either way, so the System page writes the snapshot
+  // only when `stale` says a generation landed after the JSON was saved.
+  // Edits saved at 3000; the running system dates from 2000 when the lock was
+  // unchanged and the rebuild skipped…
+  assert.equal(appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 3000, 2000).stale, false);
+  // …and from 4000 when it switched, building the saved JSON with it.
+  assert.equal(appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 3000, 4000).stale, true);
+});
+
 void test("getPath / setPath round-trip through nested objects", () => {
   const obj: Json = { a: { b: { c: 1 } } };
   assert.equal(getPath(obj, "a.b.c"), 1);
@@ -270,4 +281,43 @@ void test("rebaseEdits: clearing a value the file never set is nothing to re-app
   const pending = new Map<string, Json>([["ddns.cloudflare.apiTokenFile", null]]);
   assert.deepEqual(rebaseEdits({ ddns: {} }, pending), { ddns: {} });
   assert.equal(pending.size, 0);
+});
+
+// A router installed before the settings loader keeps the seeded
+// "listenPort": 53 on disk. The schema no longer allows it, so without this
+// every save there fails validation.
+void test("dropRetiredKeys: drops the retired DNS listen port and nothing else", () => {
+  const onDisk: Json = {
+    hostName: "r1",
+    dns: { technitium: { enable: true, listenPort: 53, webPort: 5380 }, overrides: [] },
+  };
+  const before = structuredClone(onDisk);
+  const current = dropRetiredKeys(onDisk);
+  assert.deepEqual(current, {
+    hostName: "r1",
+    dns: { technitium: { enable: true, webPort: 5380 }, overrides: [] },
+  });
+  assert.deepEqual(onDisk, before, "the input is not modified");
+  assert.deepEqual(dropRetiredKeys(current), current, "a second pass changes nothing");
+});
+
+void test("dropRetiredKeys: settings without the key come back as they are", () => {
+  for (const obj of [
+    { hostName: "r1" },
+    { dns: { technitium: { enable: false } } },
+    { dns: null },
+    {},
+  ] as Json[]) {
+    assert.equal(dropRetiredKeys(obj), obj);
+  }
+});
+
+// loadState drops the key from the file and the applied snapshot alike: after
+// the first save the file no longer holds it, but a snapshot from an earlier
+// apply still does, and the tray must not offer that as a change.
+void test("dropRetiredKeys: a key only the snapshot still carries is not a change", () => {
+  const saved: Json = { dns: { technitium: { enable: true } } };
+  const snapshot: Json = { dns: { technitium: { enable: true, listenPort: 53 } } };
+  assert.deepEqual(changedTopKeys(saved, snapshot), ["dns"], "compared as read");
+  assert.deepEqual(changedTopKeys(dropRetiredKeys(saved), dropRetiredKeys(snapshot)), []);
 });

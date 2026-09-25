@@ -71,6 +71,33 @@ export function deepEqual(a: Json | undefined, b: Json | undefined): boolean {
   return false;
 }
 
+// Retired keys the router module still accepts but ignores, and the schema no
+// longer allows (additionalProperties: false). The settings loader
+// (lib/settings.nix) migrates them out of the file, but a router installed
+// before the loader feeds its JSON to the module directly, so the key stays on
+// disk — and every save would then fail schema validation.
+const RETIRED_KEYS = ["dns.technitium.listenPort"];
+
+// The settings without the retired keys, so the next save writes the current
+// shape. Returns `obj` itself when it holds none of them.
+export function dropRetiredKeys(obj: Json): Json {
+  let next = obj;
+  for (const path of RETIRED_KEYS) {
+    const cut = path.lastIndexOf(".");
+    const parentPath = path.slice(0, cut);
+    const key = path.slice(cut + 1);
+    const parent = getPath(next, parentPath);
+    if (isObject(parent) && Object.hasOwn(parent, key)) {
+      next = setPath(
+        next,
+        parentPath,
+        Object.fromEntries(Object.entries(parent).filter(([k]) => k !== key)),
+      );
+    }
+  }
+  return next;
+}
+
 // A form's working copy rebuilt from the settings file on disk, keeping the
 // edits it has not saved yet (useSettings). `pending` maps leaf paths to the
 // values the admin set, in the order they were last set; it is updated in

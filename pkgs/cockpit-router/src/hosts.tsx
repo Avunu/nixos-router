@@ -14,6 +14,8 @@ import { useEffect, useState, useCallback, useMemo } from "react";
 import type { Ref } from "react";
 import { errMsg } from "./nix";
 import type { Json } from "./nix";
+import { hostNameError, sanitizeHostName } from "./host-names";
+import type { HostNameIssue } from "./host-names";
 import {
   ActionGroup,
   Alert,
@@ -25,6 +27,7 @@ import {
   EmptyStateBody,
   Form,
   FormGroup,
+  FormHelperText,
   FormSelect,
   FormSelectOption,
   HelperText,
@@ -180,6 +183,25 @@ function checkSuffix(value: string, takenSuffixes: string[]): IpIssue | null {
   }
   return null;
 }
+
+const hostNameText = (issue: HostNameIssue | null): string => {
+  switch (issue) {
+    case "empty": {
+      return _("Enter a name.");
+    }
+    case "pattern": {
+      return _(
+        "Use letters, digits, spaces, dots, dashes and underscores, starting with a letter or digit.",
+      );
+    }
+    case "duplicate": {
+      return _("Another device already has this name.");
+    }
+    default: {
+      return "";
+    }
+  }
+};
 
 function checkPublicName(value: string, takenNames: string[]): IpIssue | null {
   if (!value) {
@@ -349,6 +371,7 @@ interface DeviceDraft {
 
 // Taken values for the editor's uniqueness checks, per other device.
 interface TakenSets {
+  names: string[];
   ips: string[];
   suffixes: (network: "lan" | "guest") => string[];
   publicNames: string[];
@@ -389,6 +412,7 @@ const DeviceEditor = ({
   const issue = checkStaticIp(staticIp.trim(), shape, taken.ips);
   const suffixIssue = checkSuffix(ipv6Suffix.trim(), taken.suffixes(network));
   const nameIssue = checkPublicName(publicHostname.trim(), taken.publicNames);
+  const deviceNameError = hostNameText(hostNameError(name, taken.names));
 
   // Global addresses the device is using right now, as suffix candidates.
   // Only a STABLE identifier works: a device on RFC 7217 stable-privacy or
@@ -451,9 +475,17 @@ const DeviceEditor = ({
             <TextInput
               id="devName"
               value={name}
+              validated={deviceNameError ? "error" : "default"}
               onChange={(_e, v) => setName(v)}
               aria-label={_("Name")}
             />
+            {deviceNameError && (
+              <FormHelperText>
+                <HelperText>
+                  <HelperTextItem variant="error">{deviceNameError}</HelperTextItem>
+                </HelperText>
+              </FormHelperText>
+            )}
           </FormGroup>
           <FormGroup label={_("Network")} fieldId="devNetwork">
             <FormSelect
@@ -621,7 +653,7 @@ const DeviceEditor = ({
               variant="primary"
               onClick={commit}
               isDisabled={
-                !name.trim() ||
+                Boolean(deviceNameError) ||
                 issue?.level === "error" ||
                 suffixIssue?.level === "error" ||
                 nameIssue?.level === "error"
@@ -777,6 +809,7 @@ const DevicesTab = ({ s }: { s: S }) => {
   const takenFor = (mac: string): TakenSets => {
     const others = hosts.filter((h) => h.mac.toLowerCase() !== mac);
     return {
+      names: others.map((h) => h.name),
       ips: takenIps(mac),
       suffixes: (network) =>
         others
@@ -823,7 +856,13 @@ const DevicesTab = ({ s }: { s: S }) => {
     setEditing({
       mac: row.mac,
       isNew: true,
-      name: row.live ? liveName(row.live) : "",
+      // The announced names can hold a comma or other characters a device
+      // name refuses, so the default is made valid (and unused) first.
+      name: sanitizeHostName(
+        row.live ? liveName(row.live) : "",
+        row.mac,
+        hosts.map((h) => h.name),
+      ),
       network,
       staticIp: suggestion ?? "",
       ipv6Suffix: "",
