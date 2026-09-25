@@ -29,13 +29,16 @@ from the configuration, so taking a name over is never a one-way loss.
 
 enable=false drops every name: the managed records are deleted and the
 replaced CNAMEs restored, without looking up any address. A disabled run with
-nothing recorded to tear down does nothing at all.
+nothing recorded to tear down does nothing at all, and one over state no
+enabled run has stamped with STATE_VERSION only reports it: that state was
+left by a version that kept the records when turned off, and said so, so
+they stay until the owner turns dynamic DNS on and then off again.
 
 State directory:
   state.json   — zone cache, the managed name set, the last pushed record
                  set with its TTL and proxying (API writes are skipped while
-                 it is unchanged and was verified recently) and the CNAMEs
-                 replaced to take names over
+                 it is unchanged and was verified recently), the CNAMEs
+                 replaced to take names over and the state version
   status.json  — last run summary for Cockpit, written on success AND failure
 
 Environment overrides (the VM test points them at a fake API):
@@ -68,6 +71,15 @@ from .cloudflare import take_over as _take_over
 
 TRACE_URL = os.environ.get("ROUTER_DDNS_TRACE_URL", "https://1.1.1.1/cdn-cgi/trace")
 VERIFY_INTERVAL = 6 * 3600
+
+# Stamped into state.json by every enabled run. Version 2 is the first whose
+# disabled runs delete the records; state without the stamp was last written
+# by a version that promised turning dynamic DNS off would keep them.
+STATE_VERSION = 2
+LEGACY_NOTE = (
+    "records from before the upgrade are left in Cloudflare, since turning dynamic DNS off used to keep them"
+    " — to delete them, turn dynamic DNS on and apply, then turn it off and apply again"
+)
 
 # Addresses that cannot be the router's public IPv4: when the WAN holds one of
 # these the router sits behind another NAT and must ask the outside world.
@@ -248,7 +260,26 @@ def run(cfg: dict, force: bool = False) -> int:
     state_dir.mkdir(parents=True, exist_ok=True)
     now = time.time()
 
+    if not enable and state.get("version", 1) < STATE_VERSION:
+        # Turned off before the upgrade: leave Cloudflare (and state.json,
+        # still the only copy of the replaced CNAMEs) exactly as they are.
+        print(f"router-ddns: {LEGACY_NOTE}", file=sys.stderr)
+        write_json(
+            status_file,
+            {
+                "lastRun": _iso(now),
+                "ok": True,
+                "error": None,
+                "addresses": {"ipv4": None, "ipv4Source": "disabled", "ipv6": None},
+                "records": [],
+                "message": LEGACY_NOTE,
+            },
+            0o644,
+        )
+        return 0
+
     if enable:
+        state["version"] = STATE_VERSION
         wan = cfg["wanInterface"]
         v4, v4_source = detect_v4(wan) if cfg.get("ipv4", True) else (None, "disabled")
         router_v6 = detect_router_v6(wan, cfg["routerV6Fallback"]) if cfg.get("ipv6", True) else None
@@ -350,15 +381,16 @@ def run(cfg: dict, force: bool = False) -> int:
                     # Also clears records left from a run whose state was lost.
                     for rtype in ("A", "AAAA"):
                         remove_managed(cf, zone, name, rtype)
-                    restore(cf, zone, replaced[name])
+                    created = restore(cf, zone, replaced[name])
                     for rec in replaced.pop(name):
+                        new = any(c is rec for c in created)
                         results.append(
                             {
                                 "name": name,
                                 "type": rec.get("type"),
                                 "content": rec.get("content"),
-                                "state": "created",
-                                "detail": "restored: the name is no longer configured",
+                                "state": "created" if new else "unchanged",
+                                "detail": f"{'restored' if new else 'already back'}: the name is no longer configured",
                             }
                         )
                 except CloudflareError as exc:

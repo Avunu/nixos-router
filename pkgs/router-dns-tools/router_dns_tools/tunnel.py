@@ -199,8 +199,7 @@ def release(cf: Cloudflare, zone: str, name: str, replaced: dict) -> str:
             removed += 1
     note = f"removed {removed} record(s)"
     if replaced.get(name):
-        restore(cf, zone, replaced[name])
-        note += f"; restored {len(replaced[name])} replaced record(s)"
+        note += f"; restored {len(restore(cf, zone, replaced[name]))} replaced record(s)"
     replaced.pop(name, None)
     return note
 

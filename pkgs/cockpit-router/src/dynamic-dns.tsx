@@ -111,6 +111,11 @@ const StatusCard = ({ canUpdate }: { canUpdate: boolean }) => {
             <StackItem>{_("No update has run yet.")}</StackItem>
           ) : (
             <>
+              {status.message && (
+                <StackItem>
+                  <Alert variant="info" isInline isPlain title={status.message} />
+                </StackItem>
+              )}
               <StackItem>
                 <DescriptionList isHorizontal isCompact>
                   <DescriptionListGroup>

@@ -149,12 +149,23 @@ def take_over(
     return removed
 
 
-def restore(cf: Cloudflare, zone: str, records: list[dict]) -> None:
+def restore(cf: Cloudflare, zone: str, records: list[dict]) -> list[dict]:
     """Recreate records take_over replaced. Called only once the router's own
-    records at the name are gone, since a CNAME cannot sit beside them."""
+    records at the name are gone, since a CNAME cannot sit beside them.
+
+    A record already back at the name (put back by hand, or remembered twice)
+    is left as it is: Cloudflare would refuse the duplicate, and a refusal
+    here fails every later run too, since the entry stays to be retried.
+    Returns the records it created.
+    """
+    created = []
     for r in records:
+        if any(e.get("content") == r.get("content") for e in cf.records(zone, r["name"], r["type"])):
+            continue
         body = {k: v for k, v in r.items() if v is not None and v != ""}
         cf.call("POST", f"/zones/{zone}/dns_records", body=body)
+        created.append(r)
+    return created
 
 
 # ── State files ──────────────────────────────────────────────────────────────

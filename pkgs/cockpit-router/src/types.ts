@@ -239,6 +239,9 @@ export interface DdnsStatus {
   error?: string | null;
   addresses?: { ipv4?: string | null; ipv4Source?: string; ipv6?: string | null };
   records?: DdnsRecordStatus[];
+  // Set when a disabled run kept records from before the upgrade, when
+  // turning dynamic DNS off left them: what to do to delete them.
+  message?: string;
 }
 
 // ── Cloudflare Tunnel status (router-cloudflare-tunnel status.json) ───────

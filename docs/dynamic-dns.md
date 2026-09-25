@@ -78,6 +78,7 @@ When the [reverse proxy](/docs/ingress/reverse-proxy/) is enabled and its **Publ
 The **Last update** card at the bottom of **Network → Dynamic DNS** shows the most recent run. Until a configuration with dynamic DNS enabled, or with a token file set, has been applied, it says "Dynamic DNS is not running — enable it and apply the configuration." and **Update now** is disabled. With dynamic DNS off but the token file still set, **Update now** runs the cleanup described in [Turn dynamic DNS off](#turn-dynamic-dns-off).
 
 - **Update now** starts a run and refreshes the card when the run finishes. If the run fails, the card shows "The update run failed" and the reason.
+- A note above **Last run** appears when dynamic DNS was turned off before the upgrade that made turning it off delete the records. It says how to delete them. See [Turned off before the upgrade](#turned-off-before-the-upgrade).
 - **Last run** is the time of the run in UTC, followed by a green **ok** label, or a red label with the error, such as `2 record(s) failed`.
 - **WAN IPv4** is the public IPv4 address the router found. "(behind another NAT — detected via Cloudflare)" after it means the WAN interface holds a private or CGNAT address, so the router asked Cloudflare which address its traffic comes from. See [Behind CGNAT or another router](#behind-cgnat-or-another-router). "none" means no address was found, or **Publish IPv4 (A)** is off.
 - **Router IPv6** is the address used for router names, or "none".
@@ -158,7 +159,7 @@ The service runs as a temporary system user with most privileges removed. It nev
 
 DNS allows nothing else beside a CNAME, so Cloudflare would refuse an A record at a name that holds one. When a name has no A or AAAA record yet, the router deletes any CNAME there and remembers it, with its target, TTL, proxying and comment. The note reads, for example, "replaced CNAME → site.example.net (restored if the name is dropped)".
 
-When you later remove the name from the configuration, or turn dynamic DNS off, the router deletes its own A and AAAA records and puts the CNAME back exactly as it was. The table then shows a `CNAME` row with "restored: the name is no longer configured".
+When you later remove the name from the configuration, or turn dynamic DNS off, the router deletes its own A and AAAA records and puts the CNAME back exactly as it was. The table then shows a `CNAME` row, `created` with "restored: the name is no longer configured". If the same CNAME is already back at the name, put back by hand, the router leaves it as it is, and the row shows `unchanged` with "already back: the name is no longer configured".
 
 ### Address detection
 
@@ -169,7 +170,7 @@ When you later remove the name from the configuration, or turn dynamic DNS off, 
 ### Status and state files
 
 - `/var/lib/router-ddns/status.json` is the summary of the last run, written after every run, successful or not. The **Last update** card reads it.
-- `/var/lib/router-ddns/state.json` (mode `0600`) holds the zone cache, the set of records the router manages, the last records pushed (address, TTL and proxying), the time of the last full check, and every CNAME it replaced. Don't delete it: it's the only copy of the replaced CNAMEs.
+- `/var/lib/router-ddns/state.json` (mode `0600`) holds the zone cache, the set of records the router manages, the last records pushed (address, TTL and proxying), the time of the last full check, every CNAME it replaced, and a `version`. Every run with dynamic DNS on sets `version` to `2`, which is what lets a run with it off delete the records. Don't delete the file: it's the only copy of the replaced CNAMEs.
 
 Because the service runs as a dynamic user, the directory really lives at `/var/lib/private/router-ddns`, and `/var/lib/router-ddns` is a link to it. `/var/lib/private` is readable only by root, so read the files with `sudo`:
 
@@ -200,7 +201,7 @@ sudo cat /var/lib/router-ddns/status.json
 }
 ```
 
-`ipv4Source` is `interface` when the address came from the WAN interface, `trace` when it came from Cloudflare, `disabled` when **Publish IPv4 (A)** is off or the run was the cleanup after turning dynamic DNS off, or the reason the lookup failed, such as `trace failed: ...`.
+`ipv4Source` is `interface` when the address came from the WAN interface, `trace` when it came from Cloudflare, `disabled` when **Publish IPv4 (A)** is off or dynamic DNS is off, or the reason the lookup failed, such as `trace failed: ...`. A `message` field appears only when a run with dynamic DNS off kept records from before the upgrade (see [Turned off before the upgrade](#turned-off-before-the-upgrade)).
 
 ### Turn dynamic DNS off
 
@@ -216,6 +217,17 @@ The tab says the same under the switch: "Turning dynamic DNS off keeps the token
 :::doc-warning
 If you remove the token before the cleanup has run, the router can't delete anything. The records keep their last addresses, and replaced CNAMEs stay gone, until you fix them in the Cloudflare dashboard.
 :::
+
+### Turned off before the upgrade
+
+Earlier versions left the records in Cloudflare when you turned dynamic DNS off, and said so. If dynamic DNS was already off when the router upgraded to this behavior, the router keeps that promise: it deletes nothing and restores nothing until you ask. Each run with dynamic DNS off makes no change in Cloudflare, logs a note and shows it above **Last run** on the **Last update** card:
+
+```text
+records from before the upgrade are left in Cloudflare, since turning dynamic DNS off used to keep them — to delete them, turn dynamic DNS on and apply, then turn it off and apply again
+```
+
+- **To delete them:** turn on **Enable dynamic DNS** and click **Save & apply**. That run brings the records in line with the settings, as any run with dynamic DNS on does: configured names get the current addresses, and names no longer configured are deleted. Then turn it off, click **Save & apply** again, and follow the steps in [Turn dynamic DNS off](#turn-dynamic-dns-off). A replaced CNAME you already put back by hand doesn't make the cleanup fail: the router doesn't create it a second time (see [Names held by a CNAME](#names-held-by-a-cname)).
+- **To keep them:** do nothing, or clear **Cloudflare API token file** and click **Save & apply**, which removes the service and its timer.
 
 ## LAN clients
 
@@ -306,7 +318,8 @@ The **Last run** label shows `no Cloudflare API token (router.ddns.cloudflare.ap
 
 ### Records stay after turning dynamic DNS off
 
-The token file was cleared or deleted before the cleanup ran, so the service was removed or skipped with nothing deleted. Set the token file again (click **Set token…** if the file is gone), leave **Enable dynamic DNS** off, click **Save & apply**, and wait for a **Last run** **ok** (or click **Update now**). The router still remembers its records and the CNAMEs it replaced, so this run cleans up as usual. If the **Last run** label shows an error instead, fix it as for any other run.
+- **The card shows the note "records from before the upgrade are left in Cloudflare…".** Dynamic DNS was turned off before the upgrade, when turning it off kept the records. See [Turned off before the upgrade](#turned-off-before-the-upgrade).
+- **Otherwise,** the token file was cleared or deleted before the cleanup ran, so the service was removed or skipped with nothing deleted. Set the token file again (click **Set token…** if the file is gone), leave **Enable dynamic DNS** off, click **Save & apply**, and wait for a **Last run** **ok** (or click **Update now**). The router still remembers its records and the CNAMEs it replaced, so this run cleans up as usual. If the **Last run** label shows an error instead, fix it as for any other run.
 
 ### Behind CGNAT or another router
 
