@@ -89,6 +89,11 @@ void test("prefix validation accepts both families and nothing malformed", () =>
   assert.ok(isV6Prefix("2001:db8::1"));
   assert.ok(!isV6Prefix("2001:db8::/129"));
   assert.ok(!isV6Prefix("2001:db8::/32/1"));
+  // lib.network rejects an IPv6 length of 0, so the rebuild would refuse it.
+  assert.ok(!isV6Prefix("::/0"), "IPv6 /0");
+  assert.ok(!isPrefix("::/0") && !isPrefix("2001:db8::/0"));
+  assert.ok(isV6Prefix("::/1") && isV6Prefix("::/128"));
+  assert.ok(isV4Prefix("0.0.0.0/0"), "IPv4 /0 passes net.nix");
   assert.ok(isPrefix("2001:db8:100::/48") && isPrefix("203.0.113.0/24"));
   assert.ok(!isPrefix("not-a-prefix"));
 });

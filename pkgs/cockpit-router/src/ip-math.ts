@@ -107,7 +107,8 @@ export function suggestStaticIp(
 
 // ── IPv4 / IPv6 prefixes (port-forward source restrictions) ─────────────────
 // Same acceptance as modules/lib/net.nix: no leading zeros in IPv4 octets, no
-// IPv4-embedded or zoned IPv6 literals.
+// IPv4-embedded or zoned IPv6 literals, and no IPv6 /0. lib.network, which
+// net.nix parses IPv6 with, takes lengths 1-128 only, while IPv4 takes /0.
 export function isV4Prefix(s: string): boolean {
   const m =
     /^(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})\.(0|[1-9]\d{0,2})(?:\/(0|[1-9]\d?))?$/.exec(
@@ -121,7 +122,7 @@ export function isV4Prefix(s: string): boolean {
 
 export function isV6Prefix(s: string): boolean {
   const [addr = "", len, ...rest] = s.split("/");
-  if (rest.length > 0 || (len !== undefined && !/^(0|[1-9]\d{0,2})$/.test(len))) {
+  if (rest.length > 0 || (len !== undefined && !/^[1-9]\d{0,2}$/.test(len))) {
     return false;
   }
   return parseIPv6(addr) !== null && (len === undefined || Number(len) <= 128);

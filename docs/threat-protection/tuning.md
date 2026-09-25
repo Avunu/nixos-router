@@ -104,7 +104,7 @@ A table of per-signature overrides, with **SID**, **Action** (**Alert**, **Drop*
 
 A table of per-host exemptions, with **SID**, **Host**, **Track** (**Source**, **Destination** or **Either**) and **Comment** columns. To add one by hand, fill in **Signature ID** and **Host IP / subnet** and click **Add suppression**; it tracks **Source** until you change it.
 
-The host must be one IPv4 or IPv6 address or prefix, such as `192.168.1.5`, `192.168.1.0/24` or `2001:db8::/48`; **Add suppression** stays unavailable until it is. An entry that isn't, for example from an edited settings file, is marked in the table, and the build refuses it with `router.suricata.suppressions: SID 2100498 has an invalid host 'nas' — use an IPv4 or IPv6 address or CIDR prefix`. Remove it and add it again.
+The host must be one IPv4 or IPv6 address or prefix, such as `192.168.1.5`, `192.168.1.0/24` or `2001:db8::/48`; **Add suppression** stays unavailable until it is. An IPv6 prefix length must be 1 to 128, so `::/0` isn't accepted. An entry that isn't, for example from an edited settings file, is marked in the table, and the build refuses it with `router.suricata.suppressions: SID 2100498 has an invalid host 'nas' — use an IPv4 or IPv6 address or CIDR prefix`. Remove it and add it again.
 
 ### What policies can't change
 
