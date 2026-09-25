@@ -8,6 +8,7 @@ code:
   - modules/access-policies.nix
   - pkgs/cockpit-router/src/hosts.tsx
   - pkgs/cockpit-router/src/hosts-live.ts
+  - pkgs/cockpit-router/src/host-names.ts
   - pkgs/cockpit-router/src/ip-math.ts
   - pkgs/cockpit-router/src/ingress.ts
   - pkgs/cockpit-router/src/reverse-proxy.tsx
@@ -36,7 +37,7 @@ Use the filter box to search by name, IP, MAC, vendor, group or user. Turn off *
 ### Register a device
 
 1. Find the device in the table. It shows as **new**.
-2. Click **Adopt**. The editor opens as "Adopt device" with the MAC address, and pre-fills the name the device announces, its network, and a suggested static IP.
+2. Click **Adopt**. The editor opens as "Adopt device" with the MAC address, and pre-fills a name, its network, and a suggested static IP. The name is the one the device announces, without `.local` and with any character a device name can't hold turned into a dash. A device that announces none gets `device-` and the end of its MAC address, such as `device-ddee01`. A name another device already has gets `-2` added.
 3. Fill in the fields described below, then click **Adopt**.
 4. Press **Save & apply**.
 
@@ -164,7 +165,7 @@ Only `mac` and `name` are required. MAC addresses use colons.
 
 ## Troubleshooting
 
-The editor checks the static IP, IPv6 suffix and public hostname as you type, and won't save while one of them has an error. It doesn't check the name's characters or that the name is unique; the build does. The build checks these rules:
+The editor checks the name, static IP, IPv6 suffix and public hostname as you type, and won't save while one of them has an error. The build checks the same rules, for devices added in the settings file too:
 
 | Build message | Fix |
 | --- | --- |
