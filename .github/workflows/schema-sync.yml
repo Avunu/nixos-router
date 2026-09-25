@@ -10,13 +10,14 @@
 # and `router-schema-fresh`'s own failure message already tells a fork
 # contributor how to fix it by hand.
 #
-# `main` here carries no ruleset requiring pull requests (a direct push is
-# how most of this repo's history landed), so — unlike jx, which must open a
-# drift PR because its trunk cannot be pushed to directly — this lane always
-# pushes straight to whatever ref triggered it: the PR branch on a pull
-# request, `main` on a push there. Termination is a fixed point rather than a
-# guard: the generator is deterministic, so the run this lane's own push
-# triggers regenerates to identical bytes and pushes nothing.
+# Pull requests only. `main` is protected by a ruleset that requires a pull
+# request and the checks.yml status checks, so this lane can no longer push to
+# it directly, and it does not need to: `router-schema-fresh` is part of the
+# required "drift + build (fast)" check, so a stale schema cannot reach `main`
+# in the first place. The lane pushes the regenerated file to the PR branch
+# instead. Termination is a fixed point rather than a guard: the generator is
+# deterministic, so a second run regenerates to identical bytes and pushes
+# nothing.
 #
 # Fork pull requests are skipped outright: `GITHUB_TOKEN` is read-only
 # against a fork by design, so there is nothing this lane could push.
@@ -24,9 +25,6 @@ name: schema-sync
 
 on:
   pull_request:
-  push:
-    branches: [main]
-  workflow_dispatch:
 
 # Pushes the regeneration. Nothing else in this workflow needs more than that.
 permissions:
@@ -44,15 +42,17 @@ jobs:
     # a minute, so anything near this means the build hung.
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v7
+      # No credentials on disk while the PR's own code is evaluated and built
+      # below; the push step hands the token to that one `git push` instead.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: true
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
 
-      - uses: DeterminateSystems/nix-installer-action@main
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
           determinate: false
-      - uses: DeterminateSystems/magic-nix-cache-action@main
+      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
         with:
           use-flakehub: false
 
@@ -71,13 +71,12 @@ jobs:
             echo "changed=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # Same-repo pull request or a push to `main`: push the fix to whichever
-      # ref triggered this run. `checks.yml`'s `router-schema-fresh` on the
-      # new head then goes green on its own.
+      # Same-repo pull request: push the fix to its branch.
       - name: Push the regenerated schema
         if: steps.sync.outputs.changed == 'true'
         env:
-          BRANCH: ${{ github.event.pull_request.head.ref || github.ref_name }}
+          BRANCH: ${{ github.event.pull_request.head.ref }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           git config user.name "github-actions[bot]"
@@ -85,6 +84,10 @@ jobs:
           git add -- pkgs/cockpit-router/src/router-settings.schema.json
           git commit -m "chore(schema): regenerate stale router-settings.schema.json" \
             -m "Written by .github/workflows/schema-sync.yml. This file is a build output of router.* options, not hand-authored — see the comment above router-schema-fresh in flake.nix."
-          # Fully qualified: this ref works whether the checkout above left us
-          # on a normal branch or (rarely) a detached HEAD.
-          git push origin "HEAD:refs/heads/${BRANCH}"
+          # Fully qualified: the checkout above leaves a detached HEAD. The
+          # token goes in as a header for this one command, the same way
+          # actions/checkout would have persisted it.
+          auth="$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          echo "::add-mask::${auth}"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth}" \
+            push origin "HEAD:refs/heads/${BRANCH}"
