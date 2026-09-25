@@ -43,6 +43,8 @@ python3Packages.buildPythonApplication {
     "router_dns_tools.local_dns"
     "router_dns_tools.directory_sync.sssd"
     "router_dns_tools.ddns"
+    "router_dns_tools.cloudflare"
+    "router_dns_tools.tunnel"
   ];
 
   passthru = {

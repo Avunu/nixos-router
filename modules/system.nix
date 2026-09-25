@@ -77,6 +77,9 @@ let
     "upnp"
     "portForwards"
     "ddns"
+    "acme"
+    "reverseProxy"
+    "cloudflareTunnel"
     "adminUser"
     "wireless"
   ];

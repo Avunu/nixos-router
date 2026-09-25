@@ -12,7 +12,8 @@
 #
 # A third job, `cache`, fills the project's binary cache (nixos-router.cachix.org)
 # with what cache.nixos.org cannot serve: the Technitium DNS apps (a .NET build
-# from source), router-dns-tools, suricata-update-preflight, the Cockpit plugin
+# from source), router-dns-tools, suricata-update-preflight, router-proxy (a
+# Rust build of Pingora), the Cockpit plugin
 # bundle, and the NixOS system derivations. A router's host flake follows this
 # repository's nixpkgs (local/flake.nix), so once a lock bump is published here
 # every router upgrading to it downloads those paths rather than compiling
@@ -74,7 +75,7 @@ jobs:
       # Listed individually rather than via `nix flake check` so a dependency
       # bump gets the drift verdict in under a minute, without waiting on the
       # VM tests in the other job.
-      - name: Technitium version drift, DNS coverage, port forwards, settings loader, DDNS, schema
+      - name: Technitium version drift, DNS coverage, port forwards, ingress, settings loader, DDNS, tunnel, schema
         run: |
           nix build --no-link -L \
             '.#checks.x86_64-linux.technitium-version' \
@@ -82,8 +83,10 @@ jobs:
             '.#checks.x86_64-linux.dns-overrides' \
             '.#checks.x86_64-linux.wireless-eval' \
             '.#checks.x86_64-linux.port-forwards-eval' \
+            '.#checks.x86_64-linux.ingress-eval' \
             '.#checks.x86_64-linux.settings-loader' \
             '.#checks.x86_64-linux.ddns-cloudflare' \
+            '.#checks.x86_64-linux.cloudflare-tunnel' \
             '.#checks.x86_64-linux.router-schema-fresh'
 
       # The npm gate, in two halves. The PACKAGE only runs `npm run build`
@@ -170,7 +173,7 @@ jobs:
         run: |
           df -h / | tail -1
           nix build -L -o result .#nixosConfigurations.install.config.system.build.toplevel
-          for p in technitium-dns-apps router-dns-tools suricata-update-preflight cockpit-router; do
+          for p in technitium-dns-apps router-dns-tools suricata-update-preflight router-proxy cockpit-router; do
             nix build -L -o "result-$p" ".#packages.x86_64-linux.$p"
           done
           df -h / | tail -1

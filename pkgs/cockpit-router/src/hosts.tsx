@@ -6,7 +6,8 @@
 // it a static IP creates a DHCP reservation, which device-tier access policies
 // require (the IP→device mapping must be stable). An IPv6 suffix and a public
 // hostname make a device reachable from the internet (port forwards, dynamic
-// DNS); port forwards follow a device's rename and go with it on removal.
+// DNS); port forwards, reverse proxy routes and tunnel hostnames follow a
+// device's rename and go with it on removal.
 // Groups tab: named device groups that access policies can target, with
 // referential integrity into hosts[].group on rename/delete.
 import { useEffect, useState, useCallback, useMemo } from "react";
@@ -77,8 +78,16 @@ import {
 } from "./ip-math";
 import type { NetworkShape } from "./ip-math";
 import { loadDirectoryAll } from "./directory";
-import { renameForwardHost, normalizeForward } from "./forwards";
-import type { RouterHost, HostGroup, DirectoryUser, PortForward } from "./types";
+import { countHostRefs, removeHostRefs, renameHostRefs } from "./ingress";
+import type { HostRefs } from "./ingress";
+import type {
+  RouterHost,
+  HostGroup,
+  DirectoryUser,
+  PortForward,
+  ProxyRoute,
+  TunnelIngress,
+} from "./types";
 
 const _ = cockpit.gettext;
 
@@ -637,9 +646,23 @@ interface DeviceRow {
   live: LiveHost | null;
 }
 
+// "2 port forward(s), 1 proxy route(s)" — the rows that go with a device.
+const refsSummary = (n: ReturnType<typeof countHostRefs>) =>
+  [
+    n.forwards > 0 ? cockpit.format(_("$0 port forward(s)"), n.forwards) : "",
+    n.routes > 0 ? cockpit.format(_("$0 proxy route(s)"), n.routes) : "",
+    n.ingress > 0 ? cockpit.format(_("$0 tunnel hostname(s)"), n.ingress) : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+
 const DevicesTab = ({ s }: { s: S }) => {
   const hosts = s.valueOf<RouterHost[]>("hosts", []);
-  const forwards = s.valueOf<PortForward[]>("portForwards", []);
+  const refs: HostRefs = {
+    portForwards: s.valueOf<PortForward[]>("portForwards", []),
+    routes: s.valueOf<ProxyRoute[]>("reverseProxy.routes", []),
+    ingress: s.valueOf<TunnelIngress[]>("cloudflareTunnel.ingress", []),
+  };
   const routerNames = s.valueOf<string[]>("ddns.names", []);
   const groups = s.valueOf<HostGroup[]>("hostGroups", []);
   const shapes = readShapes(s);
@@ -769,7 +792,21 @@ const DevicesTab = ({ s }: { s: S }) => {
     };
   };
 
-  const forwardsTo = (name: string) => forwards.filter((f) => f.host === name);
+  const refsTo = (name: string) => countHostRefs(refs, name);
+  // Write back only the lists that reference the host, so an untouched
+  // section is not spelled out into the settings file.
+  const writeRefs = (name: string, next: HostRefs) => {
+    const n = refsTo(name);
+    if (n.forwards > 0) {
+      s.setLeaf("portForwards", next.portForwards as unknown as Json);
+    }
+    if (n.routes > 0) {
+      s.setLeaf("reverseProxy.routes", next.routes as unknown as Json);
+    }
+    if (n.ingress > 0) {
+      s.setLeaf("cloudflareTunnel.ingress", next.ingress as unknown as Json);
+    }
+  };
 
   const openAdopt = (row: DeviceRow) => {
     const liveV4 = (row.live?.ips ?? []).filter((ip) => isIPv4(ip));
@@ -816,30 +853,28 @@ const DevicesTab = ({ s }: { s: S }) => {
     });
   };
 
-  // Renames keep referential integrity: the device's port forwards follow in
-  // the same edit (they reference it by name).
+  // Renames keep referential integrity: the device's port forwards, proxy
+  // routes and tunnel hostnames follow in the same edit (they reference it by
+  // name).
   const commitDevice = (h: RouterHost) => {
     const idx = hosts.findIndex((x) => x.mac.toLowerCase() === h.mac.toLowerCase());
     const next = idx === -1 ? [...hosts, h] : hosts.map((x, i) => (i === idx ? h : x));
     s.setLeaf("hosts", next as unknown as Json);
     const before = idx === -1 ? null : hosts[idx]?.name;
-    if (before && before !== h.name && forwardsTo(before).length > 0) {
-      s.setLeaf("portForwards", renameForwardHost(forwards, before, h.name) as unknown as Json);
+    if (before && before !== h.name) {
+      writeRefs(before, renameHostRefs(refs, before, h.name));
     }
     setEditing(null);
   };
 
-  // Removing a device removes its port forwards in the same edit — a forward
-  // to a host that no longer exists fails the rebuild. The confirm button says
-  // how many go with it.
+  // Removing a device removes its port forwards, proxy routes and tunnel
+  // hostnames in the same edit — a row naming a host that no longer exists
+  // fails the rebuild. The confirm button says how many go with it.
   const removeDevice = (mac: string) => {
     const gone = hosts.find((h) => h.mac.toLowerCase() === mac)?.name;
     s.setLeaf("hosts", hosts.filter((h) => h.mac.toLowerCase() !== mac) as unknown as Json);
-    if (gone && forwardsTo(gone).length > 0) {
-      s.setLeaf(
-        "portForwards",
-        forwards.filter((f) => f.host !== gone).map((f) => normalizeForward(f)) as unknown as Json,
-      );
+    if (gone) {
+      writeRefs(gone, removeHostRefs(refs, gone));
     }
     setConfirmRemove(null);
     if (editing?.mac === mac) {
@@ -999,10 +1034,10 @@ const DevicesTab = ({ s }: { s: S }) => {
                                 isDanger
                                 onClick={() => removeDevice(row.mac)}
                               >
-                                {row.reg && forwardsTo(row.reg.name).length > 0
+                                {row.reg && refsTo(row.reg.name).total > 0
                                   ? cockpit.format(
-                                      _("Confirm remove (and its $0 port forward(s))"),
-                                      forwardsTo(row.reg.name).length,
+                                      _("Confirm remove (and its $0)"),
+                                      refsSummary(refsTo(row.reg.name)),
                                     )
                                   : _("Confirm remove")}
                               </Button>{" "}

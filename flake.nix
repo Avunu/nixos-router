@@ -299,6 +299,27 @@
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
           };
 
+          # Eval-only guard on hostname-based ingress: the reverse proxy's
+          # nft redirects (WAN + hairpin, sparing the Block Page's gateway
+          # addresses and IPv6 pinholes), one ACME certificate per route with
+          # the right challenge, the Cloudflare Tunnel's ingress, and every
+          # cross-feature name clash rejected with a message naming it.
+          #   nix build .#checks.<system>.ingress-eval
+          ingress-eval = import ./tests/ingress-eval.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
+          # router-cloudflare-tunnel against the same fake Cloudflare API:
+          # tunnel creation and credentials, CNAME take-over and restore, a
+          # tunnel deleted behind its back, and teardown.
+          #   nix build .#checks.<system>.cloudflare-tunnel
+          cloudflare-tunnel = import ./tests/cloudflare-tunnel.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerDnsTools = (nixpkgs.legacyPackages.${system}.extend self.overlays.router).router-dns-tools;
+          };
+
           # router-ddns against a fake Cloudflare API in the build sandbox (no
           # VM): names held by CNAMEs are taken over, and the CNAMEs restored
           # when the names are dropped.
@@ -314,6 +335,17 @@
           # host's addresses into a fake Cloudflare API.
           #   nix build .#checks.<system>.port-forwards-vm
           port-forwards-vm = import ./tests/port-forwards.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
+          # NixOS VM test: the reverse proxy on the wire — an HTTP-01
+          # certificate issued by a test CA through the WAN :80 redirect,
+          # HTTPS by name over both families with the full chain, the HTTP
+          # redirect, hairpin from the LAN, and a reload that keeps serving.
+          #   nix build .#checks.<system>.reverse-proxy-vm
+          reverse-proxy-vm = import ./tests/reverse-proxy.nix {
             pkgs = nixpkgs.legacyPackages.${system};
             routerModule = self.nixosModules.router;
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
@@ -378,6 +410,7 @@
           technitiumApps = final.technitium-dns-apps;
         };
         suricata-update-preflight = final.callPackage ./pkgs/suricata-update-preflight/package.nix { };
+        router-proxy = final.callPackage ./pkgs/router-proxy/package.nix { };
       };
 
       # ── Developer Shell ──────────────────────────────────────────────────────
@@ -497,7 +530,12 @@
         in
         {
           cockpit-router = pkgs.callPackage ./pkgs/cockpit-router/package.nix { };
-          inherit (routerPkgs) technitium-dns-apps router-dns-tools suricata-update-preflight;
+          inherit (routerPkgs)
+            technitium-dns-apps
+            router-dns-tools
+            suricata-update-preflight
+            router-proxy
+            ;
         }
         # Merge the installer artifacts on x86_64 (installerIso, guidedIso,
         # settingsSchema, …) plus the FLAT schema the Cockpit UI validates
@@ -554,6 +592,11 @@
       #    • firewall.nix          — nftables ruleset, NAT, port-forwards, UPnP.
       #    • ddns.nix              — Cloudflare dynamic DNS for the router and
       #                              for hosts with a public name.
+      #    • acme.nix              — ACME account settings (security.acme).
+      #    • reverse-proxy.nix     — hostname-routing HTTP(S) proxy
+      #                              (router-proxy) + its certificates.
+      #    • cloudflare-tunnel.nix — router-managed Cloudflare Tunnel
+      #                              (cloudflared) + its DNS records.
       #    • wireless.nix          — podman substrate + `router.wireless.*`
       #                              options shared by the two controllers.
       #    • wireless-unifi.nix    — UniFi Network Application + MongoDB +
@@ -575,6 +618,9 @@
           ./modules/reporting.nix
           ./modules/firewall.nix
           ./modules/ddns.nix
+          ./modules/acme.nix
+          ./modules/reverse-proxy.nix
+          ./modules/cloudflare-tunnel.nix
           ./modules/wireless.nix
           ./modules/wireless-unifi.nix
           ./modules/wireless-openwisp.nix

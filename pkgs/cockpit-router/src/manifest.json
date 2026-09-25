@@ -31,24 +31,29 @@
       "order": 33,
       "path": "network.html"
     },
+    "ingress": {
+      "label": "Ingress",
+      "order": 34,
+      "path": "ingress.html"
+    },
     "threat-protection": {
       "label": "Threat Protection",
-      "order": 34,
+      "order": 35,
       "path": "threat-protection.html"
     },
     "firewall": {
       "label": "Firewall",
-      "order": 35,
+      "order": 36,
       "path": "firewall.html"
     },
     "wireless": {
       "label": "Wireless",
-      "order": 36,
+      "order": 37,
       "path": "wireless.html"
     },
     "system": {
       "label": "System",
-      "order": 37,
+      "order": 38,
       "path": "system.html"
     }
   }

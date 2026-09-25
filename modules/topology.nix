@@ -51,6 +51,13 @@ let
   nftSet = items: concatStringsSep ", " (map (i: ''"${i}"'') items);
   trustedIFs = [ brLAN ] ++ wgIFNames;
 
+  # Local ports of the reverse proxy (modules/reverse-proxy.nix). WAN and
+  # hairpin tcp 80/443 are redirected to them (firewall.nix) because the Block
+  # Page holds 80/443 itself. Constants, not options: they are not part of the
+  # settings surface.
+  proxyHttpPort = 10080;
+  proxyHttpsPort = 10443;
+
   # ── VLAN / interface assignment model ───────────────────
   # Each network (wan/lan/guest) may be assigned physical interfaces (claiming
   # UNTAGGED traffic on them) and/or a VLAN id for TAGGED traffic. VLAN
@@ -255,6 +262,8 @@ in
       homeNets
       nftSet
       trustedIFs
+      proxyHttpPort
+      proxyHttpsPort
       wanPhys
       lanPhys
       guestPhys

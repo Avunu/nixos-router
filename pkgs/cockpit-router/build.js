@@ -90,6 +90,7 @@ await esbuild.build({
           "dns.html",
           "users.html",
           "network.html",
+          "ingress.html",
           "threat-protection.html",
           "firewall.html",
           "wireless.html",

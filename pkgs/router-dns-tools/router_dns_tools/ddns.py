@@ -28,13 +28,13 @@ The replaced CNAME is kept in state.json and put back when the name is dropped
 from the configuration, so taking a name over is never a one-way loss.
 
 State directory:
-  state.json   — zone-id cache, the managed name set, the last pushed record
+  state.json   — zone cache, the managed name set, the last pushed record
                  set (API writes are skipped while it is unchanged and was
                  verified recently) and the CNAMEs replaced to take names over
   status.json  — last run summary for Cockpit, written on success AND failure
 
 Environment overrides (the VM test points them at a fake API):
-  ROUTER_DDNS_API_BASE, ROUTER_DDNS_TRACE_URL
+  ROUTER_CLOUDFLARE_API_BASE (or ROUTER_DDNS_API_BASE), ROUTER_DDNS_TRACE_URL
 """
 
 from __future__ import annotations
@@ -47,13 +47,21 @@ import subprocess
 import sys
 import time
 import urllib.error
-import urllib.parse
 import urllib.request
 from pathlib import Path
 
-API_BASE = os.environ.get("ROUTER_DDNS_API_BASE", "https://api.cloudflare.com/client/v4")
+from .cloudflare import (
+    COMMENT,
+    Cloudflare,
+    CloudflareError,
+    load_json,
+    load_token,
+    restore,
+    write_json,
+)
+from .cloudflare import take_over as _take_over
+
 TRACE_URL = os.environ.get("ROUTER_DDNS_TRACE_URL", "https://1.1.1.1/cdn-cgi/trace")
-COMMENT = "managed by nixos-router"
 VERIFY_INTERVAL = 6 * 3600
 
 # Addresses that cannot be the router's public IPv4: when the WAN holds one of
@@ -74,21 +82,8 @@ NOT_PUBLIC_V4 = [
 ULA = ipaddress.ip_network("fc00::/7")
 
 
-class DdnsError(Exception):
-    pass
-
-
 def _iso(ts: float) -> str:
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(ts))
-
-
-def _atomic_write(path: Path, payload: dict, mode: int) -> None:
-    tmp = path.with_suffix(".tmp")
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
-    with os.fdopen(fd, "w") as handle:
-        json.dump(payload, handle, indent=2)
-    os.chmod(tmp, mode)
-    tmp.rename(path)
 
 
 # ── Address detection ────────────────────────────────────────────────────────
@@ -171,64 +166,6 @@ def host_v6(bridge: str, suffix: str) -> str | None:
 # ── Cloudflare API ───────────────────────────────────────────────────────────
 
 
-class Cloudflare:
-    def __init__(self, token: str, base: str = API_BASE) -> None:
-        self.token = token
-        self.base = base.rstrip("/")
-        self.writes = 0
-
-    def call(self, method: str, path: str, params: dict | None = None, body: dict | None = None):
-        url = f"{self.base}{path}"
-        if params:
-            url += "?" + urllib.parse.urlencode(params)
-        req = urllib.request.Request(
-            url,
-            data=None if body is None else json.dumps(body).encode(),
-            headers={"Authorization": f"Bearer {self.token}", "Content-Type": "application/json"},
-            method=method,
-        )
-        if method != "GET":
-            self.writes += 1
-        try:
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                payload = json.loads(resp.read().decode() or "{}")
-        except urllib.error.HTTPError as exc:
-            try:
-                payload = json.loads(exc.read().decode() or "{}")
-            except ValueError:
-                raise DdnsError(f"{method} {path}: HTTP {exc.code}") from exc
-        except (urllib.error.URLError, OSError) as exc:
-            raise DdnsError(f"{method} {path}: {exc}") from exc
-        if not payload.get("success", False):
-            errors = "; ".join(e.get("message", "?") for e in payload.get("errors", [])) or "request failed"
-            raise DdnsError(f"{method} {path}: {errors}")
-        return payload.get("result")
-
-    def zone_for(self, name: str, cache: dict) -> str:
-        """The id of the zone `name` lives in: the longest suffix that is one.
-
-        Needs Zone:Read on the token. Results are cached in state.json; zone
-        ids never change for the life of a zone.
-        """
-        labels = name.lower().split(".")
-        for i in range(len(labels) - 1):
-            candidate = ".".join(labels[i:])
-            if candidate in cache:
-                return cache[candidate]
-            found = self.call("GET", "/zones", {"name": candidate, "status": "active"})
-            if found:
-                cache[candidate] = found[0]["id"]
-                return cache[candidate]
-        raise DdnsError(f"no Cloudflare zone found for {name} — does the token have Zone:Read on it?")
-
-    def records(self, zone: str, name: str, rtype: str) -> list[dict]:
-        return self.call("GET", f"/zones/{zone}/dns_records", {"name": name, "type": rtype}) or []
-
-
-# The fields of a replaced record needed to create it again.
-RESTORE_FIELDS = ("type", "name", "content", "ttl", "proxied", "comment")
-
-
 def take_over(cf: Cloudflare, zone: str, name: str, replaced: dict) -> str:
     """Clear `name` of CNAMEs, which DNS allows no other record beside.
 
@@ -236,20 +173,8 @@ def take_over(cf: Cloudflare, zone: str, name: str, replaced: dict) -> str:
     restored when the name leaves the configuration. Returns a note for the
     status file, or "" when there was nothing to replace.
     """
-    notes = []
-    for r in cf.records(zone, name, "CNAME"):
-        cf.call("DELETE", f"/zones/{zone}/dns_records/{r['id']}")
-        replaced.setdefault(name, []).append({k: r.get(k) for k in RESTORE_FIELDS})
-        notes.append(f"replaced CNAME → {r.get('content')} (restored if the name is dropped)")
-    return "; ".join(notes)
-
-
-def restore(cf: Cloudflare, zone: str, records: list[dict]) -> None:
-    """Recreate records take_over replaced. Called only once this tool's own
-    records at the name are gone, since a CNAME cannot sit beside them."""
-    for r in records:
-        body = {k: v for k, v in r.items() if v is not None and v != ""}
-        cf.call("POST", f"/zones/{zone}/dns_records", body=body)
+    removed = _take_over(cf, zone, name, replaced, ("CNAME",))
+    return "; ".join(f"replaced CNAME → {r.get('content')} (restored if the name is dropped)" for r in removed)
 
 
 def reconcile(
@@ -306,29 +231,12 @@ def remove_managed(cf: Cloudflare, zone: str, name: str, rtype: str) -> int:
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 
-def _token(cfg: dict) -> str | None:
-    cred_dir = os.environ.get("CREDENTIALS_DIRECTORY")
-    if cred_dir and (Path(cred_dir) / "cf-api-token").exists():
-        return (Path(cred_dir) / "cf-api-token").read_text().strip()
-    path = cfg.get("apiTokenFile")
-    if path and Path(path).exists():
-        return Path(path).read_text().strip()
-    return None
-
-
-def _load(path: Path) -> dict:
-    try:
-        return json.loads(path.read_text())
-    except (OSError, ValueError):
-        return {}
-
-
 def run(cfg: dict, force: bool = False) -> int:
     state_dir = Path(cfg["stateDir"])
     state_dir.mkdir(parents=True, exist_ok=True)
     state_file = state_dir / "state.json"
     status_file = state_dir / "status.json"
-    state = _load(state_file)
+    state = load_json(state_file)
     now = time.time()
 
     wan = cfg["wanInterface"]
@@ -372,7 +280,7 @@ def run(cfg: dict, force: bool = False) -> int:
             for r in configured
         ]
     else:
-        token = _token(cfg)
+        token = load_token(cfg.get("apiTokenFile"))
         if not token:
             error = "no Cloudflare API token (router.ddns.cloudflare.apiTokenFile)"
         else:
@@ -390,7 +298,7 @@ def run(cfg: dict, force: bool = False) -> int:
                     results.append(row)
                     continue
                 try:
-                    zone = cf.zone_for(r["name"], zones)
+                    zone = cf.zone_for(r["name"], zones)["id"]
                     outcome, note = reconcile(
                         cf,
                         zone,
@@ -402,17 +310,17 @@ def run(cfg: dict, force: bool = False) -> int:
                         replaced,
                     )
                     row.update(state=outcome, detail=note)
-                except DdnsError as exc:
+                except CloudflareError as exc:
                     row.update(state="error", detail=str(exc))
                 results.append(row)
             for key in stale:
                 name, rtype = key.rsplit("/", 1)
                 try:
-                    removed = remove_managed(cf, cf.zone_for(name, zones), name, rtype)
+                    removed = remove_managed(cf, cf.zone_for(name, zones)["id"], name, rtype)
                     results.append(
                         {"name": name, "type": rtype, "content": None, "state": "removed", "detail": f"{removed} record(s)"}
                     )
-                except DdnsError as exc:
+                except CloudflareError as exc:
                     results.append({"name": name, "type": rtype, "content": None, "state": "error", "detail": str(exc)})
                     configured_keys.append(key)  # keep tracking it; retry next run
             # Restore only where this tool's records are gone: a name whose
@@ -422,7 +330,7 @@ def run(cfg: dict, force: bool = False) -> int:
                 if name in tracked:
                     continue
                 try:
-                    zone = cf.zone_for(name, zones)
+                    zone = cf.zone_for(name, zones)["id"]
                     # Also clears records left from a run whose state was lost.
                     for rtype in ("A", "AAAA"):
                         remove_managed(cf, zone, name, rtype)
@@ -437,7 +345,7 @@ def run(cfg: dict, force: bool = False) -> int:
                                 "detail": "restored: the name is no longer configured",
                             }
                         )
-                except DdnsError as exc:
+                except CloudflareError as exc:
                     results.append(
                         {"name": name, "type": "CNAME", "content": None, "state": "error", "detail": f"restoring the replaced record: {exc}"}
                     )
@@ -451,8 +359,8 @@ def run(cfg: dict, force: bool = False) -> int:
             state["managed"] = sorted(set(configured_keys))
             print(f"router-ddns: {cf.writes} API write(s)", file=sys.stderr)
 
-    _atomic_write(state_file, state, 0o600)
-    _atomic_write(
+    write_json(state_file, state, 0o600)
+    write_json(
         status_file,
         {
             "lastRun": _iso(now),

@@ -7,6 +7,7 @@ A NixOS module that turns a multi-NIC machine into a small business router, usin
 -   WAN over DHCP with IPv6 prefix delegation, LAN and guest networks, and VLANs
 -   nftables firewall with NAT and DNS hijacking
 -   Port forwards to registered hosts over IPv4 and IPv6, plus optional UPnP
+-   Hostname-based HTTP(S) routing: a Pingora reverse proxy with Let's Encrypt certificates, or a router-managed Cloudflare Tunnel
 -   Technitium DNS with per-group filtering policies
 -   Cloudflare dynamic DNS
 -   WireGuard VPN
@@ -75,5 +76,6 @@ The Cockpit plugin lives in `pkgs/cockpit-router`. Run `nix develop ../..#cockpi
 
 -   [Access protection (DNS filtering, policies, reports)](docs/access-protection.md)
 -   [Port forwards & dynamic DNS](docs/port-forwards-ddns.md)
+-   [Reverse proxy & Cloudflare Tunnel](docs/reverse-proxy-tunnels.md)
 -   [Settings format & migrations](docs/settings-migrations.md)
 -   [disko-install reference](docs/disko-install.md)

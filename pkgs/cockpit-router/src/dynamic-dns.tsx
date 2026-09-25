@@ -2,10 +2,9 @@
 // hosts carry (edited on the Hosts page), and the last router-ddns run.
 //
 // The API token itself never enters the settings JSON: the form stores a path,
-// and "Set token" writes the token to that root-owned file (see ddns.ts).
+// and "Set token" writes the token to that root-owned file (TokenFileField).
 import { useCallback, useEffect, useState } from "react";
 import {
-  ActionGroup,
   Alert,
   Button,
   Card,
@@ -33,7 +32,8 @@ import { ListEditor, hint } from "./settings";
 import type { useSettings } from "./settings";
 import { getPath, errMsg } from "./nix";
 import { isHostname } from "./ip-math";
-import { loadDdnsStatus, updateNow, saveToken, DEFAULT_TOKEN_FILE } from "./ddns";
+import { loadDdnsStatus, updateNow, DEFAULT_TOKEN_FILE } from "./ddns";
+import { TokenFileField } from "./ingress-widgets";
 import type { DdnsRecordStatus, DdnsStatus, RouterHost } from "./types";
 
 const _ = cockpit.gettext;
@@ -44,69 +44,6 @@ const stateColor = (st: DdnsRecordStatus["state"]) =>
   st === "error" ? "red" : st === "skipped" ? "orange" : st === "unchanged" ? "grey" : "green";
 
 const validTtl = (n: number) => n === 1 || (n >= 60 && n <= 86_400);
-
-// ── Token writer ────────────────────────────────────────────────────────────
-const TokenForm = ({ path, onDone }: { path: string; onDone: (msg: string) => void }) => {
-  const [token, setToken] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const save = () => {
-    setBusy(true);
-    setError("");
-    saveToken(path, token)
-      .then(() => {
-        setToken("");
-        onDone(cockpit.format(_("Token saved to $0."), path));
-      })
-      .catch((e: unknown) => setError(errMsg(e)))
-      .finally(() => setBusy(false));
-  };
-  return (
-    <Card isCompact>
-      <CardTitle>{_("Set Cloudflare API token")}</CardTitle>
-      <CardBody>
-        <Form isHorizontal onSubmit={(e) => e.preventDefault()}>
-          <FormGroup
-            label={_("API token")}
-            fieldId="ddnsToken"
-            labelHelp={hint(
-              _(
-                "Create a token in the Cloudflare dashboard (My Profile → API Tokens) with Zone → Zone → Read and Zone → DNS → Edit on the zones of your names.",
-              ),
-            )}
-          >
-            <TextInput
-              id="ddnsToken"
-              type="password"
-              value={token}
-              autoComplete="off"
-              onChange={(_e, v) => setToken(v)}
-            />
-            <HelperText>
-              <HelperTextItem>
-                {cockpit.format(_("Written to $0 (root only, never to the settings file)."), path)}
-              </HelperTextItem>
-            </HelperText>
-          </FormGroup>
-          {error && <Alert variant="danger" isInline isPlain title={error} />}
-          <ActionGroup>
-            <Button
-              variant="secondary"
-              onClick={save}
-              isDisabled={!token.trim() || busy}
-              isLoading={busy}
-            >
-              {_("Save token")}
-            </Button>
-            <Button variant="link" onClick={() => onDone("")}>
-              {_("Cancel")}
-            </Button>
-          </ActionGroup>
-        </Form>
-      </CardBody>
-    </Card>
-  );
-};
 
 // ── Last run ────────────────────────────────────────────────────────────────
 const StatusCard = ({ active }: { active: boolean }) => {
@@ -242,11 +179,7 @@ const StatusCard = ({ active }: { active: boolean }) => {
 
 // ── Tab ─────────────────────────────────────────────────────────────────────
 export const DynamicDnsTab = ({ s }: { s: S }) => {
-  const [tokenOpen, setTokenOpen] = useState(false);
-  const [tokenMsg, setTokenMsg] = useState("");
-
   const enabled = Boolean(s.valueOf("ddns.enable", false));
-  const tokenFile = s.valueOf<string | null>("ddns.cloudflare.apiTokenFile", null) ?? "";
   const names = s.valueOf<string[]>("ddns.names", []);
   const ttl = s.valueOf<number>("ddns.ttl", 1);
   const interval = s.valueOf<number>("ddns.intervalMinutes", 5);
@@ -268,53 +201,16 @@ export const DynamicDnsTab = ({ s }: { s: S }) => {
               aria-label={_("Enable dynamic DNS")}
             />
           </FormGroup>
-          <FormGroup
-            label={_("Cloudflare API token file")}
+          <TokenFileField
+            s={s}
+            leaf="ddns.cloudflare.apiTokenFile"
             fieldId="ddnsTokenFile"
+            defaultFile={DEFAULT_TOKEN_FILE}
             isRequired={enabled}
-            labelHelp={hint(_("Path to a root-owned file on the router — never the token itself."))}
-          >
-            <Split hasGutter>
-              <SplitItem isFilled>
-                <TextInput
-                  id="ddnsTokenFile"
-                  value={tokenFile}
-                  placeholder={DEFAULT_TOKEN_FILE}
-                  isDisabled={s.lockedOf("ddns.cloudflare.apiTokenFile")}
-                  validated={enabled && !tokenFile ? "error" : "default"}
-                  onChange={(_e, v) => s.setLeaf("ddns.cloudflare.apiTokenFile", v || null)}
-                />
-              </SplitItem>
-              <SplitItem>
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    if (!tokenFile) {
-                      s.setLeaf("ddns.cloudflare.apiTokenFile", DEFAULT_TOKEN_FILE);
-                    }
-                    setTokenMsg("");
-                    setTokenOpen(true);
-                  }}
-                >
-                  {_("Set token…")}
-                </Button>
-              </SplitItem>
-            </Split>
-            {tokenMsg && (
-              <HelperText>
-                <HelperTextItem variant="success">{tokenMsg}</HelperTextItem>
-              </HelperText>
+            scopes={_(
+              "Create a token in the Cloudflare dashboard (My Profile → API Tokens) with Zone → Zone → Read and Zone → DNS → Edit on the zones of your names.",
             )}
-          </FormGroup>
-          {tokenOpen && (
-            <TokenForm
-              path={tokenFile || DEFAULT_TOKEN_FILE}
-              onDone={(msg) => {
-                setTokenMsg(msg);
-                setTokenOpen(false);
-              }}
-            />
-          )}
+          />
           <FormGroup
             label={_("Router names")}
             fieldId="ddnsNames"

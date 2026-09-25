@@ -289,6 +289,49 @@
       },
       "type": "object"
     },
+    "acme": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptTerms": {
+          "default": false,
+          "description": "Accept the ACME CA's terms of service (https://letsencrypt.org/repository/). Required before any certificate is requested.",
+          "type": "boolean"
+        },
+        "cloudflare": {
+          "additionalProperties": false,
+          "properties": {
+            "apiTokenFile": {
+              "default": null,
+              "description": "Path to a root-owned file holding a Cloudflare API token with\nZone → Zone → Read and Zone → DNS → Edit on the certificates' zones —\nthe same scopes router.ddns needs, so its token file can be reused.\nThe file holds the bare token — never put the token itself here.\n",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "type": "object"
+        },
+        "defaultChallenge": {
+          "default": "http",
+          "description": "How a certificate proves control of its names when the route does not\nchoose: `dns-cloudflare` (DNS-01 via the Cloudflare API — needs\ncloudflare.apiTokenFile) or `http` (HTTP-01 through the reverse proxy's\nport 80 — the name must already resolve to the router).\n",
+          "enum": [
+            "dns-cloudflare",
+            "http"
+          ]
+        },
+        "email": {
+          "default": "",
+          "description": "Contact address for the ACME account; the CA sends expiry warnings here.",
+          "type": "string"
+        },
+        "staging": {
+          "default": false,
+          "description": "Use Let's Encrypt's staging CA. Its certificates are not trusted by\nbrowsers, but its rate limits are far higher — use it while testing a\nnew route, then switch back.\n",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    },
     "adminUser": {
       "additionalProperties": false,
       "properties": {
@@ -323,6 +366,73 @@
         "uefi",
         "legacy"
       ]
+    },
+    "cloudflareTunnel": {
+      "additionalProperties": false,
+      "properties": {
+        "apiTokenFile": {
+          "default": null,
+          "description": "Path to a root-owned file holding a Cloudflare API token with\nAccount → Cloudflare Tunnel → Edit, and Zone → Zone → Read plus\nZone → DNS → Edit on the zones of every ingress hostname. The file\nholds the bare token — never put the token itself here. Keep it set\nwhen disabling the tunnel: the router needs it to delete the tunnel\nand its DNS records.\n",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "enable": {
+          "default": false,
+          "description": "Whether to enable a Cloudflare Tunnel, managed by the router, for hostname-based ingress without opening a WAN port.",
+          "type": "boolean"
+        },
+        "ingress": {
+          "default": [],
+          "description": "Public hostnames served through the tunnel, and the registered host each one reaches.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "host": {
+                "description": "Name of the router.hosts device the traffic goes to (its staticIp).",
+                "type": "string"
+              },
+              "hostname": {
+                "description": "Public name; the router points it at the tunnel with a proxied CNAME.",
+                "type": "string"
+              },
+              "httpHostHeader": {
+                "default": "",
+                "description": "Host header to send to the service instead of the public name; empty keeps the public name.",
+                "type": "string"
+              },
+              "noTLSVerify": {
+                "default": true,
+                "description": "With scheme = \"https\", accept the host's certificate unverified (LAN services are mostly self-signed).",
+                "type": "boolean"
+              },
+              "port": {
+                "default": 80,
+                "description": "Port of the service on the host.",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scheme": {
+                "default": "http",
+                "description": "Protocol the host's service speaks.",
+                "enum": [
+                  "http",
+                  "https"
+                ]
+              }
+            },
+            "required": [
+              "host",
+              "hostname"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
     },
     "ddns": {
       "additionalProperties": false,
@@ -1113,6 +1223,87 @@
             },
             "required": [
               "name"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "reverseProxy": {
+      "additionalProperties": false,
+      "properties": {
+        "enable": {
+          "default": false,
+          "description": "Whether to enable the hostname-routing HTTP(S) reverse proxy on the WAN's ports 80 and 443.",
+          "type": "boolean"
+        },
+        "publishDns": {
+          "default": true,
+          "description": "Publish every route hostname through router.ddns as a name for the\nrouter itself (A = WAN IPv4, AAAA = the router's global IPv6). Needs\nrouter.ddns enabled; HTTP-01 certificates depend on it.\n",
+          "type": "boolean"
+        },
+        "routes": {
+          "default": [],
+          "description": "Public hostnames and the registered host each one is proxied to.",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "challenge": {
+                "default": "default",
+                "description": "ACME challenge for this route's certificate; `default` uses router.acme.defaultChallenge.",
+                "enum": [
+                  "default",
+                  "dns-cloudflare",
+                  "http"
+                ]
+              },
+              "host": {
+                "description": "Name of the router.hosts device to proxy to (its staticIp).",
+                "type": "string"
+              },
+              "hostnames": {
+                "description": "Public names routed to the host, all covered by one certificate\nnamed after the first. A leading `*.` matches one extra label\nand needs a DNS-01 challenge.\n",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "hsts": {
+                "default": false,
+                "description": "Send Strict-Transport-Security, so browsers refuse plain HTTP for these names for a year.",
+                "type": "boolean"
+              },
+              "name": {
+                "default": "",
+                "description": "Descriptive label.",
+                "type": "string"
+              },
+              "port": {
+                "default": 80,
+                "description": "Port of the service on the host.",
+                "maximum": 65535,
+                "minimum": 0,
+                "type": "integer"
+              },
+              "scheme": {
+                "default": "http",
+                "description": "Protocol the host's service speaks.",
+                "enum": [
+                  "http",
+                  "https"
+                ]
+              },
+              "tlsVerify": {
+                "default": false,
+                "description": "Verify the host's certificate when scheme = \"https\". Off by\ndefault: services inside the LAN mostly present self-signed\ncertificates.\n",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "host",
+              "hostnames"
             ],
             "type": "object"
           },
