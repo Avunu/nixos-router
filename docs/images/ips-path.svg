@@ -1,0 +1,89 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 340" width="800" height="340" role="img" aria-labelledby="ips-path-title">
+  <title id="ips-path-title">A forwarded packet passes the main firewall chain, then the inet ips chain queues it to Suricata, whose verdict decides whether it leaves; if Suricata is down, the bypass flag lets it through.</title>
+  <style>
+    text { font-family: 'Red Hat Text', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 14px; fill: #151515; }
+    .muted { fill: #6a6e73; } .small { font-size: 12px; } .bold { font-weight: 600; }
+    .box { fill: #f0f1f3; stroke: #d2d4d8; stroke-width: 1.5; }
+    .accent { fill: #e7f1fa; stroke: #0066cc; stroke-width: 1.5; }
+    .zone { fill: none; stroke: #d2d4d8; stroke-width: 1.5; stroke-dasharray: 6 4; }
+    .line { fill: none; stroke: #6a6e73; stroke-width: 1.5; }
+    .dashed { stroke-dasharray: 5 4; }
+    .flow { fill: none; stroke: #0066cc; stroke-width: 2; }
+    .deny { fill: none; stroke: #b1380b; stroke-width: 2; stroke-dasharray: 5 4; }
+    .head-line { fill: #6a6e73; } .head-flow { fill: #0066cc; } .head-deny { fill: #b1380b; }
+    @media (prefers-color-scheme: dark) {
+      text { fill: #f2f2f2; } .muted { fill: #a2a5aa; }
+      .box { fill: #212226; stroke: #35373c; } .accent { fill: #10243a; stroke: #4394e5; }
+      .zone { stroke: #35373c; } .line { stroke: #a2a5aa; } .flow { stroke: #4394e5; } .deny { stroke: #f0561d; }
+      .head-line { fill: #a2a5aa; } .head-flow { fill: #4394e5; } .head-deny { fill: #f0561d; }
+    }
+  </style>
+  <defs>
+    <marker id="ah-flow" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto">
+      <path class="head-flow" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+    <marker id="ah-deny" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto">
+      <path class="head-deny" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+    <marker id="ah-line" viewBox="0 0 10 10" refX="10" refY="5" markerWidth="10" markerHeight="10" markerUnits="userSpaceOnUse" orient="auto">
+      <path class="head-line" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+  </defs>
+
+  <!-- Router: nftables forward hook -->
+  <rect class="zone" x="152" y="24" width="452" height="300" rx="8"/>
+  <text class="muted small" x="168" y="46">Router (forwarded traffic only)</text>
+
+  <!-- Packet in -->
+  <rect class="box" x="16" y="68" width="120" height="76" rx="8"/>
+  <text class="bold" x="76" y="98" text-anchor="middle">Packet in</text>
+  <text class="muted small" x="76" y="116" text-anchor="middle">LAN, guest,</text>
+  <text class="muted small" x="76" y="132" text-anchor="middle">WireGuard or WAN</text>
+
+  <!-- inet filter -->
+  <rect class="box" x="172" y="68" width="150" height="76" rx="8"/>
+  <text class="bold" x="247" y="98" text-anchor="middle">inet filter</text>
+  <text class="muted small" x="247" y="116" text-anchor="middle">forward chain</text>
+  <text class="muted small" x="247" y="132" text-anchor="middle">policy drop</text>
+
+  <!-- inet ips -->
+  <rect class="accent" x="402" y="68" width="182" height="76" rx="8"/>
+  <text class="bold" x="493" y="98" text-anchor="middle">inet ips</text>
+  <text class="muted small" x="493" y="116" text-anchor="middle">priority filter + 10</text>
+  <text class="muted small" x="493" y="132" text-anchor="middle">queue num 0 bypass</text>
+
+  <!-- Suricata -->
+  <rect class="accent" x="402" y="192" width="182" height="64" rx="8"/>
+  <text class="bold" x="493" y="220" text-anchor="middle">Suricata</text>
+  <text class="muted small" x="493" y="238" text-anchor="middle">inspects, returns a verdict</text>
+
+  <!-- Packet out -->
+  <rect class="box" x="688" y="68" width="96" height="76" rx="8"/>
+  <text class="bold" x="736" y="98" text-anchor="middle">Packet out</text>
+  <text class="muted small" x="736" y="116" text-anchor="middle">to its</text>
+  <text class="muted small" x="736" y="132" text-anchor="middle">destination</text>
+
+  <!-- in -> filter -->
+  <path class="flow" d="M136 106 H170" marker-end="url(#ah-flow)"/>
+  <!-- filter -> ips -->
+  <path class="flow" d="M322 106 H400" marker-end="url(#ah-flow)"/>
+  <text class="muted small" x="361" y="98" text-anchor="middle">accepted</text>
+  <!-- ips -> Suricata -->
+  <path class="flow" d="M493 144 V190" marker-end="url(#ah-flow)"/>
+  <text class="muted small" x="503" y="172">NFQUEUE 0</text>
+  <!-- Suricata -> out -->
+  <path class="flow" d="M584 224 H736 V146" marker-end="url(#ah-flow)"/>
+  <text class="muted small" x="660" y="216" text-anchor="middle">accept</text>
+  <!-- bypass when Suricata is down -->
+  <path class="line dashed" d="M584 106 H686" marker-end="url(#ah-line)"/>
+  <text class="muted small" x="636" y="98" text-anchor="middle">bypass</text>
+  <text class="muted small" x="636" y="124" text-anchor="middle">(no Suricata)</text>
+
+  <!-- firewall drop -->
+  <path class="deny" d="M247 144 V198" marker-end="url(#ah-deny)"/>
+  <text class="small" x="247" y="218" text-anchor="middle">dropped by policy,</text>
+  <text class="small" x="247" y="234" text-anchor="middle">never inspected</text>
+  <!-- Suricata drop -->
+  <path class="deny" d="M493 256 V284" marker-end="url(#ah-deny)"/>
+  <text class="small" x="493" y="304" text-anchor="middle">drop verdict</text>
+</svg>

@@ -2,6 +2,8 @@
 
 A NixOS module that turns a multi-NIC machine into a small business router, using Cockpit as the web UI for management.
 
+**Documentation: https://avunu.github.io/nixos-router/**
+
 ## Features
 
 -   WAN over DHCP with IPv6 prefix delegation, LAN and guest networks, and VLANs
@@ -33,12 +35,14 @@ nixosConfigurations = {
 };
 ```
 
-Always load the settings through `nixos-router.lib`. It upgrades settings written for older versions, so an upgrade never fails on them. See [docs/settings-migrations.md](docs/settings-migrations.md).
+Always load the settings through `nixos-router.lib`. It upgrades settings written for older versions, so an upgrade never fails on them. See [The settings file](https://avunu.github.io/nixos-router/docs/start/settings-file/).
 
 ## Install
 
 -   **Network install:** edit `local/flake.nix` and `local/router-settings.json`, then run `local/deploy.sh <fqdn> <ip>`. It installs over SSH with nixos-anywhere, and copies the flake, its lock and the settings file into the router's `/etc/nixos`.
--   **Installer ISO or guided setup:** run `nix run` for the installer wizard. The `configure`, `install` and `deploy` apps are also available individually. These come from [nixos-install-helper](https://github.com/Avunu/nixos-install-helper).
+-   **Installer image:** run `nix run` for the installer wizard, or `nix build .#installerIso`. The `configure`, `install` and `deploy` apps are also available individually. These come from [nixos-install-helper](https://github.com/Avunu/nixos-install-helper).
+
+See [Install a router](https://avunu.github.io/nixos-router/docs/start/install/) for both paths, including what to change in the example settings first.
 
 ## Manage
 
@@ -60,7 +64,7 @@ inputs = {
 
 Routers installed before this change still have `nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable"` and `nixos-router.inputs.nixpkgs.follows = "nixpkgs"`. Change `/etc/nixos/flake.nix` to the block above once, then run `system-upgrade`.
 
-CI publishes with the `CACHIX_AUTH_TOKEN` secret. Add it under **both** Actions secrets and Dependabot secrets, because Dependabot pull requests only see the latter.
+CI publishes with the `CACHIX_AUTH_TOKEN` secret. Add it under Actions secrets only. The `cache` job publishes from `main` alone, never from a pull request, so the token must not go in the Dependabot secret store; `.github/workflows/checks.yml` explains why.
 
 ## Develop
 
@@ -72,10 +76,18 @@ nix flake check                          # everything, including the VM tests
 
 The Cockpit plugin lives in `pkgs/cockpit-router`. Run `nix develop ../..#cockpit-router` inside it, then `npm run check`.
 
+The documentation site lives in `site/`. Run `bun install`, then `bun run dev` for a live preview, and `bun run lint` before pushing a docs change.
+
 ## Docs
 
--   [Access protection (DNS filtering, policies, reports)](docs/access-protection.md)
--   [Port forwards & dynamic DNS](docs/port-forwards-ddns.md)
--   [Reverse proxy & Cloudflare Tunnel](docs/reverse-proxy-tunnels.md)
--   [Settings format & migrations](docs/settings-migrations.md)
--   [disko-install reference](docs/disko-install.md)
+The guides are published at https://avunu.github.io/nixos-router/docs/. Their source is [docs/](docs/): Markdown, one file per page, with the sidebar in [docs/nav.json](docs/nav.json). The site itself is a [Jx](https://jxsuite.com) project in [site/](site/), and `.github/workflows/site.yml` deploys it from `main`.
+
+-   [Install a router](https://avunu.github.io/nixos-router/docs/start/install/)
+-   [Access policies](https://avunu.github.io/nixos-router/docs/access-policies/): DNS filtering, the block page, directory groups, reports
+-   [Threat protection](https://avunu.github.io/nixos-router/docs/threat-protection/): Suricata IDS and IPS
+-   [Dynamic DNS](https://avunu.github.io/nixos-router/docs/dynamic-dns/)
+-   [Ingress](https://avunu.github.io/nixos-router/docs/ingress/): port forwards, reverse proxy, Cloudflare Tunnel
+-   [WireGuard](https://avunu.github.io/nixos-router/docs/wireguard/), including [site-to-site VPN](https://avunu.github.io/nixos-router/docs/wireguard/site-to-site/)
+-   [Settings format & migrations](https://avunu.github.io/nixos-router/docs/start/settings-file/)
+
+Upstream reference material kept for development (disko-install, Cockpit packaging, systemd.networkd directives, NixOS option lists) lives in [reference/upstream/](reference/upstream/).

@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 400" width="800" height="400" role="img" aria-labelledby="title">
+  <title id="title">Site-to-site VPN: the HQ LAN 192.168.1.0/24 and the branch LAN 192.168.2.0/24 joined by a WireGuard tunnel between the two routers, with each router's Allowed IPs for the other side</title>
+  <style>
+    text { font-family: 'Red Hat Text', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif; font-size: 14px; fill: #151515; }
+    .muted { fill: #6a6e73; } .small { font-size: 12px; } .bold { font-weight: 600; }
+    .box { fill: #f0f1f3; stroke: #d2d4d8; stroke-width: 1.5; }
+    .accent { fill: #e7f1fa; stroke: #0066cc; stroke-width: 1.5; }
+    .zone { fill: none; stroke: #d2d4d8; stroke-width: 1.5; stroke-dasharray: 6 4; }
+    .line { fill: none; stroke: #6a6e73; stroke-width: 1.5; }
+    .flow { fill: none; stroke: #0066cc; stroke-width: 2; }
+    .deny { fill: none; stroke: #b1380b; stroke-width: 2; stroke-dasharray: 5 4; }
+    .head-line { fill: #6a6e73; } .head-flow { fill: #0066cc; } .head-deny { fill: #b1380b; }
+    @media (prefers-color-scheme: dark) {
+      text { fill: #f2f2f2; } .muted { fill: #a2a5aa; }
+      .box { fill: #212226; stroke: #35373c; } .accent { fill: #10243a; stroke: #4394e5; }
+      .zone { stroke: #35373c; } .line { stroke: #a2a5aa; } .flow { stroke: #4394e5; } .deny { stroke: #f0561d; }
+      .head-line { fill: #a2a5aa; } .head-flow { fill: #4394e5; } .head-deny { fill: #f0561d; }
+    }
+  </style>
+  <defs>
+    <marker id="arrow-flow" viewBox="0 0 10 10" refX="9" refY="5" markerUnits="userSpaceOnUse" markerWidth="10" markerHeight="10" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" class="head-flow"/>
+    </marker>
+  </defs>
+
+  <!-- Column headers and zones -->
+  <text x="28" y="28" class="muted bold">Site A (HQ)</text>
+  <text x="400" y="28" text-anchor="middle" class="muted bold">Internet</text>
+  <text x="556" y="28" class="muted bold">Site B (branch)</text>
+  <rect x="16" y="40" width="240" height="344" rx="8" class="zone"/>
+  <rect x="544" y="40" width="240" height="344" rx="8" class="zone"/>
+
+  <!-- Site A -->
+  <rect x="40" y="60" width="192" height="56" rx="8" class="box"/>
+  <text x="136" y="84" text-anchor="middle">LAN</text>
+  <text x="136" y="103" text-anchor="middle" class="small muted">192.168.1.0/24</text>
+  <path d="M136,116 V160" class="line"/>
+  <rect x="40" y="160" width="192" height="80" rx="8" class="accent"/>
+  <text x="136" y="184" text-anchor="middle" class="bold">HQ router</text>
+  <text x="136" y="204" text-anchor="middle" class="small">wg0 10.100.0.1/30</text>
+  <text x="136" y="224" text-anchor="middle" class="small muted">hq.example.com, UDP 51820</text>
+  <path d="M136,240 V272" class="line"/>
+  <rect x="40" y="272" width="192" height="88" rx="8" class="box"/>
+  <text x="136" y="296" text-anchor="middle" class="small bold">Allowed IPs for branch</text>
+  <text x="136" y="318" text-anchor="middle" class="small">10.100.0.2/32</text>
+  <text x="136" y="338" text-anchor="middle" class="small">192.168.2.0/24</text>
+
+  <!-- Site B -->
+  <rect x="568" y="60" width="192" height="56" rx="8" class="box"/>
+  <text x="664" y="84" text-anchor="middle">LAN</text>
+  <text x="664" y="103" text-anchor="middle" class="small muted">192.168.2.0/24</text>
+  <path d="M664,116 V160" class="line"/>
+  <rect x="568" y="160" width="192" height="80" rx="8" class="accent"/>
+  <text x="664" y="184" text-anchor="middle" class="bold">Branch router</text>
+  <text x="664" y="204" text-anchor="middle" class="small">wg0 10.100.0.2/30</text>
+  <text x="664" y="224" text-anchor="middle" class="small muted">behind NAT</text>
+  <path d="M664,240 V272" class="line"/>
+  <rect x="568" y="272" width="192" height="88" rx="8" class="box"/>
+  <text x="664" y="296" text-anchor="middle" class="small bold">Allowed IPs for HQ</text>
+  <text x="664" y="318" text-anchor="middle" class="small">10.100.0.1/32</text>
+  <text x="664" y="338" text-anchor="middle" class="small">192.168.1.0/24</text>
+
+  <!-- The tunnel -->
+  <rect x="232" y="168" width="336" height="28" rx="14" class="accent"/>
+  <text x="400" y="187" text-anchor="middle" class="small bold">WireGuard tunnel</text>
+
+  <!-- Who connects -->
+  <path d="M568,222 H234" class="flow" marker-end="url(#arrow-flow)"/>
+  <text x="400" y="250" text-anchor="middle" class="small muted">branch dials out to</text>
+  <text x="400" y="268" text-anchor="middle" class="small muted">hq.example.com:51820</text>
+</svg>

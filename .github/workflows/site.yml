@@ -1,0 +1,111 @@
+# Builds the documentation site under site/ (a Jx project that reads its pages
+# from docs/) and publishes it to GitHub Pages at
+# https://avunu.github.io/nixos-router/.
+#
+# Runs on every pull request, with no path filter, so that `site build` can be
+# a required status check: a required check that a path filter skips never
+# reports, and the pull request waits on it forever. The build is a bun install
+# plus a static compile, well under a minute, so running it on every PR costs
+# little. Pull requests only build; `deploy` runs for `main` alone.
+#
+# Required matters because Dependabot bumps to site/ auto-merge
+# (dependabot-auto-merge.yml) once the required checks pass. Add "site build"
+# to the `main` ruleset alongside the two jobs in checks.yml. Without it, a
+# bump that breaks the build still merges; the push to `main` then fails here,
+# nothing deploys, and the last good site stays live.
+#
+# What the build checks, beyond compiling:
+#   * `jx validate`: project.json, layouts, components and pages against the
+#     Jx schemas (generated first by `jx schema`; they are not committed).
+#   * scripts/lint-docs.ts: frontmatter, links and anchors between pages, image
+#     paths, the sidebar (docs/nav.json), and two Jx Markdown traps that render
+#     broken pages without any warning. See the script's header.
+#
+# One-time setup: Settings → Pages → Source: GitHub Actions.
+name: site
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "site/**"
+      - "docs/**"
+      - ".github/workflows/site.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: site build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: site/.bun-version
+
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: bun-install-${{ runner.os }}-${{ hashFiles('site/bun.lock') }}
+          restore-keys: |
+            bun-install-${{ runner.os }}-
+
+      - run: bun install --frozen-lockfile
+        working-directory: site
+
+      - name: Validate the Jx project
+        working-directory: site
+        run: |
+          bunx jx schema
+          bunx jx validate
+
+      - name: Lint the docs
+        working-directory: site
+        run: bun scripts/lint-docs.ts
+
+      # `bun run build` bundles the search client (see package.json) and runs
+      # `jx build`. The compiler reports bad content frontmatter as a warning
+      # and still succeeds; fail on it here. lint-docs.ts checks the same
+      # fields, so this only catches a schema added to project.json that the
+      # linter does not know about yet.
+      - name: Build
+        working-directory: site
+        run: |
+          set -o pipefail
+          bun run build 2>&1 | tee build.log
+          if grep -q '^Content validation:' build.log; then
+            echo "::error::content frontmatter does not match project.json's schema"
+            exit 1
+          fi
+
+      - if: github.event_name != 'pull_request'
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - if: github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site/dist
+
+  deploy:
+    if: github.event_name != 'pull_request'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    # One publish at a time; a newer one supersedes an older one in flight.
+    concurrency:
+      group: pages
+      cancel-in-progress: true
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

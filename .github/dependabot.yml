@@ -83,6 +83,28 @@ updates:
       cargo:
         patterns: ["*"]
 
+  # The documentation site's Jx toolchain (site/, built by site.yml).
+  #
+  # bun.lock is the whole change, as with npm above. What gates these PRs is
+  # the `site build` job in site.yml, and only if it is a required check in the
+  # `main` ruleset (see that file's header); otherwise a bump that breaks the
+  # build still auto-merges, and the only cost is that the site stops deploying
+  # until someone fixes it. Nothing from site/ reaches a router. Cooldown as
+  # for npm: the build runs these packages with the repository's token in
+  # scope.
+  - package-ecosystem: bun
+    directory: /site
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+    commit-message:
+      prefix: chore
+    groups:
+      site:
+        patterns: ["*"]
+
   # The CI that gates the above. Without this the workflow's actions silently
   # rot while everything they check stays current. The workflows pin every
   # action to a commit SHA (a tag can be moved; a SHA cannot), and Dependabot

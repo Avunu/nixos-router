@@ -1,0 +1,23 @@
+{
+  "name": "nixos-router-site",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "bundle:search": "bun build ./node_modules/@jxsuite/search/src/client.ts --target=browser --format=esm --minify --outfile=public/assets/search-client.js",
+    "dev": "bun run bundle:search && jx dev",
+    "build": "bun run bundle:search && jx build",
+    "preview": "jx preview",
+    "lint": "bun scripts/lint-docs.ts",
+    "check": "jx schema && jx validate && bun scripts/lint-docs.ts && bun run build"
+  },
+  "dependencies": {
+    "@jxsuite/parser": "^1.8.1",
+    "@jxsuite/search": "^0.3.0"
+  },
+  "devDependencies": {
+    "@jxsuite/compiler": "^4.0.1",
+    "@jxsuite/runtime": "^4.0.1",
+    "@jxsuite/server": "^4.2.2",
+    "oxfmt": "^0.70.0"
+  }
+}
