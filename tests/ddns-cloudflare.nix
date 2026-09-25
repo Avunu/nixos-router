@@ -30,7 +30,10 @@
 #     tool taking it over running first, in both directions: the taker does
 #     not remember the other tool's record, and the one letting go keeps the
 #     owner's CNAME — through its disabled and idle runs too — until the name
-#     is free, then puts it back.
+#     is free, then puts it back;
+#   • the other tool's record remembered by older state is forgotten and
+#     never put back, even on a free name, and never wins over the owner's
+#     record remembered before it.
 #
 # The sandbox has no WAN, so the IPv4 address comes from the fake's trace
 # endpoint (the path a router behind another NAT takes), and IPv6 is off.
@@ -414,6 +417,58 @@ pkgs.runCommand "router-ddns-cloudflare"
       || fail "dynamic DNS still tracks wiki: $(jq -c . move-ddns/state.json)"
     jq -e '.ok and [.records[] | [.state, .type, .detail]] == [["created", "CNAME", "restored: the name is no longer configured"]]' move-ddns/status.json >/dev/null \
       || fail "dynamic DNS's status does not say the owner's CNAME was restored: $(cat move-ddns/status.json)"
+
+    # 12 — state from before the fix above could remember the other tool's
+    # record. Such an entry is the router's own: it is forgotten, never put
+    # back, and never supersedes the owner's record remembered before it.
+    ddnsA='{"type":"A","name":"wiki.example.com","content":"203.0.113.1","ttl":1,"proxied":false,"comment":"managed by nixos-router"}'
+    seedLegacy() {
+      jq --argjson r "$2" '.replaced["wiki.example.com"] += [$r]' "$1/state.json" > legacy.json && mv legacy.json "$1/state.json"
+    }
+    # The tunnel remembers the owner's CNAME, then dynamic DNS's A record.
+    # Dropping wiki puts back the owner's CNAME, not the stale A record.
+    router-cloudflare-tunnel --config ${tunnelWiki} || fail "the tunnel taking wiki over again failed"
+    remembers move-tunnel "after the tunnel took wiki over again"
+    seedLegacy move-tunnel "$ddnsA"
+    router-cloudflare-tunnel --config ${tunnelNone} 2> tunnel.log \
+      || fail "the tunnel dropping wiki with a legacy entry failed: $(cat move-tunnel/status.json)"
+    live | jq -e --argjson r "$ownerWiki" '[.records[] | select(.name == "wiki.example.com") | del(.id)] == [$r]' >/dev/null \
+      || fail "the tunnel did not put the owner's CNAME back over its legacy entry: wiki.example.com holds $(at)"
+    jq -e '.replaced == {} and .managed == []' move-tunnel/state.json >/dev/null \
+      || fail "the tunnel still tracks wiki: $(jq -c . move-tunnel/state.json)"
+    grep -qF "released  wiki.example.com removed 1 record(s); 1 of the router's own record(s) not put back; restored 1 replaced record(s)" tunnel.log \
+      || fail "the tunnel's note does not count the legacy entry apart: $(cat tunnel.log)"
+
+    # The same list, with wiki moved to dynamic DNS (run first) in one apply.
+    # Dynamic DNS remembers the tunnel's CNAME from older state. The tunnel
+    # waits on the owner's CNAME alone and forgets the legacy A record.
+    router-cloudflare-tunnel --config ${tunnelWiki} || fail "the tunnel taking wiki over a third time failed"
+    remembers move-tunnel "after the tunnel took wiki over a third time"
+    tunnelWikiCname="{\"type\":\"CNAME\",\"name\":\"wiki.example.com\",\"content\":\"$(jq -r .TunnelID move-tunnel/credentials.json).cfargotunnel.com\",\"ttl\":1,\"proxied\":true,\"comment\":\"managed by nixos-router\"}"
+    seedLegacy move-tunnel "$ddnsA"
+    seedLegacy move-ddns "$tunnelWikiCname"
+    router-ddns --config ${ddnsWiki} || fail "dynamic DNS taking wiki from the tunnel with a legacy entry failed"
+    wantAt '[{"type":"A","content":"203.0.113.1"}]' "after dynamic DNS took wiki from the tunnel with a legacy entry"
+    router-cloudflare-tunnel --config ${tunnelNone} || fail "the tunnel letting go of wiki with a legacy entry failed: $(cat move-tunnel/status.json)"
+    remembers move-tunnel "while dynamic DNS holds wiki, with the legacy entry forgotten"
+    jq -e --arg m "removed 0 record(s); 1 of the router's own record(s) not put back; 1 replaced record(s) waiting until dynamic DNS releases the name" \
+      '.ok and .records["wiki.example.com"] == {"ok": true, "message": $m}' move-tunnel/status.json >/dev/null \
+      || fail "the tunnel's status does not count the legacy entry apart: $(cat move-tunnel/status.json)"
+    # Dynamic DNS drops wiki: its A record goes and the tunnel's CNAME it
+    # remembered is not put back, though nothing holds the name.
+    router-ddns --config ${ddnsNone} || fail "dynamic DNS dropping wiki with a legacy entry failed: $(cat move-ddns/status.json)"
+    wantAt '[]' "after dynamic DNS dropped wiki with a legacy entry"
+    jq -e '.managed == [] and .replaced == {}' move-ddns/state.json >/dev/null \
+      || fail "dynamic DNS still tracks wiki: $(jq -c . move-ddns/state.json)"
+    jq -e --arg d "the router's own record, not put back: the name is no longer configured" \
+      '.ok and [.records[] | [.state, .type, .detail]] == [["removed", "A", "1 record(s)"], ["unchanged", "CNAME", $d]]' move-ddns/status.json >/dev/null \
+      || fail "dynamic DNS's status does not say the legacy entry was not put back: $(cat move-ddns/status.json)"
+    # The tunnel's next run puts the owner's CNAME back.
+    router-cloudflare-tunnel --config ${tunnelNone} || fail "the tunnel putting the owner's CNAME back failed: $(cat move-tunnel/status.json)"
+    live | jq -e --argjson r "$ownerWiki" '[.records[] | select(.name == "wiki.example.com") | del(.id)] == [$r]' >/dev/null \
+      || fail "the owner's CNAME did not come back as it was: wiki.example.com holds $(at)"
+    jq -e '.replaced == {} and .managed == []' move-tunnel/state.json >/dev/null \
+      || fail "the tunnel still tracks wiki: $(jq -c . move-tunnel/state.json)"
 
     touch $out
   ''

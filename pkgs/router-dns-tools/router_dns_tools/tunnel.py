@@ -16,8 +16,9 @@ writes nothing:
              holding it are replaced, remembered in state.json, and put back
              once the name is dropped from the configuration. router-ddns's
              records are replaced but not remembered (it remembers what it
-             replaced), and while it holds a dropped name, what the tunnel
-             remembers there stays in state.json for a later run to put back.
+             replaced), never put back even when older state remembers one,
+             and while it holds a dropped name, what the tunnel remembers
+             there stays in state.json for a later run to put back.
 
 enable=false tears it all down — the CNAMEs (restoring what they replaced),
 the tunnel, and the credentials — and does nothing at all when there is
@@ -52,6 +53,7 @@ from pathlib import Path
 
 from .cloudflare import (
     COMMENT,
+    OWN,
     WAITING,
     Cloudflare,
     CloudflareError,
@@ -199,7 +201,9 @@ def release(cf: Cloudflare, zone: str, name: str, replaced: dict) -> str:
 
     While router-ddns holds the name (it took the name over before this run
     dropped it), the replaced records stay in `replaced`, so every later run
-    releases the name again and puts them back once router-ddns lets go.
+    releases the name again and puts them back once router-ddns lets go. A
+    remembered record of the router's own (state from before take_over()
+    skipped them) is forgotten, never put back.
     """
     removed = 0
     for r in cf.records(zone, name, "CNAME"):
@@ -209,8 +213,13 @@ def release(cf: Cloudflare, zone: str, name: str, replaced: dict) -> str:
     note = f"removed {removed} record(s)"
     if replaced.get(name):
         outcomes = restore(cf, zone, replaced[name])
-        if any(why == WAITING for _, why in outcomes):
-            return f"{note}; {len(outcomes)} replaced record(s) waiting until dynamic DNS releases the name"
+        own = sum(why == OWN for _, why in outcomes)
+        if own:
+            note += f"; {own} of the router's own record(s) not put back"
+        waiting = [r for r, why in outcomes if why == WAITING]
+        if waiting:
+            replaced[name] = waiting
+            return f"{note}; {len(waiting)} replaced record(s) waiting until dynamic DNS releases the name"
         restored = sum(why == "restored" for _, why in outcomes)
         note += f"; restored {restored} replaced record(s)"
     replaced.pop(name, None)

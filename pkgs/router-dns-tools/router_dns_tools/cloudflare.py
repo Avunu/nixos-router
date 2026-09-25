@@ -12,8 +12,9 @@ coexist with records made by hand, so they share:
     restore pair: a configured name belongs to the router, so a conflicting
     hand-made record is deleted — but remembered, and put back once the name
     is dropped, so taking a name over is never a one-way loss. A record the
-    router's other tool made is deleted without being remembered, and nothing
-    is put back while that tool still holds the name.
+    router's other tool made is deleted without being remembered, is never
+    put back even when older state remembers it, and nothing is put back
+    while that tool still holds the name.
 
 Environment overrides (the tests point them at a fake API):
   ROUTER_CLOUDFLARE_API_BASE (preferred), ROUTER_DDNS_API_BASE
@@ -41,8 +42,13 @@ CREDENTIAL = "cf-api-token"
 RESTORE_FIELDS = ("type", "name", "content", "ttl", "proxied", "comment")
 
 # restore()'s outcome for every entry while the router still holds the name:
-# the caller keeps the list and tries again on a later run.
+# the caller keeps those entries and tries again on a later run.
 WAITING = "waiting"
+
+# restore()'s outcome for a remembered entry carrying COMMENT: the router's
+# own record, remembered by a version before take_over() skipped them. It is
+# never put back, and the caller forgets it.
+OWN = "the router's own record, not put back"
 
 
 class CloudflareError(Exception):
@@ -179,12 +185,17 @@ def restore(cf: Cloudflare, zone: str, records: list[dict]) -> list[tuple[dict, 
     """Recreate the records take_over replaced at one name, once the caller's
     own records there are gone (a CNAME cannot sit beside them).
 
+    An entry carrying COMMENT is the router's own record, remembered by state
+    from before take_over() skipped them (a name moved between dynamic DNS
+    and the tunnel). It was never the owner's: it comes back as OWN, is never
+    put back, and never supersedes an older entry below.
+
     While any record at the name carries COMMENT, the router's other tool
     holds it: the name moved between dynamic DNS and the tunnel in one apply,
     and the tool taking it over ran first. That record is no one's hand edit,
-    so nothing is put back or forgotten: every entry comes back as WAITING,
-    for the caller to keep and try again on a later run, once that tool has
-    let go of the name.
+    so nothing is put back or forgotten: every other entry comes back as
+    WAITING, for the caller to keep and try again on a later run, once that
+    tool has let go of the name.
 
     Otherwise nothing at the name is overwritten: Cloudflare would refuse a
     clashing record, and a refusal fails every later run too, since the list
@@ -196,22 +207,23 @@ def restore(cf: Cloudflare, zone: str, records: list[dict]) -> list[tuple[dict, 
     owner's latest intent.
 
     Returns each entry, in order, with what became of it: "restored",
-    WAITING, or why it was left out.
+    WAITING, OWN, or why it was left out.
     """
-    present = cf.records(zone, records[0]["name"]) if records else []
-    if any(e.get("comment") == COMMENT for e in present):
-        return [(r, WAITING) for r in records]
+    owners = [r for r in records if r.get("comment") != COMMENT]
+    present = cf.records(zone, owners[0]["name"]) if owners else []
+    held_by_router = any(e.get("comment") == COMMENT for e in present)
     chosen: list[dict] = []
     outcomes = []
     for r in reversed(records):
-        same = any((e.get("type"), e.get("content")) == (r.get("type"), r.get("content")) for e in present + chosen)
-        held = next((e for e in present if _clash(r, e)), None)
-        later = next((c for c in chosen if _clash(r, c)), None)
-        if same:
+        if r.get("comment") == COMMENT:
+            why = OWN
+        elif held_by_router:
+            why = WAITING
+        elif any((e.get("type"), e.get("content")) == (r.get("type"), r.get("content")) for e in present + chosen):
             why = "already back"
-        elif held:
+        elif held := next((e for e in present if _clash(r, e)), None):
             why = f"{_kind(held)} is already back"
-        elif later:
+        elif later := next((c for c in chosen if _clash(r, c)), None):
             why = f"superseded by {_kind(later)} taken over later"
         else:
             why = "restored"

@@ -27,8 +27,9 @@ overwritten, and a CNAME — which DNS allows nothing else beside — is replace
 The replaced CNAME is kept in state.json and put back when the name is dropped
 from the configuration, so taking a name over is never a one-way loss. The
 tunnel's CNAME is replaced but not kept: the tunnel remembers what it replaced.
-While the tunnel holds a dropped name, the CNAME remembered there stays in
-state.json and is put back by a later run, once the tunnel has let go.
+One that older state kept anyway is forgotten, never put back. While the
+tunnel holds a dropped name, the CNAME remembered there stays in state.json
+and is put back by a later run, once the tunnel has let go.
 
 enable=false drops every name: the managed records are deleted and the
 replaced CNAMEs restored, without looking up any address. A disabled run with
@@ -403,10 +404,14 @@ def run(cfg: dict, force: bool = False) -> int:
                                 ),
                             }
                         )
-                    # The tunnel holds the name: keep the list, so a later
-                    # run (the timer's, or a disabled run's teardown) puts
-                    # it back once the tunnel lets go.
-                    if not any(why == WAITING for _, why in outcomes):
+                    # The tunnel holds the name: keep what is waiting, so a
+                    # later run (the timer's, or a disabled run's teardown)
+                    # puts it back once the tunnel lets go. A remembered
+                    # record of the router's own is forgotten.
+                    waiting = [rec for rec, why in outcomes if why == WAITING]
+                    if waiting:
+                        replaced[name] = waiting
+                    else:
                         del replaced[name]
                 except CloudflareError as exc:
                     results.append(

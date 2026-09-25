@@ -172,7 +172,16 @@ The [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/) tags its CNAMEs with t
 - **Taking the name over.** Dynamic DNS deletes the tunnel's CNAME without remembering it, since it was never yours. The tunnel still remembers the record it replaced there, and puts that back itself once dynamic DNS lets go of the name.
 - **Letting the name go.** If the tunnel already holds the name when dynamic DNS goes to put your CNAME back, dynamic DNS keeps your CNAME rather than dropping it. The row shows `unchanged` with "waiting until the tunnel releases the name", and each later run tries again, including runs with dynamic DNS off. Once the name leaves the tunnel too, the next run puts your CNAME back and the row shows `created`.
 
-The tunnel does the same in the other direction, so moving a name doesn't lose the record that was there before the router took it over.
+The tunnel does the same in the other direction, so moving a name either way keeps a CNAME that was there before the router took it over.
+
+An A or AAAA record the tunnel replaced is different. Dynamic DNS overwrites an existing A or AAAA record of a type it publishes, and doesn't remember it (see [What it writes to Cloudflare](#what-it-writes-to-cloudflare)). So when you move such a name from the tunnel to dynamic DNS, what happens to your record depends on which service runs first:
+
+- **Dynamic DNS first.** The tunnel keeps your record and puts it back once the name leaves dynamic DNS.
+- **The tunnel first.** The tunnel puts your record back at once. Dynamic DNS then overwrites it with the router's address, so your record is lost, and when the name leaves dynamic DNS the router's record is deleted.
+
+If you'll want that A or AAAA record again, note it before you move the name.
+
+State saved by an older version can remember the tunnel's own CNAME at a name. Dynamic DNS never puts that back. The row shows `unchanged` with "the router's own record, not put back: the name is no longer configured".
 
 ### Address detection
 
