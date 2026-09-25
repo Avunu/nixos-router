@@ -6,6 +6,9 @@ code:
   - pkgs/cockpit-router/src/suricata.tsx
   - pkgs/cockpit-router/src/suricata-events.ts
   - pkgs/cockpit-router/src/suricata-categories.json
+  - pkgs/cockpit-router/src/suricata-rules.ts
+  - pkgs/cockpit-router/src/ip-math.ts
+  - modules/lib/net.nix
 ---
 
 # Tune the rules
@@ -45,7 +48,7 @@ Below the details, **Add self-defined policy** turns the event into a rule chang
 
 For **Suppress for a host**, two more fields appear:
 
-- **Host IP / subnet**: filled in with the event's source address. Change it to the host or subnet to exempt, for example `192.168.1.5` or `192.168.1.0/24`.
+- **Host IP / subnet**: filled in with the event's source address. Change it to the host or subnet to exempt, for example `192.168.1.5` or `192.168.1.0/24`. It must be one IPv4 or IPv6 address or prefix; until it is, the field is marked and **Save policy** stays unavailable.
 - **Track by**: which side of the connection that address must be on. **Source** if the host started the flagged traffic, **Destination** if it received it, **Either** for both.
 
 Add a **Comment** so you remember why, then click **Save policy**. The message "Added. Review under Policies, then apply from the changes tray." confirms it's in the settings file. It isn't active until you apply: click **Apply** in the **Unapplied changes** bar, or **Save & apply** on the **Policies** tab.
@@ -101,7 +104,7 @@ A table of per-signature overrides, with **SID**, **Action** (**Alert**, **Drop*
 
 A table of per-host exemptions, with **SID**, **Host**, **Track** (**Source**, **Destination** or **Either**) and **Comment** columns. To add one by hand, fill in **Signature ID** and **Host IP / subnet** and click **Add suppression**; it tracks **Source** until you change it.
 
-The UI doesn't check the address. An entry that isn't an IP address or subnet makes Suricata's configuration test fail, and Suricata doesn't start.
+The host must be one IPv4 or IPv6 address or prefix, such as `192.168.1.5`, `192.168.1.0/24` or `2001:db8::/48`; **Add suppression** stays unavailable until it is. An entry that isn't, for example from an edited settings file, is marked in the table, and the build refuses it with `router.suricata.suppressions: SID 2100498 has an invalid host 'nas' — use an IPv4 or IPv6 address or CIDR prefix`. Remove it and add it again.
 
 ### What policies can't change
 
@@ -126,7 +129,8 @@ alert tcp $HOME_NET any -> $EXTERNAL_NET 3389 (msg:"LOCAL outbound RDP connectio
 Keep these rules in mind:
 
 - **Pick unused SIDs.** SIDs 1000000 to 1999999 are the conventional range for local rules. The built-in rules use 1000001 to 1000011, so start yours at 1000100 or above.
-- **A broken rule stops Suricata.** A rule that doesn't parse, or a SID that's already loaded, fails Suricata's configuration test with `Loading signatures failed.`, and Suricata won't start until you fix it. Traffic then passes uninspected. The UI doesn't check rules, so check Suricata's messages after you apply; see [Events and logs](/docs/threat-protection/monitoring/#suricata-wont-start-or-is-slow-to-start).
+- **Start each rule at the beginning of its line.** Suricata skips a line that starts with a space or tab, as it does a `#` comment. To split a long rule, end the line with `\` and carry on below.
+- **A broken rule fails the apply.** As you type, the box flags common mistakes: lines that aren't rules, rules without a SID, SIDs used twice and the built-in SIDs. When you apply, Suricata tests the local rules before anything changes. A rule that doesn't parse, or a SID that's already loaded, ends the apply with `router.suricata: Suricata rejected the configuration.`; the lines above it in the log name the rule. Suricata keeps running on the rules it had until you fix it. The test doesn't load the downloaded rules, so a clash with one of their SIDs still shows up only when Suricata starts; see [Events and logs](/docs/threat-protection/monitoring/#suricata-wont-start-or-is-slow-to-start).
 - **`$HOME_NET` holds no IPv6 LAN or guest prefix.** A rule keyed on it won't match your hosts' IPv6 traffic; see [What counts as your network](/docs/threat-protection/#what-counts-as-your-network).
 - **`$HTTP_PORTS` is port 80 only.**
 

@@ -6,6 +6,7 @@ code:
   - modules/firewall.nix
   - pkgs/cockpit-router/src/suricata.tsx
   - pkgs/cockpit-router/src/suricata-events.ts
+  - pkgs/cockpit-router/src/suricata-rules.ts
   - pkgs/cockpit-router/src/hosts-live.ts
 ---
 
@@ -67,7 +68,7 @@ The router sets its journal limits (500 MB, 30 days) for the main system journal
 | `/var/log/suricata/eve.json` | One JSON record per line: alerts, drops, DNS, TLS, HTTP and flow records, and engine statistics every 30 seconds. |
 | `/var/log/suricata/fast.log` | One line of text per alert. |
 
-The router sets up `logrotate` for the `.log` and `.json` files in that directory (daily, 14 rotations), but the rule doesn't match the files, so in practice they aren't rotated. `eve.json` grows with your traffic until you clear it. Check the size with `sudo du -sh /var/log/suricata`. Suricata appends to these files, so you can empty them in place without stopping it: `sudo truncate -s 0 /var/log/suricata/eve.json /var/log/suricata/fast.log`.
+`logrotate` rotates both files daily and keeps 14 old copies. The previous day's file is `eve.json.1`; older ones are compressed, as `eve.json.2.gz` and so on. After rotating, `logrotate` tells Suricata to reopen its files, so logging carries on in a fresh `eve.json` without a restart. On a busy network a single day's `eve.json` can still be large; check the total with `sudo du -sh /var/log/suricata`. To search an older day, read its compressed copy with `zcat`, for example `sudo zcat /var/log/suricata/eve.json.2.gz | jq -c 'select(.event_type == "alert")'`.
 
 Because `eve.json` also has TLS and flow records, you can use it to see what a host was doing around the time of an alert:
 
@@ -118,8 +119,8 @@ If `nft list table inet ips` shows the table but `/proc/net/netfilter/nfnetlink_
 **Cause and fix:**
 
 - **Slow hardware.** Before starting, Suricata runs a configuration test that loads every rule, which takes about 2 minutes on low-power hardware. Then it loads them again. The service allows 300 seconds to start. If `systemctl status suricata.service` reports a timeout, the router is too slow for the full rule set. Set categories you don't need to **Disable** to shrink it.
-- **A rule that doesn't parse, or a duplicate SID.** Read Suricata's messages with `sudo journalctl --namespace suricata -b -o cat | grep -v '^{'`. An error naming a rule, followed by `Loading signatures failed.`, points to a line in **Extra local rules**. `Duplicate signature` means a SID is used twice, often one of the built-in 1000001 to 1000011. Fix or remove the line and apply again.
-- **A bad suppression.** A `threshold-config` parse error means a suppression's host isn't a valid IP address or subnet. Fix it on the **Policies** tab and apply.
+- **A rule that doesn't parse, or a duplicate SID.** Applying tests the local rules with Suricata before it changes anything, so a broken rule ends in **Apply failed.** and Suricata keeps running on the rules it had. The tray's log shows `router.suricata: Suricata rejected the configuration.`, and the lines above it name the rule: `error parsing signature` or `Duplicate signature`, then `Loading signatures failed.` A duplicate is often one of the built-in SIDs, 1000001 to 1000011. Fix or remove the line in **Extra local rules** and apply again. The test doesn't load the downloaded rules, so a local SID that clashes with one of theirs still stops Suricata when it starts; read its messages with `sudo journalctl --namespace suricata -b -o cat | grep -v '^{'`.
+- **A bad suppression.** A suppression whose host isn't an IP address or prefix fails the build with `router.suricata.suppressions: SID <sid> has an invalid host '<host>' — use an IPv4 or IPv6 address or CIDR prefix`. The **Policies** tab marks the entry; remove it, add it again with a valid host, and apply.
 
 While Suricata is down, forwarded traffic passes uninspected.
 
@@ -165,6 +166,6 @@ To stop all drops at once while you investigate, turn off **Drop high-risk packe
 
 - Of Suricata's event records, the journal namespace carries alerts only. DNS, TLS, HTTP and flow records are in `eve.json` alone.
 - The Overview and Statistics tabs read at most 5,000 events per query, and the Events tab keeps 2,000 rows.
-- The logs on disk aren't rotated; see [Logs on disk](#logs-on-disk). The router sets no retention limit specific to the `suricata` journal namespace.
+- The logs on disk keep 14 days; see [Logs on disk](#logs-on-disk). The router sets no retention limit specific to the `suricata` journal namespace.
 - There are no email or push notifications, and no export from the Cockpit tabs.
 - Events only cover forwarded traffic, and only while Suricata is running.

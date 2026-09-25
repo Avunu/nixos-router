@@ -64,6 +64,7 @@ Run every check, including the VM tests, with `nix flake check`. The VM tests bo
 | `dns-fallback` | Evaluation | Something always answers DNS on the LAN, even with Technitium off. |
 | `dns-overrides` | Evaluation | Split-horizon DNS: which zone each record lands in. |
 | `wireless-eval` | Evaluation | The UniFi and OpenWISP controllers' wiring. |
+| `suricata-eval` | Evaluation | Suricata's config file and log rotation, suppression addresses, and the build-time rule test failing on a broken rule. |
 | `technitium-version` | Evaluation | The Technitium apps input matches the DNS server in nixpkgs. |
 | `ddns-cloudflare`, `cloudflare-tunnel` | Sandbox | `router-ddns` and the tunnel manager against a fake Cloudflare API. |
 | `suricata-update-preflight` | Sandbox | The Suricata rule-update self-heal. |

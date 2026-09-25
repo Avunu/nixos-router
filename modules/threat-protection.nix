@@ -1,8 +1,9 @@
 # ── Threat Protection module ──────────────────────────────────────────────────
 # Optional Suricata inline IPS via NFQUEUE: the service (NFQ-mode ExecStart
-# override + journald namespace), the policy/rule renderers feeding
-# suricata-update, the daily rule-update timer, and log rotation. HOME_NET is
-# derived from the shared topology (config.router._internal.homeNets).
+# override + journald namespace), its config file, the policy/rule renderers
+# feeding suricata-update, a build-time config test, the daily rule-update
+# timer, and log rotation. HOME_NET is derived from the shared topology
+# (config.router._internal.homeNets).
 {
   config,
   lib,
@@ -14,6 +15,9 @@ with lib;
 let
   cfg = config.router;
   inherit (config.router._internal) homeNets;
+  netLib = import ./lib/net.nix { inherit lib; };
+  yaml = pkgs.formats.yaml { };
+  suricataPkg = config.services.suricata.package;
 
   # Applied locally rather than via nixpkgs.overlays, which conflicts when a
   # consumer supplies nixpkgs.pkgs — same reasoning as dns-technitium.nix.
@@ -44,6 +48,10 @@ let
     alert http $HOME_NET any -> $EXTERNAL_NET $HTTP_PORTS (msg:"POLICY SafeSearch bypass - safeSearch=off"; http.uri; content:"safeSearch=off"; sid:1000011; rev:1;)
   ''
   + cfg.suricata.extraRules;
+
+  # One store file, installed as /etc/suricata/rules/local.rules and handed to
+  # the build-time config test below, so the test checks exactly what loads.
+  localRulesFile = pkgs.writeText "suricata-local.rules" localSuricataRules;
 
   # ── Suricata policy files (suricata-update + threshold) ──
   # The Cockpit "Policies" tab edits router.suricata.{categories,
@@ -84,6 +92,8 @@ let
   );
 
   # threshold.config — per-host suppressions ("do nothing for this host").
+  # Each ip goes in verbatim; the assertion in `config` below keeps it to one
+  # address or prefix, so it can't break the line or add one.
   suricataThreshold = pkgs.writeText "suricata-threshold.config" (
     concatStringsSep "\n" (
       map (
@@ -92,6 +102,87 @@ let
     )
     + "\n"
   );
+
+  # ── Suricata config file ─────────────────────────────────
+  # Rendered from services.suricata.settings the way the upstream module does
+  # (YAML 1.1 through pkgs.formats.yaml, null values dropped), except for two
+  # keys whose upstream options have the wrong shape for Suricata:
+  #   • logging.outputs — upstream declares fixed `console` / `file` / `syslog`
+  #     attrsets with an `enable` key, but Suricata reads a LIST of one-key
+  #     maps keyed `enabled`. Given the map it finds no output at all, warns
+  #     "Output_interface not supplied by user" and falls back to the console,
+  #     so every setting in there was silently ignored.
+  #   • stats.enable — Suricata reads `stats.enabled`.
+  # The options can't hold the right shape, hence overriding configFile (an
+  # upstream nixpkgs bug; drop this once it's fixed there). The console is the
+  # only log output: the service's stdout is the `suricata` journal namespace,
+  # where Suricata's own messages, `Engine started` among them, belong.
+  suricataSettings =
+    let
+      s = config.services.suricata.settings;
+    in
+    filterAttrsRecursive (_: v: v != null) (
+      s
+      // {
+        logging = s.logging // {
+          outputs = [
+            { console.enabled = "yes"; }
+            { file.enabled = "no"; }
+            { syslog.enabled = "no"; }
+          ];
+        };
+      }
+      // optionalAttrs (s.stats != null) {
+        stats = removeAttrs s.stats [ "enable" ] // {
+          enabled = if s.stats.enable then "yes" else "no";
+        };
+      }
+    );
+
+  # remarshal's YAML 1.1 output already starts with the `%YAML 1.1` / `---`
+  # header Suricata requires (the upstream module prepends a second copy).
+  renderSuricataYaml =
+    name: settings:
+    pkgs.runCommand name { settingsYaml = yaml.generate "${name}-raw" settings; } ''
+      if [ "$(head -n1 "$settingsYaml")" = "%YAML 1.1" ]; then
+        cp "$settingsYaml" "$out"
+      else
+        { echo "%YAML 1.1"; echo "---"; cat "$settingsYaml"; } > "$out"
+      fi
+    '';
+
+  # ── Build-time config test ───────────────────────────────
+  # The service's ExecStartPre runs `suricata -T` only after the switch, so a
+  # rule that doesn't parse used to leave the IPS down, and traffic passing
+  # uninspected, until someone read the journal. This runs the same test in
+  # the build sandbox, through system.checks, so it fails the rebuild instead
+  # and the running system stays as it was. It differs from the service's
+  # test only where the sandbox forces it to:
+  #   • -S loads local.rules alone; the downloaded ruleset exists only at
+  #     runtime, where suricata-update writes it.
+  #   • no run-as: Suricata switches to that user even under -T, which the
+  #     unprivileged build user can't do.
+  #   • -l moves the log files Suricata opens under -T into the build dir.
+  #   • classification.config comes from the package; on the router
+  #     suricata-update installs it next to the rules.
+  # Its output is shown only on failure. On success it would be noise, such
+  # as "can't suppress sid …: unknown rule" for suppressions of downloaded
+  # rules, which this test doesn't load.
+  suricataConfigTest =
+    pkgs.runCommand "suricata-config-test"
+      {
+        testConfig = renderSuricataYaml "suricata-test.yaml" (removeAttrs suricataSettings [ "run-as" ]);
+      }
+      ''
+        if ! ${suricataPkg}/bin/suricata -T -c "$testConfig" -S ${localRulesFile} -l "$TMPDIR" \
+          --set classification-file=${suricataPkg}/etc/suricata/classification.config \
+          > suricata-test.log 2>&1; then
+          cat suricata-test.log >&2
+          echo "router.suricata: Suricata rejected the configuration. Fix the rule it names in router.suricata.extraRules, or the suppression, and rebuild." >&2
+          exit 1
+        fi
+        touch "$out"
+      '';
 
   # Where suricata-update caches the upstream source index. Fixed by the
   # upstream module, which grants the unit /var/lib/suricata as its only
@@ -108,7 +199,7 @@ let
   suricataUpdateScript =
     let
       python = pkgs.python3.withPackages (ps: with ps; [ pyyaml ]);
-      pkg = config.services.suricata.package;
+      pkg = suricataPkg;
       enableSources = concatMapStringsSep "\n" (
         src: "${python.interpreter} ${pkg}/bin/suricata-update enable-source ${src}"
       ) config.services.suricata.enabledSources;
@@ -133,6 +224,8 @@ in
     #     traffic with ET Open rules + custom local rules.
     #   • A daily timer updates ET Open rules via suricata-update.
     #   • Logs are rotated daily, kept for 14 days.
+    #   • Suppression hosts and the local rules are checked at build
+    #     time, so a bad one fails the rebuild rather than Suricata.
     suricata = {
       enable = mkEnableOption "Suricata IPS inline inspection";
 
@@ -261,8 +354,9 @@ in
     # ── 6. IPS — Suricata ────────────────────────────────
     # When enabled, Suricata runs as an inline IPS via NFQUEUE
     # using the NixOS services.suricata module. The module manages
-    # config file generation, service hardening, user/group
-    # creation, and rule fetching via suricata-update.
+    # service hardening, user/group creation, and rule fetching via
+    # suricata-update; the config file is rendered here from its
+    # settings (see suricataSettings).
     #
     # Since the module only supports interface-capture modes
     # natively (af-packet, pcap, etc.), ExecStart is overridden
@@ -272,11 +366,23 @@ in
     # A daily timer refreshes ET Open rules via suricata-update
     # with a randomized delay to avoid thundering herd.
     environment.etc."suricata/rules/local.rules" = mkIf cfg.suricata.enable {
-      text = localSuricataRules;
+      source = localRulesFile;
     };
+
+    assertions = mkIf cfg.suricata.enable (
+      map (s: {
+        assertion = netLib.isPrefix s.ip;
+        message = "router.suricata.suppressions: SID ${toString s.sid} has an invalid host '${s.ip}' — use an IPv4 or IPv6 address or CIDR prefix";
+      }) cfg.suricata.suppressions
+    );
+
+    system.checks = mkIf cfg.suricata.enable [ suricataConfigTest ];
 
     services.suricata = mkIf cfg.suricata.enable {
       enable = true;
+      # See suricataSettings above. Every consumer reads this option: the
+      # upstream ExecStartPre -T, the ExecStart override below, suricata-update.
+      configFile = renderSuricataYaml "suricata.yaml" suricataSettings;
       settings = {
         # Dummy pcap to satisfy the module's capture-interface
         # assertion; overridden by NFQ mode via ExecStart below.
@@ -307,22 +413,16 @@ in
         host-mode = "router";
         default-log-dir = "/var/log/suricata";
 
+        # Written out as `stats.enabled`; see suricataSettings above.
         stats = {
           enable = true;
           interval = "30";
         };
 
-        logging = {
-          default-log-level = "notice";
-          outputs = {
-            console.enable = false;
-            file = {
-              enable = true;
-              filename = "suricata.log";
-              level = "info";
-            };
-          };
-        };
+        # The log outputs themselves are fixed in suricataSettings above
+        # (console only): the upstream options render them in a shape
+        # Suricata ignores.
+        logging.default-log-level = "notice";
 
         outputs = [
           {
@@ -455,10 +555,10 @@ in
 
     systemd.services = mkIf cfg.suricata.enable {
       # Override the module's ExecStart to use NFQ mode instead
-      # of interface capture (-i). The module generates the
-      # config file; we just change how suricata reads packets.
+      # of interface capture (-i); only how suricata reads packets
+      # changes. ExecReload (SIGUSR2) reloads the rules.
       suricata.serviceConfig = {
-        ExecStart = mkForce "!${config.services.suricata.package}/bin/suricata -c ${config.services.suricata.configFile} -q 0";
+        ExecStart = mkForce "!${suricataPkg}/bin/suricata -c ${config.services.suricata.configFile} -q 0";
         ExecReload = "${pkgs.coreutils}/bin/kill -USR2 $MAINPID";
         LimitNOFILE = 65536;
         # The -T config test in ExecStartPre loads all rules (~56MB)
@@ -504,16 +604,25 @@ in
       };
     };
 
+    # eve.json and fast.log. `files` has to be a list: logrotate.nix quotes
+    # each element, so one space-separated string is a single pattern that
+    # matches nothing. Suricata reopens its log files on SIGHUP (a reload is
+    # SIGUSR2, which only reloads rules); sharedscripts sends it once per run.
+    # An inactive Suricata is skipped, since it opens fresh files as it starts.
     services.logrotate.settings = mkIf cfg.suricata.enable {
       suricata = {
-        files = "/var/log/suricata/*.log /var/log/suricata/*.json";
+        files = [
+          "/var/log/suricata/*.log"
+          "/var/log/suricata/*.json"
+        ];
         frequency = "daily";
         rotate = 14;
         compress = true;
         delaycompress = true;
         missingok = true;
         notifempty = true;
-        postrotate = "systemctl reload suricata.service 2>/dev/null || true";
+        sharedscripts = true;
+        postrotate = "if ${pkgs.systemd}/bin/systemctl --quiet is-active suricata.service; then ${pkgs.systemd}/bin/systemctl kill --kill-whom=main --signal=HUP suricata.service; fi";
       };
     };
   };
