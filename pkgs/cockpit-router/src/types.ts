@@ -225,7 +225,9 @@ export interface DirectoryStatus {
 // ── Dynamic DNS status (router-ddns status.json, read-only) ─────────────────
 export interface DdnsRecordStatus {
   name: string;
-  // CNAME rows appear when a record replaced to take the name over is restored.
+  // CNAME rows appear when a name is dropped: one per record replaced to take
+  // it over, restored, left out or waiting for the tunnel to release the name
+  // (the detail says which).
   type: "A" | "AAAA" | "CNAME";
   host?: string | null; // set for a host's publicHostname, absent for router names
   content: string | null;
@@ -239,6 +241,9 @@ export interface DdnsStatus {
   error?: string | null;
   addresses?: { ipv4?: string | null; ipv4Source?: string; ipv6?: string | null };
   records?: DdnsRecordStatus[];
+  // Set when a disabled run kept records from before the upgrade, when
+  // turning dynamic DNS off left them: what to do to delete them.
+  message?: string;
 }
 
 // ── Cloudflare Tunnel status (router-cloudflare-tunnel status.json) ───────
@@ -254,7 +259,11 @@ export interface TunnelStatus {
   ok?: boolean;
   error?: string | null;
   tunnel?: { id: string; name: string; status: string } | null;
+  // Set while there are no hostnames and no tunnel yet: why there is none.
+  message?: string;
   connections?: TunnelConnection[];
+  // Keyed by hostname. A dropped name appears too while removing it failed,
+  // or while what it replaced waits for dynamic DNS to release the name.
   records?: Record<string, { ok: boolean; message: string }>;
 }
 

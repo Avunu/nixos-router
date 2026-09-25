@@ -340,7 +340,16 @@ void test("claimsWebPorts", () => {
 
 void test("checkPage: an enabled tunnel needs a token file", () => {
   const c = ctx({ tunnel: { enable: true, apiTokenFile: null, ingress: [] } });
-  assert.deepEqual(codes(checkPage(c).tunnel), ["tunnelToken"]);
+  assert.deepEqual(codes(checkPage(c).tunnel, "error"), ["tunnelToken"]);
+  assert.deepEqual(checkPage({ ...c, tunnel: { ...c.tunnel, enable: false } }).tunnel, []);
+});
+
+void test("checkPage: an enabled tunnel with no hostnames warns", () => {
+  // cloudflare-tunnel.nix runs no connector then; the tunnel waits for a name.
+  const c = ctx();
+  assert.deepEqual(checkPage(c).tunnel, [{ level: "warning", code: "tunnelNoIngress" }]);
+  const served = { ...c, tunnel: { ...c.tunnel, ingress: [ingress()] } };
+  assert.deepEqual(checkPage(served).tunnel, []);
   assert.deepEqual(checkPage({ ...c, tunnel: { ...c.tunnel, enable: false } }).tunnel, []);
 });
 

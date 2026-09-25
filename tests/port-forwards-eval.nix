@@ -134,6 +134,15 @@ let
 
   pinhole = "ip6 daddr & ::ffff:ffff:ffff:ffff ==";
 
+  # DDNS turned off: with the token still set, router-ddns stays installed to
+  # delete the records; with no token there is nothing it could do. Only the
+  # unit and timer names are forced, not a whole system.
+  ddnsOff = evalWith {
+    router.ddns.cloudflare.apiTokenFile = "/etc/router/secrets/cloudflare-ddns.token";
+  };
+  ddnsNone = evalWith { };
+  hasDdnsUnit = c: c.systemd.services ? router-ddns && c.systemd.timers ? router-ddns;
+
   # Every misconfiguration at once, in ONE evaluation: each full NixOS eval
   # costs about a gigabyte, and none of these interfere with each other's
   # assertion. Each check below looks for the message naming its own culprit.
@@ -286,6 +295,34 @@ let
           "cf-api-token:/etc/router/secrets/cloudflare-ddns.token"
         ];
       detail = "router-ddns does not receive the token file through LoadCredential";
+    }
+    {
+      name = "ddns-disabled-with-token-keeps-unit-for-teardown";
+      ok =
+        hasDdnsUnit ddnsOff
+        && !ddnsOff.router._ddnsConfig.ddns.enable
+        && sys.router._ddnsConfig.ddns.enable
+        &&
+          ddnsOff.systemd.services.router-ddns.serviceConfig.LoadCredential == [
+            "cf-api-token:/etc/router/secrets/cloudflare-ddns.token"
+          ];
+      detail = "with DDNS off but a token set, router-ddns (unit, timer, token, enable=false) is not there to delete the records";
+    }
+    {
+      # Off, a token path whose file is missing (Set token… then Cancel)
+      # must skip the unit, not fail credential setup and with it every
+      # switch; on, a missing token must still fail.
+      name = "ddns-disabled-skips-unit-without-token-file";
+      ok =
+        ddnsOff.systemd.services.router-ddns.unitConfig.ConditionPathExists or null
+        == "/etc/router/secrets/cloudflare-ddns.token"
+        && !(sys.systemd.services.router-ddns.unitConfig ? ConditionPathExists);
+      detail = "router-ddns is not conditioned on its token file while DDNS is off, or is while it is on";
+    }
+    {
+      name = "ddns-disabled-without-token-has-no-unit";
+      ok = !(ddnsNone.systemd.services ? router-ddns) && !(ddnsNone.systemd.timers ? router-ddns);
+      detail = "router-ddns is installed although DDNS is off and has no token";
     }
     {
       name = "system-toplevel-instantiates";

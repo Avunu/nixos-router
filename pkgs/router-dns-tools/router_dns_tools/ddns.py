@@ -25,12 +25,24 @@ carrying the comment.
 A configured name belongs to the router: an A/AAAA record already there is
 overwritten, and a CNAME — which DNS allows nothing else beside — is replaced.
 The replaced CNAME is kept in state.json and put back when the name is dropped
-from the configuration, so taking a name over is never a one-way loss.
+from the configuration, so taking a name over is never a one-way loss. The
+tunnel's CNAME is replaced but not kept: the tunnel remembers what it replaced.
+One that older state kept anyway is forgotten, never put back. While the
+tunnel holds a dropped name, the CNAME remembered there stays in state.json
+and is put back by a later run, once the tunnel has let go.
+
+enable=false drops every name: the managed records are deleted and the
+replaced CNAMEs restored, without looking up any address. A disabled run with
+nothing recorded to tear down does nothing at all, and one over state no
+enabled run has stamped with STATE_VERSION only reports it: that state was
+left by a version that kept the records when turned off, and said so, so
+they stay until the owner turns dynamic DNS on and then off again.
 
 State directory:
   state.json   — zone cache, the managed name set, the last pushed record
-                 set (API writes are skipped while it is unchanged and was
-                 verified recently) and the CNAMEs replaced to take names over
+                 set with its TTL and proxying (API writes are skipped while
+                 it is unchanged and was verified recently), the CNAMEs
+                 replaced to take names over and the state version
   status.json  — last run summary for Cockpit, written on success AND failure
 
 Environment overrides (the VM test points them at a fake API):
@@ -52,6 +64,7 @@ from pathlib import Path
 
 from .cloudflare import (
     COMMENT,
+    WAITING,
     Cloudflare,
     CloudflareError,
     load_json,
@@ -63,6 +76,15 @@ from .cloudflare import take_over as _take_over
 
 TRACE_URL = os.environ.get("ROUTER_DDNS_TRACE_URL", "https://1.1.1.1/cdn-cgi/trace")
 VERIFY_INTERVAL = 6 * 3600
+
+# Stamped into state.json by every enabled run. Version 2 is the first whose
+# disabled runs delete the records; state without the stamp was last written
+# by a version that promised turning dynamic DNS off would keep them.
+STATE_VERSION = 2
+LEGACY_NOTE = (
+    "records from before the upgrade are left in Cloudflare, since turning dynamic DNS off used to keep them"
+    " — to delete them, turn dynamic DNS on and apply, then turn it off and apply again"
+)
 
 # Addresses that cannot be the router's public IPv4: when the WAN holds one of
 # these the router sits behind another NAT and must ask the outside world.
@@ -170,8 +192,9 @@ def take_over(cf: Cloudflare, zone: str, name: str, replaced: dict) -> str:
     """Clear `name` of CNAMEs, which DNS allows no other record beside.
 
     Each one is remembered in `replaced` (persisted in state.json) so it can be
-    restored when the name leaves the configuration. Returns a note for the
-    status file, or "" when there was nothing to replace.
+    restored when the name leaves the configuration — except the tunnel's own
+    (tagged), which the tunnel is left to account for. Returns a note for the
+    status file, or "" when nothing was remembered.
     """
     removed = _take_over(cf, zone, name, replaced, ("CNAME",))
     return "; ".join(f"replaced CNAME → {r.get('content')} (restored if the name is dropped)" for r in removed)
@@ -233,21 +256,49 @@ def remove_managed(cf: Cloudflare, zone: str, name: str, rtype: str) -> int:
 
 def run(cfg: dict, force: bool = False) -> int:
     state_dir = Path(cfg["stateDir"])
-    state_dir.mkdir(parents=True, exist_ok=True)
     state_file = state_dir / "state.json"
     status_file = state_dir / "status.json"
+    enable = cfg.get("enable", True)
+
     state = load_json(state_file)
+    if not enable and not (state.get("managed") or state.get("replaced")):
+        return 0  # never enabled, or already torn down
+    state_dir.mkdir(parents=True, exist_ok=True)
     now = time.time()
 
-    wan = cfg["wanInterface"]
-    v4, v4_source = detect_v4(wan) if cfg.get("ipv4", True) else (None, "disabled")
-    router_v6 = detect_router_v6(wan, cfg["routerV6Fallback"]) if cfg.get("ipv6", True) else None
+    if not enable and state.get("version", 1) < STATE_VERSION:
+        # Turned off before the upgrade: leave Cloudflare (and state.json,
+        # still the only copy of the replaced CNAMEs) exactly as they are.
+        print(f"router-ddns: {LEGACY_NOTE}", file=sys.stderr)
+        write_json(
+            status_file,
+            {
+                "lastRun": _iso(now),
+                "ok": True,
+                "error": None,
+                "addresses": {"ipv4": None, "ipv4Source": "disabled", "ipv6": None},
+                "records": [],
+                "message": LEGACY_NOTE,
+            },
+            0o644,
+        )
+        return 0
+
+    if enable:
+        state["version"] = STATE_VERSION
+        wan = cfg["wanInterface"]
+        v4, v4_source = detect_v4(wan) if cfg.get("ipv4", True) else (None, "disabled")
+        router_v6 = detect_router_v6(wan, cfg["routerV6Fallback"]) if cfg.get("ipv6", True) else None
+    else:
+        # Tearing down needs no address: with nothing configured, every
+        # managed record is stale and every replaced CNAME is restored below.
+        v4, v4_source, router_v6 = None, "disabled", None
 
     # Every configured (name, type) — independent of whether an address was
     # found this run, so a family that is briefly unavailable is left alone
     # instead of being treated as removed.
     configured: list[dict] = []
-    for rec in cfg["records"]:
+    for rec in cfg["records"] if enable else []:
         if rec.get("v4"):
             configured.append({**rec, "type": "A", "content": v4})
         v6 = rec.get("v6")
@@ -255,10 +306,14 @@ def run(cfg: dict, force: bool = False) -> int:
             content = router_v6 if v6["kind"] == "router" else host_v6(v6["interface"], v6["suffix"])
             configured.append({**rec, "type": "AAAA", "content": content})
 
-    desired = {f"{r['name']}/{r['type']}": r["content"] for r in configured if r["content"]}
+    # TTL and proxying are part of the fingerprint, so a change to either
+    # alone reaches Cloudflare now rather than at the next full check.
+    desired = {f"{r['name']}/{r['type']}": [r["content"], cfg["ttl"], cfg["proxied"]] for r in configured if r["content"]}
     configured_keys = sorted({f"{r['name']}/{r['type']}" for r in configured})
     stale = [k for k in state.get("managed", []) if k not in configured_keys]
     # Names taken over from a CNAME that are no longer configured: put it back.
+    # One still waiting for the tunnel to let go stays here, so every run
+    # takes the API path and tries again.
     replaced = state.setdefault("replaced", {})
     configured_names = {r["name"] for r in configured}
     to_restore = [n for n in replaced if n not in configured_names]
@@ -334,17 +389,30 @@ def run(cfg: dict, force: bool = False) -> int:
                     # Also clears records left from a run whose state was lost.
                     for rtype in ("A", "AAAA"):
                         remove_managed(cf, zone, name, rtype)
-                    restore(cf, zone, replaced[name])
-                    for rec in replaced.pop(name):
+                    outcomes = restore(cf, zone, replaced[name])
+                    for rec, why in outcomes:
                         results.append(
                             {
                                 "name": name,
                                 "type": rec.get("type"),
                                 "content": rec.get("content"),
-                                "state": "created",
-                                "detail": "restored: the name is no longer configured",
+                                "state": "created" if why == "restored" else "unchanged",
+                                "detail": (
+                                    "waiting until the tunnel releases the name"
+                                    if why == WAITING
+                                    else f"{why}: the name is no longer configured"
+                                ),
                             }
                         )
+                    # The tunnel holds the name: keep what is waiting, so a
+                    # later run (the timer's, or a disabled run's teardown)
+                    # puts it back once the tunnel lets go. A remembered
+                    # record of the router's own is forgotten.
+                    waiting = [rec for rec, why in outcomes if why == WAITING]
+                    if waiting:
+                        replaced[name] = waiting
+                    else:
+                        del replaced[name]
                 except CloudflareError as exc:
                     results.append(
                         {"name": name, "type": "CNAME", "content": None, "state": "error", "detail": f"restoring the replaced record: {exc}"}

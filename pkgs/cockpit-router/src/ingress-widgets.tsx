@@ -152,6 +152,11 @@ function issueBody(it: IngressIssue): string {
     case "tunnelToken": {
       return _("The tunnel needs a Cloudflare API token file.");
     }
+    case "tunnelNoIngress": {
+      return _(
+        "The tunnel has no hostnames, so its connector doesn't run. Add a hostname and the router creates the tunnel, or reuses the one it already has.",
+      );
+    }
     default: {
       return it.code;
     }

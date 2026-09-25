@@ -43,7 +43,7 @@ Publishing a name doesn't open anything. Traffic to the name still needs a [port
    - **Publish IPv6 (AAAA):** publish AAAA records with the router's and the devices' global IPv6 addresses. On by default.
    - **Proxy through Cloudflare:** orange-cloud the records. Off by default. Only HTTP(S) on Cloudflare's supported ports gets through a proxied name, so leave this off for anything else a port forward exposes.
    - **TTL (seconds):** `1` for Cloudflare's automatic TTL (the default), otherwise 60 to 86400.
-   - **Check every (minutes):** how often the router checks its addresses, from 1 to 1440. The default is 5. The router writes to Cloudflare only when an address changes.
+   - **Check every (minutes):** how often the router checks its addresses, from 1 to 1440. The default is 5. The router writes to Cloudflare only when an address or one of these options changes.
 7. Click **Save & apply**.
 
 The rebuild starts the first update. The **Last update** card below the form doesn't refresh on its own, so click **Update now** or reopen the tab to see the addresses and each record's result. See [Read the last update](#read-the-last-update).
@@ -75,15 +75,16 @@ When the [reverse proxy](/docs/ingress/reverse-proxy/) is enabled and its **Publ
 
 ## Read the last update
 
-The **Last update** card at the bottom of **Network → Dynamic DNS** shows the most recent run. Until a configuration with dynamic DNS enabled has been applied, it says "Dynamic DNS is not running — enable it and apply the configuration." and **Update now** is disabled.
+The **Last update** card at the bottom of **Network → Dynamic DNS** shows the most recent run. Until a configuration with dynamic DNS enabled, or with a token file set, has been applied, it says "Dynamic DNS is not running — enable it and apply the configuration." and **Update now** is disabled. With dynamic DNS off but the token file still set, **Update now** runs the cleanup described in [Turn dynamic DNS off](#turn-dynamic-dns-off).
 
 - **Update now** starts a run and refreshes the card when the run finishes. If the run fails, the card shows "The update run failed" and the reason.
+- A note above **Last run** appears when dynamic DNS was turned off before the upgrade that made turning it off delete the records. It says how to delete them. See [Turned off before the upgrade](#turned-off-before-the-upgrade).
 - **Last run** is the time of the run in UTC, followed by a green **ok** label, or a red label with the error, such as `2 record(s) failed`.
 - **WAN IPv4** is the public IPv4 address the router found. "(behind another NAT — detected via Cloudflare)" after it means the WAN interface holds a private or CGNAT address, so the router asked Cloudflare which address its traffic comes from. See [Behind CGNAT or another router](#behind-cgnat-or-another-router). "none" means no address was found, or **Publish IPv4 (A)** is off.
 - **Router IPv6** is the address used for router names, or "none".
 - The records table has one row per name and record type:
   - **Name**: the public name. For a device name, the host's name follows in parentheses.
-  - **Type**: `A` or `AAAA`. A `CNAME` row appears when a replaced CNAME is put back.
+  - **Type**: `A` or `AAAA`. A `CNAME` row appears for each replaced CNAME when its name is dropped, whether it was put back or not. While a CNAME waits for the tunnel to let go of the name, its row appears on every run (see [Names moved to or from the tunnel](#names-moved-to-or-from-the-tunnel)).
   - **Address**: the address the record should hold.
   - **Result**: what the run did, with a note beside it.
 
@@ -93,7 +94,7 @@ The **Last update** card at the bottom of **Network → Dynamic DNS** shows the 
 | `updated` | The record was changed, or extra records of the same type were deleted. |
 | `unchanged` | The record already matched. A run that didn't need to contact Cloudflare also shows its records as `unchanged`, or `skipped` where there's no address. |
 | `skipped` | There was no address of that family this run, so the record was left as it is. |
-| `removed` | The name or family is no longer configured, so the router's own records were deleted. |
+| `removed` | The name or family is no longer configured, or dynamic DNS was turned off, so the router's own records were deleted. |
 | `error` | The Cloudflare API call failed. The note shows the call and Cloudflare's message. |
 
 ## In the settings file
@@ -139,24 +140,48 @@ The work is done by `router-ddns.service`, a oneshot systemd service that runs t
 - **On demand.** **Update now** starts the same service.
 - **After a failure.** A failed run, for example with Cloudflare or the network down, is retried after 60 seconds. systemd allows at most 5 starts in 15 minutes, so a bad token can't hammer the API.
 
+The service and its timer are installed while dynamic DNS is on, and also while it's off but a token file is still set, so the router can delete its records. With dynamic DNS off, the service runs only if the token file exists: without the token it couldn't delete anything, so systemd skips it rather than fail the apply. See [Turn dynamic DNS off](#turn-dynamic-dns-off).
+
 The service runs as a temporary system user with most privileges removed. It never reads `/etc/router/secrets` itself: systemd hands it the token file as a credential (`LoadCredential`).
 
 ### What it writes to Cloudflare
 
-- **Only what changed.** Each run reads the addresses from the router's interfaces, or from Cloudflare's trace endpoint behind another NAT. It contacts the Cloudflare API only when an address changed, a name or record type was added or removed, the previous run had errors, or 6 hours have passed since the last full check. Otherwise it reports the records as `unchanged` without an API call.
+- **Only what changed.** Each run reads the addresses from the router's interfaces, or from Cloudflare's trace endpoint behind another NAT. It contacts the Cloudflare API only when an address changed, a name or record type was added or removed, **TTL (seconds)** or **Proxy through Cloudflare** changed, the previous run had errors, a replaced CNAME is waiting to be put back, or 6 hours have passed since the last full check. Otherwise it reports the records as `unchanged` without an API call.
 - **A full check every 6 hours.** That check compares every record with what it should be, which repairs records someone edited by hand.
 - **One record per type per name.** If a name holds several A records, the router keeps one, preferring its own, and deletes the rest.
 - **Tagged records.** Records the router writes carry the comment `managed by nixos-router`. An A or AAAA record that already existed at the name is overwritten and tagged. It isn't remembered, so it isn't restored later.
 - **Other types left alone.** Apart from a CNAME (see the next section), other record types at the name, such as MX and TXT, are never touched.
 - **Zones found automatically.** Each name's zone is the longest suffix of the name that is an active zone the token can see. Names can span several zones, as long as the token covers all of them.
 - **A missing family is left alone.** If a family has no usable address during a run, for example while the delegated prefix is briefly lost, its records keep their old address and the result is `skipped`. They aren't deleted.
-- **Removal deletes only the router's records.** When you remove a name, turn off a family, or clear a host's **IPv6 suffix**, the next run deletes the matching records that carry the comment, and nothing else.
+- **Removal deletes only the router's records.** When you remove a name, turn off a family, clear a host's **IPv6 suffix**, or turn dynamic DNS off, the next run deletes the matching records that carry the comment, and nothing else.
 
 ### Names held by a CNAME
 
 DNS allows nothing else beside a CNAME, so Cloudflare would refuse an A record at a name that holds one. When a name has no A or AAAA record yet, the router deletes any CNAME there and remembers it, with its target, TTL, proxying and comment. The note reads, for example, "replaced CNAME → site.example.net (restored if the name is dropped)".
 
-When you later remove the name from the configuration while dynamic DNS is still enabled, the router deletes its own A and AAAA records and puts the CNAME back exactly as it was. The table then shows a `CNAME` row with "restored: the name is no longer configured".
+When you later remove the name from the configuration, or turn dynamic DNS off, the router deletes its own A and AAAA records and puts the CNAME back exactly as it was. The table then shows a `CNAME` row, `created` with "restored: the name is no longer configured". If the same CNAME is already back at the name, put back by hand, the router leaves it as it is, and the row shows `unchanged` with "already back: the name is no longer configured".
+
+A CNAME can't sit beside another CNAME, or beside an A or AAAA record, so the router never puts one back where it would clash. If you put a different CNAME at the name by hand, the router leaves yours, and the row for the remembered CNAME shows `unchanged` with "a CNAME is already back: the name is no longer configured". While the name is still configured, though, the next full check takes it back, and your CNAME is remembered as well. When the name is dropped later, the router puts back only the CNAME it deleted last, your latest choice. The row for the older one shows `unchanged` with "superseded by a CNAME taken over later: the name is no longer configured".
+
+These rules are about records made by hand. A record tagged `managed by nixos-router` at the name is the router's own, never your choice, as the next section explains.
+
+### Names moved to or from the tunnel
+
+The [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/) tags its CNAMEs with the same comment. A name can't be in both at once, but you can move one from the tunnel to dynamic DNS, or back, in a single **Save & apply**. The two services then run in no fixed order, so for a moment the name can still hold the other one's record:
+
+- **Taking the name over.** Dynamic DNS deletes the tunnel's CNAME without remembering it, since it was never yours. The tunnel still remembers the record it replaced there, and puts that back itself once dynamic DNS lets go of the name.
+- **Letting the name go.** If the tunnel already holds the name when dynamic DNS goes to put your CNAME back, dynamic DNS keeps your CNAME rather than dropping it. The row shows `unchanged` with "waiting until the tunnel releases the name", and each later run tries again, including runs with dynamic DNS off. Once the name leaves the tunnel too, the next run puts your CNAME back and the row shows `created`.
+
+The tunnel does the same in the other direction, so moving a name either way keeps a CNAME that was there before the router took it over.
+
+An A or AAAA record the tunnel replaced is different. Dynamic DNS overwrites an existing A or AAAA record of a type it publishes, and doesn't remember it (see [What it writes to Cloudflare](#what-it-writes-to-cloudflare)). So when you move such a name from the tunnel to dynamic DNS, what happens to your record depends on which service runs first:
+
+- **Dynamic DNS first.** The tunnel keeps your record and puts it back once the name leaves dynamic DNS.
+- **The tunnel first.** The tunnel puts your record back at once. Dynamic DNS then overwrites it with the router's address, so your record is lost, and when the name leaves dynamic DNS the router's record is deleted.
+
+If you'll want that A or AAAA record again, note it before you move the name.
+
+State saved by an older version can remember the tunnel's own CNAME at a name. Dynamic DNS never puts that back. The row shows `unchanged` with "the router's own record, not put back: the name is no longer configured".
 
 ### Address detection
 
@@ -167,7 +192,7 @@ When you later remove the name from the configuration while dynamic DNS is still
 ### Status and state files
 
 - `/var/lib/router-ddns/status.json` is the summary of the last run, written after every run, successful or not. The **Last update** card reads it.
-- `/var/lib/router-ddns/state.json` (mode `0600`) holds the zone cache, the set of records the router manages, the last addresses pushed, the time of the last full check, and every CNAME it replaced. Don't delete it: it's the only copy of the replaced CNAMEs.
+- `/var/lib/router-ddns/state.json` (mode `0600`) holds the zone cache, the set of records the router manages, the last records pushed (address, TTL and proxying), the time of the last full check, every CNAME it replaced, and a `version`. Every run with dynamic DNS on sets `version` to `2`, which is what lets a run with it off delete the records. Don't delete the file: it's the only copy of the replaced CNAMEs.
 
 Because the service runs as a dynamic user, the directory really lives at `/var/lib/private/router-ddns`, and `/var/lib/router-ddns` is a link to it. `/var/lib/private` is readable only by root, so read the files with `sudo`:
 
@@ -198,11 +223,33 @@ sudo cat /var/lib/router-ddns/status.json
 }
 ```
 
-`ipv4Source` is `interface` when the address came from the WAN interface, `trace` when it came from Cloudflare, `disabled` when **Publish IPv4 (A)** is off, or the reason the lookup failed, such as `trace failed: ...`.
+`ipv4Source` is `interface` when the address came from the WAN interface, `trace` when it came from Cloudflare, `disabled` when **Publish IPv4 (A)** is off or dynamic DNS is off, or the reason the lookup failed, such as `trace failed: ...`. A `message` field appears only when a run with dynamic DNS off kept records from before the upgrade (see [Turned off before the upgrade](#turned-off-before-the-upgrade)).
 
 ### Turn dynamic DNS off
 
-Turning off **Enable dynamic DNS** removes the service and its timer. Nothing is deleted from Cloudflare: the records keep the last addresses, and replaced CNAMEs aren't restored. To clean up, first remove the names (clear the hosts' **Public hostname**, and turn off **Publish hostnames** on **Ingress → Reverse proxy**) and click **Save & apply**. The run that follows deletes the router's records and puts back any CNAMEs it replaced. Check in the Cloudflare dashboard that they're gone, then turn dynamic DNS off.
+Turning off **Enable dynamic DNS** deletes the router's records from Cloudflare and puts back any CNAMEs they replaced. The router needs the token for that, so the service and its timer stay installed while the token file is set.
+
+1. Switch off **Enable dynamic DNS**, but leave the token file set.
+2. Click **Save & apply**.
+3. The apply runs the cleanup, and **Update now** runs it again. It doesn't look up any address. When the **Last update** card shows **Last run** **ok**, with each record `removed` and each restored CNAME `created`, it's done. A CNAME row with "waiting until the tunnel releases the name" isn't done yet: the tunnel still holds that name, and a later run puts the CNAME back once it lets go (see [Names moved to or from the tunnel](#names-moved-to-or-from-the-tunnel)).
+4. Only then clear **Cloudflare API token file**, if you want to. That removes the service and its timer.
+
+The tab says the same under the switch: "Turning dynamic DNS off keeps the token, so the router can delete its records and put back the CNAMEs they replaced — remove the token only after that has run." Once there's nothing left to delete, later runs do nothing. If the token file itself is gone, systemd skips the service, and nothing is deleted.
+
+:::doc-warning
+If you remove the token before the cleanup has run, the router can't delete anything. The records keep their last addresses, and replaced CNAMEs stay gone, until you fix them in the Cloudflare dashboard.
+:::
+
+### Turned off before the upgrade
+
+Earlier versions left the records in Cloudflare when you turned dynamic DNS off, and said so. If dynamic DNS was already off when the router upgraded to this behavior, the router keeps that promise: it deletes nothing and restores nothing until you ask. Each run with dynamic DNS off makes no change in Cloudflare, logs a note and shows it above **Last run** on the **Last update** card:
+
+```text
+records from before the upgrade are left in Cloudflare, since turning dynamic DNS off used to keep them — to delete them, turn dynamic DNS on and apply, then turn it off and apply again
+```
+
+- **To delete them:** turn on **Enable dynamic DNS** and click **Save & apply**. That run brings the records in line with the settings, as any run with dynamic DNS on does: configured names get the current addresses, and names no longer configured are deleted. Then turn it off, click **Save & apply** again, and follow the steps in [Turn dynamic DNS off](#turn-dynamic-dns-off). A replaced CNAME you already put back by hand doesn't make the cleanup fail: the router doesn't create it a second time (see [Names held by a CNAME](#names-held-by-a-cname)). If you pointed a name that's still configured at a different CNAME by hand instead, the "turn on" step takes that name back: it deletes your CNAME and points the name at the router until the "turn off" step, which then puts your CNAME back rather than the one from before.
+- **To keep them:** do nothing, or clear **Cloudflare API token file** and click **Save & apply**, which removes the service and its timer.
 
 ## LAN clients
 
@@ -261,9 +308,8 @@ A **Check every (minutes)** value outside 1 to 1440 turns the field red, and the
 
 - **Cloudflare only.** There's no support for other DNS providers or for the classic dynamic DNS update protocols.
 - **One set of options for every name.** **Publish IPv4 (A)**, **Publish IPv6 (AAAA)**, **Proxy through Cloudflare** and **TTL (seconds)** apply to all names alike.
-- **Some changes wait for the 6-hour check.** A change to **TTL (seconds)** or **Proxy through Cloudflare** alone doesn't change any address, so it reaches Cloudflare at the next full check, up to 6 hours later. A record edited by hand is also repaired only then.
+- **Hand edits wait for the 6-hour check.** A record edited by hand in Cloudflare is repaired only at the next full check, up to 6 hours later.
 - **Only CNAMEs are restored.** An A or AAAA record the router overwrote is deleted, not restored, when you remove the name.
-- **Turning dynamic DNS off leaves the records.** See [Turn dynamic DNS off](#turn-dynamic-dns-off).
 - **IPv4 behind CGNAT isn't reachable.** See [Behind CGNAT or another router](#behind-cgnat-or-another-router).
 
 ## Troubleshooting
@@ -280,17 +326,22 @@ The note reads `no Cloudflare zone found for nas.example.com — does the token 
 
 ### The run fails with no records
 
-The **Last run** label shows `no Cloudflare API token (router.ddns.cloudflare.apiTokenFile)`, or the run fails before it starts and the journal says systemd couldn't set up the service's credentials. The token file is empty or doesn't exist at the configured path. Click **Set token…** and save the token again.
+The **Last run** label shows `no Cloudflare API token (router.ddns.cloudflare.apiTokenFile)`, or the run fails before it starts and the journal says systemd couldn't set up the service's credentials. The token file is empty or doesn't exist at the configured path. Click **Set token…** and save the token again. With dynamic DNS off, a missing token file doesn't fail the run: systemd skips the service instead.
 
 ### Records don't update
 
 - **The card says dynamic DNS isn't running.** Apply the configuration with dynamic DNS enabled.
-- **Every row is `unchanged`, but the record in Cloudflare differs.** Someone changed the record outside the router, or you changed only **TTL (seconds)** or **Proxy through Cloudflare**. The router doesn't contact Cloudflare until an address changes or the 6-hour check comes round, and that check puts the record right.
+- **Every row is `unchanged`, but the record in Cloudflare differs.** Someone changed the record outside the router. The router doesn't contact Cloudflare until an address or the configuration changes, or the 6-hour check comes round, and that check puts the record right.
 - **A row is `skipped`.** The router had no address of that family. For IPv6, check that the ISP delegates a prefix. For IPv4 behind another NAT, check `ipv4Source` in the status file for a `trace failed` reason.
 - **A device has no AAAA row.** Its host has no **IPv6 suffix**; **Device names** shows it as "A only — no IPv6 suffix".
 - **A device's AAAA address is wrong.** The **IPv6 suffix** isn't what the device actually uses. Set a stable token on the device, or correct the suffix on the **Hosts** page.
 - **The address is right in Cloudflare, but clients still get the old one.** Resolvers keep an answer until its TTL runs out.
 - **Runs stopped after repeated failures.** After 5 starts in 15 minutes, systemd refuses to start the service again, including from **Update now**, until the 15 minutes have passed. Clear it at once with `sudo systemctl reset-failed router-ddns.service`, then check that the timer is still scheduled with `systemctl list-timers router-ddns.timer`, and start it with `sudo systemctl start router-ddns.timer` if it isn't listed.
+
+### Records stay after turning dynamic DNS off
+
+- **The card shows the note "records from before the upgrade are left in Cloudflare…".** Dynamic DNS was turned off before the upgrade, when turning it off kept the records. See [Turned off before the upgrade](#turned-off-before-the-upgrade).
+- **Otherwise,** the token file was cleared or deleted before the cleanup ran, so the service was removed or skipped with nothing deleted. Set the token file again (click **Set token…** if the file is gone), leave **Enable dynamic DNS** off, click **Save & apply**, and wait for a **Last run** **ok** (or click **Update now**). The router still remembers its records and the CNAMEs it replaced, so this run cleans up as usual. If the **Last run** label shows an error instead, fix it as for any other run.
 
 ### Behind CGNAT or another router
 
