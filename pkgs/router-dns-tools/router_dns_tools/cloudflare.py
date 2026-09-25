@@ -117,8 +117,10 @@ class Cloudflare:
                 return cache[candidate]
         raise CloudflareError(f"no Cloudflare zone found for {name} — does the token have Zone:Read on it?")
 
-    def records(self, zone: str, name: str, rtype: str) -> list[dict]:
-        return self.call("GET", f"/zones/{zone}/dns_records", {"name": name, "type": rtype}) or []
+    def records(self, zone: str, name: str, rtype: str | None = None) -> list[dict]:
+        """The records at `name`: those of `rtype`, or of every type."""
+        params = {"name": name} if rtype is None else {"name": name, "type": rtype}
+        return self.call("GET", f"/zones/{zone}/dns_records", params) or []
 
 
 def take_over(
@@ -149,23 +151,55 @@ def take_over(
     return removed
 
 
-def restore(cf: Cloudflare, zone: str, records: list[dict]) -> list[dict]:
-    """Recreate records take_over replaced. Called only once the router's own
-    records at the name are gone, since a CNAME cannot sit beside them.
+def _clash(a: dict, b: dict) -> bool:
+    """Whether two records cannot share a name: a CNAME sits beside no A, AAAA
+    or other CNAME (the rule Cloudflare enforces; MX, TXT and the rest are
+    spared)."""
+    types = {a.get("type"), b.get("type")}
+    return "CNAME" in types and types <= {"A", "AAAA", "CNAME"}
 
-    A record already back at the name (put back by hand, or remembered twice)
-    is left as it is: Cloudflare would refuse the duplicate, and a refusal
-    here fails every later run too, since the entry stays to be retried.
-    Returns the records it created.
+
+def _kind(r: dict) -> str:
+    return "a CNAME" if r.get("type") == "CNAME" else f"an {r.get('type')} record"
+
+
+def restore(cf: Cloudflare, zone: str, records: list[dict]) -> list[tuple[dict, str]]:
+    """Recreate the records take_over replaced at one name, once the router's
+    own records there are gone (a CNAME cannot sit beside them).
+
+    Nothing at the name is overwritten: Cloudflare would refuse a clashing
+    record, and a refusal fails every later run too, since the list stays to
+    be retried. So an entry is left out when it is already back (put back by
+    hand, or remembered twice), when a record it cannot sit beside holds the
+    name (a different CNAME made by hand), or when a later entry supersedes
+    it — take_over appends each record a name loses, so a name taken over
+    again after a hand edit remembers several, and the last is the owner's
+    latest intent.
+
+    Returns each entry, in order, with what became of it: "restored", or why
+    it was left out.
     """
-    created = []
-    for r in records:
-        if any(e.get("content") == r.get("content") for e in cf.records(zone, r["name"], r["type"])):
-            continue
+    present = cf.records(zone, records[0]["name"]) if records else []
+    chosen: list[dict] = []
+    outcomes = []
+    for r in reversed(records):
+        same = any((e.get("type"), e.get("content")) == (r.get("type"), r.get("content")) for e in present + chosen)
+        held = next((e for e in present if _clash(r, e)), None)
+        later = next((c for c in chosen if _clash(r, c)), None)
+        if same:
+            why = "already back"
+        elif held:
+            why = f"{_kind(held)} is already back"
+        elif later:
+            why = f"superseded by {_kind(later)} taken over later"
+        else:
+            why = "restored"
+            chosen.append(r)
+        outcomes.append((r, why))
+    for r in reversed(chosen):
         body = {k: v for k, v in r.items() if v is not None and v != ""}
         cf.call("POST", f"/zones/{zone}/dns_records", body=body)
-        created.append(r)
-    return created
+    return outcomes[::-1]
 
 
 # ── State files ──────────────────────────────────────────────────────────────

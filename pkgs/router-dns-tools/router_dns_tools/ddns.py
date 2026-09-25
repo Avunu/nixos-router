@@ -381,18 +381,17 @@ def run(cfg: dict, force: bool = False) -> int:
                     # Also clears records left from a run whose state was lost.
                     for rtype in ("A", "AAAA"):
                         remove_managed(cf, zone, name, rtype)
-                    created = restore(cf, zone, replaced[name])
-                    for rec in replaced.pop(name):
-                        new = any(c is rec for c in created)
+                    for rec, why in restore(cf, zone, replaced[name]):
                         results.append(
                             {
                                 "name": name,
                                 "type": rec.get("type"),
                                 "content": rec.get("content"),
-                                "state": "created" if new else "unchanged",
-                                "detail": f"{'restored' if new else 'already back'}: the name is no longer configured",
+                                "state": "created" if why == "restored" else "unchanged",
+                                "detail": f"{why}: the name is no longer configured",
                             }
                         )
+                    del replaced[name]
                 except CloudflareError as exc:
                     results.append(
                         {"name": name, "type": "CNAME", "content": None, "state": "error", "detail": f"restoring the replaced record: {exc}"}

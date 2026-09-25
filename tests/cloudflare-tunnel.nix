@@ -11,6 +11,9 @@
 #   • dropping a name deletes its CNAME and restores the A record exactly;
 #   • a tunnel deleted behind the router's back is created again, and the DNS
 #     follows the new id;
+#   • a name edited by hand while the tunnel held it gets back only the
+#     record taken over last, and a dropped name keeps a record put there by
+#     hand that the remembered one cannot sit beside;
 #   • dropping the last hostname releases its CNAME but keeps the tunnel;
 #   • enable=false removes the CNAMEs, deletes the tunnel (cleaning up its
 #     still-open connection first) and the credentials; a second teardown
@@ -174,7 +177,35 @@ pkgs.runCommand "router-cloudflare-tunnel"
     jq -e --arg id "$(tid)" '.ok and .tunnel.id == $id' state/status.json >/dev/null \
       || fail "status.json does not name the new tunnel: $(cat state/status.json)"
 
-    # 5 — the last hostname is dropped: its CNAME goes, the tunnel stays.
+    # 5 — the owner swaps wiki's managed CNAME for one of their own, which the
+    # next sync takes over too: wiki now remembers the A record and then that
+    # CNAME. Dropping wiki restores only the CNAME, taken over last, since the
+    # A record cannot sit beside it (Cloudflare would refuse the second).
+    swap() {
+      r=$(live | jq -r --arg n "$1" '.records[] | select(.name == $n and .comment == "managed by nixos-router") | .id')
+      curl -sf -X DELETE -H 'Authorization: Bearer test-token' "$api/client/v4/zones/zone-1/dns_records/$r" >/dev/null
+      curl -sf -X POST -H 'Authorization: Bearer test-token' -H 'Content-Type: application/json' -d "$2" \
+        "$api/client/v4/zones/zone-1/dns_records" >/dev/null
+    }
+    wikiHost='{"type":"CNAME","name":"wiki.example.com","content":"wiki-host.example.net"}'
+    router-cloudflare-tunnel --config ${both} || fail "taking wiki over again failed"
+    swap wiki.example.com "$wikiHost"
+    router-cloudflare-tunnel --config ${both} || fail "taking the hand-made CNAME over failed"
+    jq -e '.replaced["wiki.example.com"] | map("\(.type) \(.content)") == ["A 192.0.2.10", "CNAME wiki-host.example.net"]' state/state.json >/dev/null \
+      || fail "wiki does not remember both records: $(jq -c .replaced state/state.json)"
+    router-cloudflare-tunnel --config ${appOnly} || fail "dropping wiki with two records remembered failed: $(cat state/status.json)"
+    want "[$(cname app.example.com),$wikiHost,$wikiTXT]" "after dropping wiki with two records remembered"
+
+    # And back: wiki is taken over again (remembering that CNAME), and the
+    # owner puts the A record back by hand. Dropping wiki leaves it as it is.
+    router-cloudflare-tunnel --config ${both} || fail "taking wiki over a third time failed"
+    swap wiki.example.com '{"type":"A","name":"wiki.example.com","content":"192.0.2.10","ttl":300,"proxied":false,"comment":"hand-made"}'
+    router-cloudflare-tunnel --config ${appOnly} || fail "dropping wiki beside a hand-made A record failed: $(cat state/status.json)"
+    want "[$(cname app.example.com),$wikiA,$wikiTXT]" "after dropping wiki beside a hand-made A record"
+    jq -e '.replaced == {} and .managed == ["app.example.com"]' state/state.json >/dev/null \
+      || fail "state still tracks wiki: $(jq -c . state/state.json)"
+
+    # 6 — the last hostname is dropped: its CNAME goes, the tunnel stays.
     kept=$(tid)
     router-cloudflare-tunnel --config ${empty} || fail "the run dropping the last hostname failed"
     [ "$(tid)" = "$kept" ] || fail "the tunnel changed when its last hostname was dropped"
@@ -182,7 +213,7 @@ pkgs.runCommand "router-cloudflare-tunnel"
     jq -e --arg id "$kept" '.ok and .tunnel.id == $id and .records == {} and (has("message") | not)' state/status.json >/dev/null \
       || fail "status.json with the tunnel kept is wrong: $(cat state/status.json)"
 
-    # 6 — disabled: records, tunnel (open connection and all) and credentials go.
+    # 7 — disabled: records, tunnel (open connection and all) and credentials go.
     router-cloudflare-tunnel --config ${off} || fail "the teardown run failed"
     want "[$wikiA,$wikiTXT]" "after teardown"
     live | jq -e '.tunnels | all(.deleted_at != null)' >/dev/null || fail "a tunnel survived teardown: $(live | jq -c .tunnels)"
@@ -193,7 +224,7 @@ pkgs.runCommand "router-cloudflare-tunnel"
     router-cloudflare-tunnel --config ${off} || fail "a second teardown failed"
     [ "$(writes)" = "$before" ] || fail "a second teardown wrote to the API"
 
-    # 7 — a failed run still writes status.json, and exits non-zero.
+    # 8 — a failed run still writes status.json, and exits non-zero.
     rm creds/cf-api-token
     router-cloudflare-tunnel --config ${noToken} && fail "a run without a token succeeded"
     jq -e '.ok == false and (.error | contains("no Cloudflare API token")) and .tunnel == null' state-notoken/status.json >/dev/null \

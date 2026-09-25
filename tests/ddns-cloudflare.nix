@@ -23,7 +23,9 @@
 #     remaining records and restores their CNAMEs without looking up an
 #     address; a second disabled run does nothing;
 #   • a replaced CNAME already put back by hand is left as it is, not
-#     refused as a duplicate.
+#     refused as a duplicate, and so is a different CNAME put there by hand;
+#   • a name taken over again after a hand edit, which remembers two CNAMEs,
+#     gets back only the one taken over last.
 #
 # The sandbox has no WAN, so the IPv4 address comes from the fake's trace
 # endpoint (the path a router behind another NAT takes), and IPv6 is off.
@@ -232,13 +234,17 @@ pkgs.runCommand "router-ddns-cloudflare"
     # 7 — a replaced CNAME someone already put back by hand, as the docs once
     # said to, is left as it is rather than refused as a duplicate (which
     # would fail this run and every one after it).
-    router-ddns --config ${nasOnly} || fail "taking nas.example.com over again failed"
     auth='Authorization: Bearer test-token'
-    a=$(live | jq -r '.records[] | select(.name == "nas.example.com" and .type == "A") | .id')
-    curl -sf -X DELETE -H "$auth" $api/client/v4/zones/zone-1/dns_records/$a >/dev/null
-    curl -sf -X POST -H "$auth" -H 'Content-Type: application/json' \
-      -d '{"type":"CNAME","name":"nas.example.com","content":"old-ddns.example.net","ttl":300,"proxied":false}' \
-      $api/client/v4/zones/zone-1/dns_records >/dev/null
+    # By hand: swap the router's A record at nas.example.com for a CNAME.
+    handCname() {
+      a=$(live | jq -r '.records[] | select(.name == "nas.example.com" and .type == "A") | .id')
+      curl -sf -X DELETE -H "$auth" $api/client/v4/zones/zone-1/dns_records/$a >/dev/null
+      curl -sf -X POST -H "$auth" -H 'Content-Type: application/json' \
+        -d "{\"type\":\"CNAME\",\"name\":\"nas.example.com\",\"content\":\"$1\",\"ttl\":300,\"proxied\":false}" \
+        $api/client/v4/zones/zone-1/dns_records >/dev/null
+    }
+    router-ddns --config ${nasOnly} || fail "taking nas.example.com over again failed"
+    handCname old-ddns.example.net
     router-ddns --config ${off} || fail "restoring a CNAME already put back by hand failed: $(cat state/status.json)"
     want '[{"type":"CNAME","name":"example.com","content":"site.example.net"},{"type":"TXT","name":"example.com","content":"v=spf1 -all"},{"type":"CNAME","name":"nas.example.com","content":"old-ddns.example.net"}]' \
       "after restoring a CNAME already put back by hand"
@@ -246,6 +252,39 @@ pkgs.runCommand "router-ddns-cloudflare"
       || fail "state still tracks the CNAME put back by hand: $(jq -c . state/state.json)"
     jq -e '.ok and ([.records[] | "\(.state) \(.type)"] | sort) == ["removed A", "unchanged CNAME"]' state/status.json >/dev/null \
       || fail "status.json claims the CNAME put back by hand was created: $(cat state/status.json)"
+
+    # 8 — a different CNAME put at the name by hand is left as it is too. A
+    # name holds one CNAME, so Cloudflare would refuse the remembered one.
+    router-ddns --config ${nasOnly} || fail "taking nas.example.com over a third time failed"
+    handCname new-ddns.example.net
+    router-ddns --config ${off} || fail "tearing down beside a different hand-made CNAME failed: $(cat state/status.json)"
+    want '[{"type":"CNAME","name":"example.com","content":"site.example.net"},{"type":"TXT","name":"example.com","content":"v=spf1 -all"},{"type":"CNAME","name":"nas.example.com","content":"new-ddns.example.net"}]' \
+      "after tearing down beside a different hand-made CNAME"
+    jq -e '.managed == [] and .replaced == {}' state/state.json >/dev/null \
+      || fail "state still tracks the CNAME left out: $(jq -c . state/state.json)"
+    jq -e '.ok and [.records[] | select(.type == "CNAME") | [.state, .content, .detail]]
+      == [["unchanged", "old-ddns.example.net", "a CNAME is already back: the name is no longer configured"]]' state/status.json >/dev/null \
+      || fail "status.json does not say the remembered CNAME was left out: $(cat state/status.json)"
+
+    # 9 — a name taken over again after a hand edit remembers each CNAME it
+    # lost. The full check takes over the one put there by hand, so
+    # nas.example.com remembers new-ddns and then old-ddns; teardown restores
+    # only old-ddns, the owner's latest intent, instead of both (Cloudflare
+    # would refuse the second on this run and every one after it).
+    router-ddns --config ${nasOnly} || fail "taking the different hand-made CNAME over failed"
+    handCname old-ddns.example.net
+    router-ddns --force --config ${nasOnly} || fail "the full check over a hand-made CNAME failed"
+    jq -e '.replaced["nas.example.com"] | map(.content) == ["new-ddns.example.net", "old-ddns.example.net"]' state/state.json >/dev/null \
+      || fail "the name does not remember both CNAMEs: $(jq -c .replaced state/state.json)"
+    router-ddns --config ${off} || fail "tearing down with two CNAMEs remembered failed: $(cat state/status.json)"
+    want '[{"type":"CNAME","name":"example.com","content":"site.example.net"},{"type":"TXT","name":"example.com","content":"v=spf1 -all"},{"type":"CNAME","name":"nas.example.com","content":"old-ddns.example.net"}]' \
+      "after tearing down with two CNAMEs remembered"
+    jq -e '.managed == [] and .replaced == {}' state/state.json >/dev/null \
+      || fail "state still tracks CNAMEs after teardown: $(jq -c . state/state.json)"
+    jq -e '.ok and [.records[] | select(.type == "CNAME") | [.state, .content, .detail]]
+      == [["unchanged", "new-ddns.example.net", "superseded by a CNAME taken over later: the name is no longer configured"],
+          ["created", "old-ddns.example.net", "restored: the name is no longer configured"]]' state/status.json >/dev/null \
+      || fail "status.json does not say which CNAME was restored: $(cat state/status.json)"
 
     touch $out
   ''

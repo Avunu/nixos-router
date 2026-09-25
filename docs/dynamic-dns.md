@@ -84,7 +84,7 @@ The **Last update** card at the bottom of **Network → Dynamic DNS** shows the 
 - **Router IPv6** is the address used for router names, or "none".
 - The records table has one row per name and record type:
   - **Name**: the public name. For a device name, the host's name follows in parentheses.
-  - **Type**: `A` or `AAAA`. A `CNAME` row appears when a replaced CNAME is put back.
+  - **Type**: `A` or `AAAA`. A `CNAME` row appears for each replaced CNAME when its name is dropped, whether it was put back or not.
   - **Address**: the address the record should hold.
   - **Result**: what the run did, with a note beside it.
 
@@ -161,6 +161,8 @@ DNS allows nothing else beside a CNAME, so Cloudflare would refuse an A record a
 
 When you later remove the name from the configuration, or turn dynamic DNS off, the router deletes its own A and AAAA records and puts the CNAME back exactly as it was. The table then shows a `CNAME` row, `created` with "restored: the name is no longer configured". If the same CNAME is already back at the name, put back by hand, the router leaves it as it is, and the row shows `unchanged` with "already back: the name is no longer configured".
 
+A CNAME can't sit beside another CNAME, or beside an A or AAAA record, so the router never puts one back where it would clash. If you put a different CNAME at the name by hand, the router leaves yours, and the row for the remembered CNAME shows `unchanged` with "a CNAME is already back: the name is no longer configured". While the name is still configured, though, the next full check takes it back, and your CNAME is remembered as well. When the name is dropped later, the router puts back only the CNAME it deleted last, your latest choice. The row for the older one shows `unchanged` with "superseded by a CNAME taken over later: the name is no longer configured".
+
 ### Address detection
 
 - **WAN IPv4:** the WAN interface's global address, unless it's in `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10` (CGNAT), `169.254.0.0/16` or `127.0.0.0/8`. Then the router is behind another NAT, and it asks Cloudflare's trace endpoint, `https://1.1.1.1/cdn-cgi/trace`, which answers with the address the request came from.
@@ -226,7 +228,7 @@ Earlier versions left the records in Cloudflare when you turned dynamic DNS off,
 records from before the upgrade are left in Cloudflare, since turning dynamic DNS off used to keep them — to delete them, turn dynamic DNS on and apply, then turn it off and apply again
 ```
 
-- **To delete them:** turn on **Enable dynamic DNS** and click **Save & apply**. That run brings the records in line with the settings, as any run with dynamic DNS on does: configured names get the current addresses, and names no longer configured are deleted. Then turn it off, click **Save & apply** again, and follow the steps in [Turn dynamic DNS off](#turn-dynamic-dns-off). A replaced CNAME you already put back by hand doesn't make the cleanup fail: the router doesn't create it a second time (see [Names held by a CNAME](#names-held-by-a-cname)).
+- **To delete them:** turn on **Enable dynamic DNS** and click **Save & apply**. That run brings the records in line with the settings, as any run with dynamic DNS on does: configured names get the current addresses, and names no longer configured are deleted. Then turn it off, click **Save & apply** again, and follow the steps in [Turn dynamic DNS off](#turn-dynamic-dns-off). A replaced CNAME you already put back by hand doesn't make the cleanup fail: the router doesn't create it a second time (see [Names held by a CNAME](#names-held-by-a-cname)). If you pointed a name that's still configured at a different CNAME by hand instead, the "turn on" step takes that name back: it deletes your CNAME and points the name at the router until the "turn off" step, which then puts your CNAME back rather than the one from before.
 - **To keep them:** do nothing, or clear **Cloudflare API token file** and click **Save & apply**, which removes the service and its timer.
 
 ## LAN clients

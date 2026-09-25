@@ -1,9 +1,10 @@
 """Just enough of the Cloudflare v4 API for router-ddns and
 router-cloudflare-tunnel, in memory.
 
-Zone lookup, dns_records list/create/patch/delete, the IPv4 trace endpoint, and
-the one DNS rule that bit a real deployment: a CNAME cannot share its name with
-an A, AAAA or other CNAME record, so Cloudflare refuses the combination.
+Zone lookup, dns_records list/create/patch/delete (a list is by name, and by
+type when one is given), the IPv4 trace endpoint, and the one DNS rule that bit
+a real deployment: a CNAME cannot share its name with an A, AAAA or other CNAME
+record, so Cloudflare refuses the combination.
 
 Tunnels (/accounts/{acct}/cfd_tunnel): create, get, list (?name=,
 ?is_deleted=), delete — which, like Cloudflare, marks the tunnel deleted_at
@@ -111,7 +112,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply([ZONE] if q.get("name") == ZONE["name"] else [])
         if u.path == RECORDS_PATH:
             return self.reply(
-                [r for r in records.values() if r["name"] == q.get("name") and r["type"] == q.get("type")]
+                [r for r in records.values() if r["name"] == q.get("name") and q.get("type") in (None, r["type"])]
             )
         if u.path == TUNNELS_PATH:
             found = [
