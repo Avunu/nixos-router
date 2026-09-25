@@ -12,6 +12,7 @@ code:
   - pkgs/cockpit-router/src/nix.ts
   - pkgs/cockpit-router/src/schema.ts
   - pkgs/cockpit-router/src/settings-json.ts
+  - pkgs/cockpit-router/src/settings-read.ts
   - pkgs/cockpit-router/src/network.tsx
 ---
 
@@ -38,7 +39,7 @@ Sign in with the admin account (`adminUser.name`, `admin` by default) and its pa
 - **Slow retries.** Each failed password costs a short delay, so the login can't be guessed at network speed.
 
 :::doc-note
-Saving and applying need administrative access. If Cockpit's top bar shows **Limited access**, click it and enter your password.
+The router pages need administrative access. If Cockpit's top bar shows **Limited access**, click it and enter your password. Without it, saving and applying fail. If only root can read the settings file, as after a network install (`local/deploy.sh`), the pages can't even load it: each settings form is replaced by "Administrative access is needed to read and change the router settings.", and **Apply configuration** on the **System** page is disabled. Once you switch, the pages load the settings again on their own, with no need to reload the page.
 :::
 
 ## The router pages
@@ -87,9 +88,9 @@ It lists the top-level settings that differ and offers two actions:
   nixos-rebuild switch --flake /etc/nixos#<hostName> --impure
   ```
   The build log streams into the tray while "Applying configuration…" is shown, and **Cancel** stops it. It ends with "Configuration applied." or "Apply failed."; **Dismiss** hides the result. If the build fails, the running system stays as it was.
-- **Revert** writes the last-applied settings back to the file and discards everything saved since.
+- **Revert** writes the last-applied settings back to the file and discards everything saved since. It only appears when the UI has a copy of the last-applied settings to go back to.
 
-The tray compares the settings file with a snapshot the UI writes after each successful apply, `/var/lib/cockpit-router/applied.json`. When the running system was built after the file's last change, for example by the nightly upgrade or a rebuild from the shell, the tray treats the file itself as applied.
+The tray compares the settings file with a snapshot the UI writes after each successful apply, `/var/lib/cockpit-router/applied.json`. When the running system was built after the file's last change, for example by the nightly upgrade or a rebuild from the shell, the tray treats the file itself as applied. While the settings file can't be read, the tray stays hidden.
 
 ## Validation
 
@@ -114,5 +115,6 @@ The UI finds locked fields by comparing the last-applied file with the values th
 
 - **The login page doesn't load.** Check that you are on the LAN or a WireGuard tunnel, not the guest network, and that you used `https://`.
 - **Cockpit won't sign in or connect under one name but works under another.** The failing name isn't one of the allowed origins, for example the router's public name. Use one of the addresses under [Sign in](#sign-in), or add the name to `router.cockpit.allowedOrigins` in the host flake.
+- **A page says "Administrative access is needed to read and change the router settings."** The session has Limited access, and the page either can't read the settings file or tried to save it. Click **Limited access** in the top bar and enter your password. The page loads the settings again by itself. The UI never saves on top of settings it couldn't read, so nothing was lost.
 - **Save fails with "Configuration does not match the schema".** The line after it names the setting and the problem. Fix that field; if the path points at a value you didn't touch, the file was edited by hand.
 - **Apply fails.** Scroll the tray's log to the first `error:` line. An assertion message names the setting to fix. A build that fails changes nothing on the running system, so fix the setting, save and apply again, or use **Revert**.

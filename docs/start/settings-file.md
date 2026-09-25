@@ -8,6 +8,7 @@ code:
   - modules/dns-technitium.nix
   - pkgs/cockpit-router/src/nix.ts
   - pkgs/cockpit-router/src/settings-json.ts
+  - pkgs/cockpit-router/src/settings-read.ts
   - pkgs/cockpit-router/src/ddns.ts
   - pkgs/cockpit-router/src/ingress-runtime.ts
   - pkgs/cockpit-router/src/ingress-widgets.tsx
@@ -43,6 +44,8 @@ The file is a single JSON object. Each top-level key is one of the router module
 A key you leave out takes the option's default. Unknown keys are rejected: the web UI refuses to save a file with a key the schema doesn't know, and the build fails on an option that doesn't exist.
 
 Cockpit writes the file with two-space indentation. You can edit it by hand as root; the changes tray then lists what you changed, and **Apply** checks the file against the schema before it builds.
+
+Every save replaces the whole file, so the web UI only saves on top of a file it has read. A missing or empty file counts as an empty object. A file it can't read is an error on the page, never an empty form: the page shows why and offers no **Save** until it can read the file again. That happens when only root can read the file and Cockpit has Limited access (see [The web UI](/docs/start/cockpit/#sign-in)), or when a hand edit left it invalid JSON, which the page reports as "/etc/nixos/router-settings.json is not valid JSON".
 
 ## How the build reads it
 

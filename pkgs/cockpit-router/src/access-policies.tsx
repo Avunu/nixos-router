@@ -47,7 +47,7 @@ import {
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import { useSettings, ListEditor, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
-import { errMsg, setPath, writeDesired } from "./nix";
+import { errMsg, setPath } from "./nix";
 import { loadDirectoryAll } from "./directory";
 import type { Json } from "./nix";
 import { exceptionRequests, setExceptionStatus } from "./logd";
@@ -1337,7 +1337,7 @@ const ExceptionsTab = ({
     };
     // Persist the settings JSON directly (the working-copy save would race the
     // state update); the user still applies the change from the tray.
-    writeDesired(setPath(s.desired, "accessPolicies", next as unknown as Json))
+    s.write(setPath(s.desired, "accessPolicies", next as unknown as Json))
       .then(() => setExceptionStatus(req.id, "approved"))
       .then(() => {
         setActionStatus({
@@ -1390,6 +1390,15 @@ const ExceptionsTab = ({
           </Alert>
         </StackItem>
       )}
+      {/* Approving writes the settings file, so it waits until it can be read;
+          denying only touches router-logd. */}
+      {s.error && (
+        <StackItem>
+          <Alert variant="danger" title={_("Could not load settings")} isInline>
+            {s.error}
+          </Alert>
+        </StackItem>
+      )}
       {actionStatus && (
         <StackItem>
           <Alert
@@ -1430,7 +1439,7 @@ const ExceptionsTab = ({
                       variant="primary"
                       onClick={approve}
                       isLoading={busy}
-                      isDisabled={busy || !target}
+                      isDisabled={busy || !target || !s.ready}
                     >
                       {_("Approve")}
                     </Button>
@@ -1500,7 +1509,7 @@ const ExceptionsTab = ({
                         <Button
                           variant="link"
                           isInline
-                          isDisabled={busy}
+                          isDisabled={busy || !s.ready}
                           onClick={() => startApprove(r)}
                         >
                           {_("Approve")}
