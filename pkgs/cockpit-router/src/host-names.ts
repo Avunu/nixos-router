@@ -1,7 +1,8 @@
 // Device-name rules that need no browser, mirroring modules/hosts.nix: a name
 // is strMatching "[A-Za-z0-9][A-Za-z0-9_. -]*" and unique among router.hosts.
-// The committed schema drops the pattern, so without these the Hosts editor
-// would let through a name that only the rebuild refuses.
+// The committed schema carries the pattern, so Ajv also refuses a bad name on
+// save; these checks say which rule failed inline, as the user types, and catch
+// duplicate names, which the schema can't.
 //
 // Checks return a code rather than a sentence, so this module stays free of
 // `cockpit` (node --test runs it); hosts.tsx turns them into translated text.

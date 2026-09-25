@@ -99,11 +99,11 @@
         {
           inherit nixpkgs self;
           system = "x86_64-linux";
-          installModules = [
-            self.nixosModules.router
-            # Package-typed / Nix-only bits the JSON schema deliberately drops.
-            { router.cockpit.enable = true; }
-          ];
+          # Nothing else goes here: the router's /etc/nixos flake imports only
+          # nixosModules.router and the settings file, so a Nix-only setting
+          # added alongside would be lost on the first rebuild. Make it the
+          # module's default instead (as router.cockpit.enable is).
+          installModules = [ self.nixosModules.router ];
           optionRoots = [ "router" ];
           flakeStyle = "local";
           upstream = "github:Avunu/nixos-router";
