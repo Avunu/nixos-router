@@ -19,6 +19,12 @@
 # (see `_settingsFile` in modules/system.nix), so Cockpit — which validates
 # against the current schema — never sees the old shape either.
 #
+# The one exception is a retired key that was seeded into every new install's
+# settings file: routers installed before this loader feed their JSON to the
+# module directly, so no migration reaches them. Such an option stays declared
+# as well, hidden (visible = false keeps it out of the schema) and ignored,
+# next to its migration — see dns.technitium.listenPort.
+#
 # Every migration takes and returns the raw settings attrset and must be
 # idempotent: all of them run on every evaluation, including over JSON that is
 # already current. A migration that cannot produce a valid current shape must
@@ -77,7 +83,9 @@ let
   # on 53, the only port clients can be pointed at.
   #   { dns.technitium = { listenPort = 53; ... }; } → { dns.technitium = { ... }; }
   # Any other value broke DNS, since clients still query :53, so dropping the
-  # key restores what they expect rather than guessing.
+  # key restores what they expect rather than guessing. New installs were
+  # seeded with the key, so modules/dns-technitium.nix also keeps an ignored,
+  # hidden listenPort option for routers that bypass this loader.
   dropDnsListenPort =
     settings:
     let

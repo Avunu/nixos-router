@@ -5,6 +5,7 @@ code:
   - lib/settings.nix
   - local/flake.nix
   - modules/system.nix
+  - modules/dns-technitium.nix
   - pkgs/cockpit-router/src/nix.ts
   - pkgs/cockpit-router/src/settings-json.ts
   - pkgs/cockpit-router/src/ddns.ts
@@ -163,3 +164,5 @@ Nothing is switched, so the running system is unaffected. Fix `/etc/nixos/flake.
    sudo nixos-rebuild switch --flake /etc/nixos#router --impure
    ```
    Use your router's `hostName` in place of `router`. Don't rely on `system-upgrade` here: it skips the rebuild when the lock file is unchanged, and the failed upgrade has usually updated it already.
+
+The removed `dns.technitium.listenPort` doesn't stop these routers. Routers were installed with `"listenPort": 53` in their settings, so the module still accepts the key and ignores it. Any other value builds with a warning that it is ignored.

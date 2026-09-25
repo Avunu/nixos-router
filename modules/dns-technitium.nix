@@ -99,7 +99,8 @@ let
   #
   # The port is fixed at 53 rather than an option: DHCP gives clients a DNS
   # server's address but no port, and the firewall's DNS redirect and
-  # Suricata's DNS_PORTS assume 53 too.
+  # Suricata's DNS_PORTS assume 53 too. (technitium.listenPort survives only
+  # as an ignored compatibility shim; see its declaration.)
   listenEndpoints = [
     "0.0.0.0:53"
     "[::]:53"
@@ -799,6 +800,23 @@ in
         defaultText = literalExpression "pkgs.technitium-dns-server";
         description = "Technitium DNS Server package.";
       };
+      # Retired: the listeners are fixed at :53 (listenEndpoints). Kept, hidden
+      # and inert, only because routers installed before lib.settingsModule
+      # feed router-settings.json to this module directly, and their seeded
+      # file carries "listenPort": 53 that the loader's migration never
+      # reaches. Dropping the option stopped their nightly upgrade on an
+      # unknown option.
+      listenPort = mkOption {
+        type = types.port;
+        default = 53;
+        visible = false;
+        description = ''
+          Ignored. Technitium always listens on port 53, the only port DHCP
+          clients and the firewall's DNS redirect use. Kept so settings files
+          written before the settings loader, which still carry the key, keep
+          evaluating.
+        '';
+      };
       webPort = mkOption {
         type = types.port;
         default = 5380;
@@ -884,6 +902,13 @@ in
           domain apex. The router serves it as a conditional-forwarder zone, so other
           names under it still resolve upstream — but every internal client now takes
           this answer for the apex itself.
+        ''
+        # Unconditional: the key is ignored whichever resolver answers :53.
+        ++ optional (tcfg.listenPort != 53) ''
+          router.dns.technitium.listenPort = ${toString tcfg.listenPort} is ignored: Technitium
+          always listens on port 53, the only port DHCP clients and the firewall's DNS
+          redirect use. Remove the key from router-settings.json, or load the file
+          through nixos-router.lib.settingsModule, which drops it.
         '';
     }
 

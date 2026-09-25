@@ -4,6 +4,7 @@ description: How to change the shape of a router option safely, with a loader mi
 code:
   - lib/settings.nix
   - modules/system.nix
+  - modules/dns-technitium.nix
   - tests/settings-loader.nix
   - flake.nix
 ---
@@ -21,6 +22,8 @@ Change the option to its new shape only, and upgrade the old shape in the loader
 - **The options describe only the current format,** and so does the Cockpit schema generated from them. The web UI validates the file against that schema, so it could not edit an old-shape file anyway.
 - **Old files are rewritten once.** After the first rebuild, the file on disk is in the current format, and nothing else ever has to know about the old one.
 - **Routers keep upgrading.** Routers rebuild from `main` every night, and their files may hold any older shape. A migration upgrades them in place; a missing one stops their upgrades with an unknown-option error.
+
+**The one exception** is a key that new installs were seeded with. Routers installed before the loader apply their JSON to the module directly, so no migration reaches them, and removing the option would stop their upgrades. Keep that option declared as well: hidden with `visible = false`, so the schema leaves it out, its value ignored, and a warning when it holds anything but the seeded value. `dns.technitium.listenPort` is one. `dropDnsListenPort` removes it from files the loader reads, and `modules/dns-technitium.nix` still declares it.
 
 User-facing behavior, including what an admin sees, is described in [The settings file](/docs/start/settings-file/#automatic-migrations).
 

@@ -10,6 +10,9 @@
 #   • a migration that cannot resolve an entry stops evaluation (an upgrade
 #     that stops leaves the running system alone) instead of guessing;
 #   • a router evaluating an old-shape file builds, and forwards as before;
+#   • a router installed before the loader, which applies its JSON directly,
+#     still evaluates the retired DNS listen port every install was seeded
+#     with, which stays ignored and warns unless it is 53;
 #   • the activation step really rewrites the file on disk — run here against
 #     a copy — keeps a backup and the file's mode, and never touches a file
 #     edited since the evaluation.
@@ -67,21 +70,18 @@ let
     portForwards = [ (legacyForward // { destination = "10.48.4.77"; }) ];
   };
 
-  # The router, built from an old-shape file through the loader. The settings
-  # path is relative so the activation snippet can be run in the build dir.
-  legacyFile = builtins.toFile "router-settings.json" (builtins.toJSON legacy);
-  sys =
+  # A router with the test machine's stand-ins, plus `modules`.
+  evalRouter =
+    modules:
     (import "${pkgs.path}/nixos/lib/eval-config.nix" {
       inherit (pkgs.stdenv.hostPlatform) system;
       modules = [
         routerModule
-        (settingsModule legacyFile)
         (
           { lib, ... }:
           {
             router.wan.interface = "eth1";
             router.lan.interfaces = [ "eth2" ];
-            router.cockpit.settingsFile = "router-settings.json";
             disko.enableConfig = lib.mkForce false;
             boot.loader.systemd-boot.enable = lib.mkForce false;
             boot.loader.grub.enable = lib.mkForce false;
@@ -91,10 +91,43 @@ let
             };
           }
         )
-      ];
+      ]
+      ++ modules;
     }).config;
+  failedAssertionsOf = s: map (a: a.message) (lib.filter (a: !a.assertion) s.assertions);
 
-  failedAssertions = map (a: a.message) (lib.filter (a: !a.assertion) sys.assertions);
+  # The router, built from an old-shape file through the loader. The settings
+  # path is relative so the activation snippet can be run in the build dir.
+  legacyFile = builtins.toFile "router-settings.json" (builtins.toJSON legacy);
+  sys = evalRouter [
+    (settingsModule legacyFile)
+    { router.cockpit.settingsFile = "router-settings.json"; }
+  ];
+
+  failedAssertions = failedAssertionsOf sys;
+
+  # A router installed before the loader: its flake applies the JSON straight
+  # to the module (`{ router = lib.mkDefault settings; }`), so no migration
+  # runs, and every seeded file carries the retired DNS listen port.
+  preLoader =
+    port:
+    evalRouter [
+      (
+        { lib, ... }:
+        {
+          router = lib.mkDefault (lib.recursiveUpdate baseSettings { dns.technitium.listenPort = port; });
+        }
+      )
+    ];
+  preLoaderSeeded = preLoader 53;
+  preLoaderMoved = preLoader 5353;
+  listenPortWarnings = s: lib.filter (lib.hasInfix "router.dns.technitium.listenPort") s.warnings;
+  # What router-technitium-reconcile sets Technitium's listeners to.
+  endpointsOf =
+    s:
+    (builtins.fromJSON (builtins.unsafeDiscardStringContext s.router._dnsToolsConfig.text))
+    .settings.dnsServerLocalEndPoints;
+
   # A plain-string activation entry stays a string; a { text; } one does not.
   activationEntry = sys.system.activationScripts.routerSettingsMigrate or null;
   activation =
@@ -181,6 +214,29 @@ let
       name = "legacy-file-still-forwards";
       ok = lib.hasInfix ''tcp dport { 5080, 5443 } dnat ip to 10.48.4.2 comment "Synology DSM"'' sys.networking.nftables.ruleset;
       detail = "the upgraded forward does not DNAT to the reserved address";
+    }
+    {
+      # Evaluating is the check: without the shim the seeded key is an
+      # unknown option, and this aborts with Nix's own error naming it.
+      name = "pre-loader-listen-port-evaluates";
+      ok = failedAssertionsOf preLoaderSeeded == [ ];
+      detail = "assertions failed: ${lib.concatStringsSep " | " (failedAssertionsOf preLoaderSeeded)}";
+    }
+    {
+      # Every pre-loader router carries 53, so it must not warn.
+      name = "pre-loader-listen-port-53-quiet";
+      ok = listenPortWarnings preLoaderSeeded == [ ];
+      detail = "warned: ${lib.concatStrings (listenPortWarnings preLoaderSeeded)}";
+    }
+    {
+      name = "pre-loader-listen-port-other-warns";
+      ok = lib.any (lib.hasInfix "listenPort = 5353 is ignored") (listenPortWarnings preLoaderMoved);
+      detail = "no warning that listenPort = 5353 is ignored; warnings: ${lib.concatStrings preLoaderMoved.warnings}";
+    }
+    {
+      name = "pre-loader-listen-port-inert";
+      ok = endpointsOf preLoaderMoved == "0.0.0.0:53,[::]:53";
+      detail = "listenPort = 5353 moved Technitium to ${endpointsOf preLoaderMoved}";
     }
     {
       name = "activation-rewrites-file";
