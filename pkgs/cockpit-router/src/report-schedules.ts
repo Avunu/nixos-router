@@ -1,7 +1,9 @@
 // Scheduled-report rules that need no browser: the default name for a new
 // schedule, and the checks modules/reporting.nix applies to a schedule on
-// rebuild. The committed schema drops `types.strMatching` patterns, so Ajv
-// lets a bad name or time through and only the rebuild would catch it.
+// rebuild. The committed schema carries the same `types.strMatching`
+// patterns, so Ajv also refuses a bad name or time on save; these checks say
+// which rule failed inline, as the user types, and catch duplicate names,
+// which the schema can't.
 //
 // Checks return a code rather than a sentence, so this module stays free of
 // `cockpit` (node --test runs it); reports.tsx turns them into translated text.
