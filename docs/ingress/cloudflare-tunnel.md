@@ -53,8 +53,8 @@ The trade-offs: Cloudflare ends TLS at its edge and sees the traffic decrypted, 
 The **Tunnel status** card shows the result of the last sync:
 
 - **Last sync:** when it ran, and **ok** or the error.
-- **Tunnel:** the tunnel's name, its status from Cloudflare (green when **healthy**), and its ID.
-- **Connector:** the state of the `cloudflared-tunnel-<host name>.service` unit, such as **active**.
+- **Tunnel:** the tunnel's name, its status from Cloudflare (green when **healthy**), and its ID. It shows "none" when there's no tunnel, with "add a hostname to create the tunnel" beneath it while there are no hostnames yet.
+- **Connector:** the state of the `cloudflared-tunnel-<host name>.service` unit, such as **active**. It's **inactive** while the tunnel has no hostnames, because the connector only runs once there's one to serve.
 - **Connections:** one row per connection to Cloudflare, with **Data center**, **Origin IP**, **Opened** and **Version**.
 - **DNS records:** one row per hostname, **ok** or **error**, with what the last sync did, such as `created`, `unchanged`, or a note that an existing record was replaced.
 
@@ -67,11 +67,11 @@ The raw status is in `/var/lib/router-cloudflared/status.json`.
 Two services do the work:
 
 - **`router-cloudflare-tunnel.service`** talks to the Cloudflare API. It runs at boot and on every apply, then from a timer 2 minutes after boot and every 5 minutes after that (with up to 30 seconds of random delay). If a run fails, it retries after a minute.
-- **`cloudflared-tunnel-<host name>.service`** is the connector. It holds the connections to Cloudflare and passes requests to the hosts.
+- **`cloudflared-tunnel-<host name>.service`** is the connector. It holds the connections to Cloudflare and passes requests to the hosts. It's installed only while the tunnel is on and has at least one hostname.
 
 On each run, the sync service does the following:
 
-- **Account:** it uses the Cloudflare account that owns the zone of the first hostname.
+- **Account:** it uses the Cloudflare account that owns the zone of the first hostname. With no hostnames, it keeps the tunnel it already has. With no hostnames and no tunnel yet, it creates nothing: the run succeeds, and **Tunnel** shows "none" with "add a hostname to create the tunnel".
 - **Tunnel:** it creates a locally managed tunnel named after the router, if there isn't one yet. The tunnel secret is generated on the router and leaves it only in that one API call. The credentials go to `/var/lib/router-cloudflared/credentials.json`, readable by root only, and the connector receives them from systemd. The connector's routing rules come from the router's configuration, not from the Cloudflare dashboard.
 - **DNS:** it keeps one proxied CNAME per hostname, pointing at `<tunnel id>.cfargotunnel.com`, with the comment `managed by nixos-router`. An A, AAAA or CNAME record already at that name is replaced and remembered, and put back when you remove the name from the tunnel.
 - **Drift:** it recreates a tunnel deleted in the dashboard, moves the records to the new tunnel, and repairs records edited by hand.
@@ -157,6 +157,8 @@ Cockpit shows these before you apply, and the rebuild enforces them.
 
 In the Cockpit form, a missing host gives "Choose the host to send the traffic to.", and a port outside 1 to 65535 gives "Enter a port between 1 and 65535."
 
+With the tunnel on and no hostnames, the rebuild only warns: `router.cloudflareTunnel is enabled with no ingress hostnames, so no connector runs; the tunnel is created (or the existing one reused) once a hostname is added.` Cockpit shows the same under **Check the tunnel configuration**: "The tunnel has no hostnames, so its connector doesn't run. Add a hostname and the router creates the tunnel, or reuses the one it already has."
+
 ## Troubleshooting
 
 Sync errors appear in **Last sync** and in `journalctl -u router-cloudflare-tunnel`.
@@ -167,6 +169,6 @@ Sync errors appear in **Last sync** and in `journalctl -u router-cloudflare-tunn
 | `no Cloudflare zone found for HOSTNAME — does the token have Zone:Read on it?` | The name isn't in an active zone that the token can read. | Add the zone to the token, or fix the name. |
 | `no Cloudflare API token (apiTokenFile)` | The token file is empty. | Click **Set token…** and save the token again. |
 | **Sync now** fails, and **Last sync** doesn't change | The token file is missing, so systemd can't start the sync service at all; `journalctl -u router-cloudflare-tunnel` shows a credentials error. | Click **Set token…** and save the token again. |
-| `no hostnames and no existing tunnel: cannot tell which Cloudflare account to use` | The tunnel is on but has no hostnames, and was never created. | Add a hostname. |
+| **Last sync** is **ok**, but **Tunnel** shows "none" with "add a hostname to create the tunnel" | The tunnel is on but has no hostnames, and was never created. The router waits for a hostname, since there's nothing to serve and no zone to tell it which account to use. | Add a hostname. |
 | A hostname shows **error** under DNS records | The token lacks **Zone → DNS → Edit** on that name's zone, or the API refused the change. | Read the message next to it, fix the token's scopes, and click **Sync now**. |
-| **Connector** isn't **active** | `cloudflared` can't reach Cloudflare, or has no credentials yet. | Check `journalctl -u cloudflared-tunnel-router` (with your router's host name). It keeps retrying every 30 seconds. |
+| **Connector** isn't **active** | The tunnel has no hostnames, so no connector runs. Or `cloudflared` can't reach Cloudflare, or has no credentials yet. | Add a hostname. Otherwise check `journalctl -u cloudflared-tunnel-router` (with your router's host name); it keeps retrying every 30 seconds. |

@@ -59,7 +59,7 @@ A reverse proxy route whose certificate uses the Cloudflare DNS challenge proves
 
 ## Cloudflare Tunnel
 
-The router creates and owns the tunnel through the API. It looks up the zone of the first tunnel hostname, which also tells it the account that owns the zone. In that account it creates a tunnel named after the router, watches its connections, and deletes it when you turn the tunnel off. It also keeps one proxied CNAME per hostname pointing at the tunnel, replacing any A, AAAA or CNAME record already at the name.
+The router creates and owns the tunnel through the API. It looks up the zone of the first tunnel hostname, which also tells it the account that owns the zone, so it creates nothing until there's a hostname. In that account it creates a tunnel named after the router, watches its connections, and deletes it when you turn the tunnel off. It also keeps one proxied CNAME per hostname pointing at the tunnel, replacing any A, AAAA or CNAME record already at the name.
 
 - **Permissions:** "Create a token in the Cloudflare dashboard (My Profile → API Tokens) with Account → Cloudflare Tunnel → Edit, plus Zone → Zone → Read and Zone → DNS → Edit on the zones of the tunnel's hostnames." The account permission must cover the account that owns those zones. There's no account ID to enter.
 - **Where:** **Ingress → Tunnel**, **Cloudflare API token file**, then **Set token…**.

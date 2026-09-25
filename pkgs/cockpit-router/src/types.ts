@@ -254,6 +254,8 @@ export interface TunnelStatus {
   ok?: boolean;
   error?: string | null;
   tunnel?: { id: string; name: string; status: string } | null;
+  // Set while there are no hostnames and no tunnel yet: why there is none.
+  message?: string;
   connections?: TunnelConnection[];
   records?: Record<string, { ok: boolean; message: string }>;
 }

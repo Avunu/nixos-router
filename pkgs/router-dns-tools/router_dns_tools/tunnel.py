@@ -21,7 +21,10 @@ the tunnel, and the credentials — and does nothing at all when there is
 nothing recorded to tear down.
 
 The account is the one owning the zone of the first hostname; with no
-hostnames the one recorded in state.json is used.
+hostnames, the existing tunnel's. With no hostnames and no tunnel yet there is
+nothing to serve and no zone to name the account, so the run reports itself
+idle and succeeds without creating one; the tunnel is created once a hostname
+is added.
 
 State directory:
   credentials.json — cloudflared's tunnel credentials
@@ -57,6 +60,7 @@ from .cloudflare import (
 
 TUNNEL_DOMAIN = "cfargotunnel.com"
 PROG = "router-cloudflare-tunnel"
+IDLE = "add a hostname to create the tunnel"
 
 
 def _iso(ts: float) -> str:
@@ -233,9 +237,19 @@ def apply(cf: Cloudflare, cfg: dict, state: dict, creds_file: Path, status: dict
     part-way still reports what was reached."""
     records = status["records"]
     hostnames = _hostnames(cfg)
-    acct = _account(cf, state, load_json(creds_file), hostnames)
+    creds = load_json(creds_file)
+    if not hostnames and not (state.get("tunnelId") or creds.get("TunnelID")):
+        # Nothing to serve and no tunnel to keep: wait for a hostname instead
+        # of creating a tunnel that serves nothing. Names a failed teardown
+        # left behind are still released.
+        dropped = sorted(set(state.get("managed", [])) | set(state.get("replaced", {})))
+        state["managed"] = release_all(cf, state, dropped, records)
+        status["message"] = IDLE
+        print(f"{PROG}: no hostnames and no tunnel — {IDLE}", file=sys.stderr)
+        return
+    acct = _account(cf, state, creds, hostnames)
     if not acct:
-        raise CloudflareError("no hostnames and no existing tunnel: cannot tell which Cloudflare account to use")
+        raise CloudflareError("the tunnel has no recorded account — add a hostname, whose zone names the account")
     state["accountId"] = acct
 
     tunnel, how = ensure_tunnel(cf, acct, cfg["name"], creds_file)

@@ -85,7 +85,8 @@ export type IssueCode =
   | "acmeEmail"
   | "publishWithoutDdns"
   | "forwardOnWeb"
-  | "tunnelToken";
+  | "tunnelToken"
+  | "tunnelNoIngress";
 
 export interface IngressIssue {
   level: "error" | "warning";
@@ -272,6 +273,9 @@ export function checkPage(ctx: IngressContext) {
   );
   if (ctx.tunnel.enable && !ctx.tunnel.apiTokenFile) {
     tunnel.push({ level: "error", code: "tunnelToken" });
+  }
+  if (ctx.tunnel.enable && ctx.tunnel.ingress.length === 0) {
+    tunnel.push({ level: "warning", code: "tunnelNoIngress" });
   }
   return { proxy, tunnel };
 }

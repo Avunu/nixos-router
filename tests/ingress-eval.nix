@@ -156,6 +156,16 @@ let
   tunnelConfig = sys.router._cloudflareTunnelConfig.tunnel;
   ddnsNames = map (r: r.name) sys.router._ddnsConfig.ddns.records;
 
+  # A tunnel with no hostnames yet: the provisioner runs, the connector does
+  # not (there is nothing to serve, and no credentials until a tunnel
+  # exists). Only unit names and warnings are forced, not a whole system.
+  idle = evalWith {
+    router.cloudflareTunnel = {
+      enable = true;
+      apiTokenFile = "/etc/router/secrets/cloudflare-tunnel.token";
+    };
+  };
+
   failedAssertions = c: map (a: a.message) (lib.filter (a: !a.assertion) c.assertions);
 
   # Every misconfiguration at once, in ONE evaluation (each costs ~1 GB).
@@ -430,6 +440,15 @@ let
       name = "connector-ordered-after-provisioner";
       ok = lib.elem "router-cloudflare-tunnel.service" sys.systemd.services.cloudflared-tunnel-gw.after;
       detail = "cloudflared starts before its credentials file is written";
+    }
+    {
+      name = "tunnel-without-hostnames-runs-no-connector";
+      ok =
+        !idle.services.cloudflared.enable
+        && !(idle.systemd.services ? cloudflared-tunnel-gw)
+        && idle.systemd.services ? router-cloudflare-tunnel
+        && lib.any (lib.hasInfix "with no ingress hostnames, so no connector runs") idle.warnings;
+      detail = "with no ingress hostnames, cloudflared still runs, the provisioner is missing, or the warning is gone: ${lib.concatStringsSep " | " idle.warnings}";
     }
     {
       name = "effective-json-carries-new-keys";

@@ -1,6 +1,9 @@
 # Build-sandbox check of router-cloudflare-tunnel against the fake Cloudflare
 # API — no VM. Pinned here, through the packaged CLI:
 #
+#   • enabled with no hostnames and no tunnel yet, a run succeeds without an
+#     API write and reports itself idle — there is no zone to name the
+#     account, and nothing to serve;
 #   • the first run creates the tunnel, writes cloudflared's credentials
 #     (mode 0600, the secret the API was given) and one proxied CNAME per
 #     hostname (case and duplicates folded), taking over a hand-made A record;
@@ -8,6 +11,7 @@
 #   • dropping a name deletes its CNAME and restores the A record exactly;
 #   • a tunnel deleted behind the router's back is created again, and the DNS
 #     follows the new id;
+#   • dropping the last hostname releases its CNAME but keeps the tunnel;
 #   • enable=false removes the CNAMEs, deletes the tunnel (cleaning up its
 #     still-open connection first) and the credentials; a second teardown
 #     is a no-op;
@@ -61,6 +65,11 @@ let
     ];
   };
   appOnly = configFor { hostnames = [ "app.example.com" ]; };
+  empty = configFor { hostnames = [ ]; };
+  emptyFresh = configFor {
+    hostnames = [ ];
+    stateDir = "state-empty";
+  };
   off = configFor {
     enable = false;
     hostnames = [ "app.example.com" ];
@@ -102,6 +111,15 @@ pkgs.runCommand "router-cloudflare-tunnel"
     fakeDelete() {
       curl -sf -X DELETE -H 'Authorization: Bearer test-token' "$api/client/v4/accounts/acct1/cfd_tunnel/$1$2" >/dev/null
     }
+
+    # 0 — enabled, but no hostnames and no tunnel yet: idle, nothing created.
+    router-cloudflare-tunnel --config ${emptyFresh} || fail "the run with no hostnames failed"
+    [ "$(writes)" = 0 ] || fail "the run with no hostnames wrote $(writes) time(s) to the API"
+    live | jq -e '.tunnels == []' >/dev/null || fail "a tunnel was created with no hostnames: $(live | jq -c .tunnels)"
+    [ ! -e state-empty/credentials.json ] || fail "credentials were written with no hostnames"
+    jq -e '.ok == true and .error == null and .tunnel == null and .records == {}
+      and .message == "add a hostname to create the tunnel"' state-empty/status.json >/dev/null \
+      || fail "status.json of the idle run is wrong: $(cat state-empty/status.json)"
 
     # 1 — first run: tunnel, credentials, CNAMEs; the hand-made A is taken over.
     router-cloudflare-tunnel --config ${both} || fail "the first run failed"
@@ -156,7 +174,15 @@ pkgs.runCommand "router-cloudflare-tunnel"
     jq -e --arg id "$(tid)" '.ok and .tunnel.id == $id' state/status.json >/dev/null \
       || fail "status.json does not name the new tunnel: $(cat state/status.json)"
 
-    # 5 — disabled: records, tunnel (open connection and all) and credentials go.
+    # 5 — the last hostname is dropped: its CNAME goes, the tunnel stays.
+    kept=$(tid)
+    router-cloudflare-tunnel --config ${empty} || fail "the run dropping the last hostname failed"
+    [ "$(tid)" = "$kept" ] || fail "the tunnel changed when its last hostname was dropped"
+    want "[$wikiA,$wikiTXT]" "after dropping the last hostname"
+    jq -e --arg id "$kept" '.ok and .tunnel.id == $id and .records == {} and (has("message") | not)' state/status.json >/dev/null \
+      || fail "status.json with the tunnel kept is wrong: $(cat state/status.json)"
+
+    # 6 — disabled: records, tunnel (open connection and all) and credentials go.
     router-cloudflare-tunnel --config ${off} || fail "the teardown run failed"
     want "[$wikiA,$wikiTXT]" "after teardown"
     live | jq -e '.tunnels | all(.deleted_at != null)' >/dev/null || fail "a tunnel survived teardown: $(live | jq -c .tunnels)"
@@ -167,7 +193,7 @@ pkgs.runCommand "router-cloudflare-tunnel"
     router-cloudflare-tunnel --config ${off} || fail "a second teardown failed"
     [ "$(writes)" = "$before" ] || fail "a second teardown wrote to the API"
 
-    # 6 — a failed run still writes status.json, and exits non-zero.
+    # 7 — a failed run still writes status.json, and exits non-zero.
     rm creds/cf-api-token
     router-cloudflare-tunnel --config ${noToken} && fail "a run without a token succeeded"
     jq -e '.ok == false and (.error | contains("no Cloudflare API token")) and .tunnel == null' state-notoken/status.json >/dev/null \

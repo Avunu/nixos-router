@@ -15,7 +15,8 @@
 #     already held by another record is taken over and restored when dropped,
 #     like router-ddns does. Disabling the tunnel deletes it and its records.
 #   • cloudflared — nixpkgs services.cloudflared, with the ingress rules built
-#     here from the settings and the credentials file the oneshot wrote.
+#     here from the settings and the credentials file the oneshot wrote. It
+#     only runs once there is an ingress hostname to serve.
 #
 # The API token is a path to a root-owned file (never the token itself),
 # handed to the oneshot through LoadCredential.
@@ -207,7 +208,7 @@ in
 
       warnings =
         optional (tcfg.enable && ingress == [ ])
-          "router.cloudflareTunnel is enabled with no ingress hostnames; the tunnel is created but serves nothing.";
+          "router.cloudflareTunnel is enabled with no ingress hostnames, so no connector runs; the tunnel is created (or the existing one reused) once a hostname is added.";
     }
 
     # The oneshot also runs while the tunnel is disabled, as long as the token
@@ -283,7 +284,11 @@ in
       };
     })
 
-    (mkIf tcfg.enable {
+    # No connector without a hostname: there is nothing to serve, and with no
+    # tunnel created yet there are no credentials for it to start with. The
+    # oneshot above still runs, keeping an existing tunnel and releasing
+    # dropped names.
+    (mkIf (tcfg.enable && ingress != [ ]) {
       services.cloudflared = {
         enable = true;
         tunnels.${tunnelName} = {
