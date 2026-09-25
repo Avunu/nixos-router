@@ -27,10 +27,15 @@ overwritten, and a CNAME — which DNS allows nothing else beside — is replace
 The replaced CNAME is kept in state.json and put back when the name is dropped
 from the configuration, so taking a name over is never a one-way loss.
 
+enable=false drops every name: the managed records are deleted and the
+replaced CNAMEs restored, without looking up any address. A disabled run with
+nothing recorded to tear down does nothing at all.
+
 State directory:
   state.json   — zone cache, the managed name set, the last pushed record
-                 set (API writes are skipped while it is unchanged and was
-                 verified recently) and the CNAMEs replaced to take names over
+                 set with its TTL and proxying (API writes are skipped while
+                 it is unchanged and was verified recently) and the CNAMEs
+                 replaced to take names over
   status.json  — last run summary for Cockpit, written on success AND failure
 
 Environment overrides (the VM test points them at a fake API):
@@ -233,21 +238,30 @@ def remove_managed(cf: Cloudflare, zone: str, name: str, rtype: str) -> int:
 
 def run(cfg: dict, force: bool = False) -> int:
     state_dir = Path(cfg["stateDir"])
-    state_dir.mkdir(parents=True, exist_ok=True)
     state_file = state_dir / "state.json"
     status_file = state_dir / "status.json"
+    enable = cfg.get("enable", True)
+
     state = load_json(state_file)
+    if not enable and not (state.get("managed") or state.get("replaced")):
+        return 0  # never enabled, or already torn down
+    state_dir.mkdir(parents=True, exist_ok=True)
     now = time.time()
 
-    wan = cfg["wanInterface"]
-    v4, v4_source = detect_v4(wan) if cfg.get("ipv4", True) else (None, "disabled")
-    router_v6 = detect_router_v6(wan, cfg["routerV6Fallback"]) if cfg.get("ipv6", True) else None
+    if enable:
+        wan = cfg["wanInterface"]
+        v4, v4_source = detect_v4(wan) if cfg.get("ipv4", True) else (None, "disabled")
+        router_v6 = detect_router_v6(wan, cfg["routerV6Fallback"]) if cfg.get("ipv6", True) else None
+    else:
+        # Tearing down needs no address: with nothing configured, every
+        # managed record is stale and every replaced CNAME is restored below.
+        v4, v4_source, router_v6 = None, "disabled", None
 
     # Every configured (name, type) — independent of whether an address was
     # found this run, so a family that is briefly unavailable is left alone
     # instead of being treated as removed.
     configured: list[dict] = []
-    for rec in cfg["records"]:
+    for rec in cfg["records"] if enable else []:
         if rec.get("v4"):
             configured.append({**rec, "type": "A", "content": v4})
         v6 = rec.get("v6")
@@ -255,7 +269,9 @@ def run(cfg: dict, force: bool = False) -> int:
             content = router_v6 if v6["kind"] == "router" else host_v6(v6["interface"], v6["suffix"])
             configured.append({**rec, "type": "AAAA", "content": content})
 
-    desired = {f"{r['name']}/{r['type']}": r["content"] for r in configured if r["content"]}
+    # TTL and proxying are part of the fingerprint, so a change to either
+    # alone reaches Cloudflare now rather than at the next full check.
+    desired = {f"{r['name']}/{r['type']}": [r["content"], cfg["ttl"], cfg["proxied"]] for r in configured if r["content"]}
     configured_keys = sorted({f"{r['name']}/{r['type']}" for r in configured})
     stale = [k for k in state.get("managed", []) if k not in configured_keys]
     # Names taken over from a CNAME that are no longer configured: put it back.

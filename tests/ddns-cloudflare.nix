@@ -9,9 +9,15 @@
 #
 #   • an apex CNAME (proxied, with a TXT record beside it) and a subdomain CNAME
 #     are replaced by A records; the TXT record is untouched;
-#   • a second run with nothing changed writes nothing;
+#   • a second run with nothing changed writes nothing, and neither does the
+#     one verifying run that a pre-upgrade state file (whose fingerprint
+#     lacks TTL and proxying) forces;
+#   • a TTL change alone, then a proxying change alone, reaches Cloudflare at
+#     once instead of waiting for the 6-hourly check;
 #   • dropping a name deletes its A record and restores its CNAME exactly —
-#     target, proxying and comment — while the other name stays taken over.
+#     target, proxying and comment — while the other name stays taken over;
+#   • enable=false deletes the remaining records and restores their CNAMEs
+#     without looking up an address; a second disabled run does nothing.
 #
 # The sandbox has no WAN, so the IPv4 address comes from the fake's trace
 # endpoint (the path a router behind another NAT takes), and IPv6 is off.
@@ -50,10 +56,16 @@ let
   );
 
   configFor =
-    names:
+    {
+      names,
+      enable ? true,
+      ttl ? 1,
+      proxied ? false,
+    }:
     pkgs.writeText "router-ddns.json" (
       builtins.toJSON {
         ddns = {
+          inherit enable ttl proxied;
           stateDir = "state";
           records = map (name: {
             inherit name;
@@ -62,20 +74,37 @@ let
           }) names;
           ipv4 = true;
           ipv6 = false;
-          ttl = 1;
-          proxied = false;
           wanInterface = "wan0";
           routerV6Fallback = "br-lan";
           apiTokenFile = null;
         };
       }
     );
-  both = configFor [
+  bothNames = [
     "example.com"
     "nas.example.com"
   ];
-  nasOnly = configFor [ "nas.example.com" ];
-  none = configFor [ ];
+  both = configFor { names = bothNames; };
+  ttl300 = configFor {
+    names = bothNames;
+    ttl = 300;
+  };
+  proxiedOn = configFor {
+    names = bothNames;
+    ttl = 300;
+    proxied = true;
+  };
+  nasOnly = configFor {
+    names = [ "nas.example.com" ];
+    ttl = 300;
+    proxied = true;
+  };
+  off = configFor {
+    names = [ "nas.example.com" ];
+    enable = false;
+    ttl = 300;
+    proxied = true;
+  };
 in
 pkgs.runCommand "router-ddns-cloudflare"
   {
@@ -118,7 +147,32 @@ pkgs.runCommand "router-ddns-cloudflare"
     router-ddns --config ${both} || fail "the no-change run failed"
     [ "$(writes)" = "$before" ] || fail "a run with nothing changed wrote $(( $(writes) - before )) time(s)"
 
-    # 3 — the apex is dropped: its A record goes, its CNAME comes back as it was.
+    # A state file from before TTL and proxying joined the fingerprint (bare
+    # addresses): one run verifies every record, writes nothing, and stores
+    # the new fingerprint.
+    jq '.lastPushed |= map_values(.[0])' state/state.json > old-state.json && mv old-state.json state/state.json
+    router-ddns --config ${both} || fail "the run after an upgrade failed"
+    [ "$(writes)" = "$before" ] || fail "the verifying run after an upgrade wrote $(( $(writes) - before )) time(s)"
+    jq -e '.lastPushed["example.com/A"] == ["203.0.113.1", 1, false]' state/state.json >/dev/null \
+      || fail "the fingerprint was not rewritten: $(jq -c .lastPushed state/state.json)"
+
+    # 3 — a TTL change alone, then a proxying change alone, is written at once:
+    # one PATCH per record, not a wait for the 6-hourly check.
+    before=$(writes)
+    router-ddns --config ${ttl300} || fail "the TTL-change run failed"
+    [ "$(writes)" = $(( before + 2 )) ] || fail "a TTL change made $(( $(writes) - before )) write(s), want 2"
+    live | jq -e '[.records[] | select(.type == "A")] | length == 2 and all(.ttl == 300 and .proxied == false)' >/dev/null \
+      || fail "the records do not carry the new TTL: $(live | jq -c .records)"
+    before=$(writes)
+    router-ddns --config ${proxiedOn} || fail "the proxying-change run failed"
+    [ "$(writes)" = $(( before + 2 )) ] || fail "a proxying change made $(( $(writes) - before )) write(s), want 2"
+    live | jq -e '[.records[] | select(.type == "A")] | length == 2 and all(.ttl == 300 and .proxied == true)' >/dev/null \
+      || fail "the records are not proxied: $(live | jq -c .records)"
+    before=$(writes)
+    router-ddns --config ${proxiedOn} || fail "the no-change run after the option changes failed"
+    [ "$(writes)" = "$before" ] || fail "a run after the option changes wrote $(( $(writes) - before )) time(s)"
+
+    # 4 — the apex is dropped: its A record goes, its CNAME comes back as it was.
     router-ddns --config ${nasOnly} || fail "the run dropping example.com failed"
     want '[{"type":"CNAME","name":"example.com","content":"site.example.net"},{"type":"TXT","name":"example.com","content":"v=spf1 -all"},{"type":"A","name":"nas.example.com","content":"203.0.113.1"}]' \
       "after dropping example.com"
@@ -127,10 +181,26 @@ pkgs.runCommand "router-ddns-cloudflare"
     jq -e '.replaced | has("example.com") | not' state/state.json >/dev/null \
       || fail "a restored CNAME is still remembered as replaced"
 
-    # 4 — the last name is dropped: back to where it started.
-    router-ddns --config ${none} || fail "the run dropping every name failed"
+    # 5 — dynamic DNS is turned off (the name is still in the config): the
+    # last A record goes and its CNAME comes back, so the zone is back to
+    # where it started. No address is looked up.
+    router-ddns --config ${off} || fail "the teardown run failed"
     want '[{"type":"CNAME","name":"example.com","content":"site.example.net"},{"type":"TXT","name":"example.com","content":"v=spf1 -all"},{"type":"CNAME","name":"nas.example.com","content":"old-ddns.example.net"}]' \
-      "after dropping every name"
+      "after turning dynamic DNS off"
+    live | jq -e '[.records[] | select(.name == "nas.example.com")] | .[0] | .ttl == 300 and .proxied == false' >/dev/null \
+      || fail "the restored CNAME lost its TTL or proxying: $(live | jq -c .records)"
+    jq -e '.managed == [] and .replaced == {}' state/state.json >/dev/null \
+      || fail "state still tracks records after teardown: $(jq -c . state/state.json)"
+    jq -e '.ok and .addresses == {"ipv4": null, "ipv4Source": "disabled", "ipv6": null}
+      and ([.records[] | "\(.state) \(.type)"] | sort) == ["created CNAME", "removed A"]' state/status.json >/dev/null \
+      || fail "status.json after teardown is wrong: $(cat state/status.json)"
+
+    # 6 — disabled with nothing left to tear down: no API call, no status write.
+    before=$(writes)
+    rm state/status.json
+    router-ddns --config ${off} || fail "a second disabled run failed"
+    [ "$(writes)" = "$before" ] || fail "a second disabled run wrote to the API"
+    [ ! -e state/status.json ] || fail "a disabled run with nothing to tear down wrote status.json"
 
     touch $out
   ''
