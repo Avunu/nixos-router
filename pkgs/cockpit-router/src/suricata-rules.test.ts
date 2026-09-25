@@ -8,7 +8,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { lintExtraRules } from "./suricata-rules.ts";
+import { lintExtraRules, rulesTestedAtBuild } from "./suricata-rules.ts";
 
 const RDP = `alert tcp $HOME_NET any -> $EXTERNAL_NET 3389 (msg:"LOCAL outbound RDP"; flow:to_server; flags:S; sid:1000100; rev:1;)`;
 
@@ -104,4 +104,13 @@ void test("issues come back in line order", () => {
     codes(["  indented", "junk", `alert ip any any -> any any (msg:"x"; sid:1000001;)`].join("\n")),
     ["1:indented", "2:noAction", "3:builtinSid"],
   );
+});
+
+// The Settings hint promises that applying tests the rules; with
+// checkRulesAtBuild = false in Nix it must say the test is off instead.
+void test("the build-time rule test counts as on unless effective.json turns it off", () => {
+  assert.equal(rulesTestedAtBuild({}), true);
+  assert.equal(rulesTestedAtBuild({ suricata: { enable: true } }), true);
+  assert.equal(rulesTestedAtBuild({ suricata: { checkRulesAtBuild: true } }), true);
+  assert.equal(rulesTestedAtBuild({ suricata: { checkRulesAtBuild: false } }), false);
 });
