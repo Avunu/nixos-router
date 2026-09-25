@@ -139,7 +139,7 @@ The work is done by `router-ddns.service`, a oneshot systemd service that runs t
 - **On demand.** **Update now** starts the same service.
 - **After a failure.** A failed run, for example with Cloudflare or the network down, is retried after 60 seconds. systemd allows at most 5 starts in 15 minutes, so a bad token can't hammer the API.
 
-The service and its timer are installed while dynamic DNS is on, and also while it's off but a token file is still set, so the router can delete its records. See [Turn dynamic DNS off](#turn-dynamic-dns-off).
+The service and its timer are installed while dynamic DNS is on, and also while it's off but a token file is still set, so the router can delete its records. With dynamic DNS off, the service runs only if the token file exists: without the token it couldn't delete anything, so systemd skips it rather than fail the apply. See [Turn dynamic DNS off](#turn-dynamic-dns-off).
 
 The service runs as a temporary system user with most privileges removed. It never reads `/etc/router/secrets` itself: systemd hands it the token file as a credential (`LoadCredential`).
 
@@ -211,7 +211,7 @@ Turning off **Enable dynamic DNS** deletes the router's records from Cloudflare 
 3. The apply runs the cleanup, and **Update now** runs it again. It doesn't look up any address. When the **Last update** card shows **Last run** **ok**, with each record `removed` and each restored CNAME `created`, it's done.
 4. Only then clear **Cloudflare API token file**, if you want to. That removes the service and its timer.
 
-The tab says the same under the switch: "Turning dynamic DNS off keeps the token, so the router can delete its records and put back the CNAMEs they replaced — remove the token only after that has run." Once there's nothing left to delete, later runs do nothing.
+The tab says the same under the switch: "Turning dynamic DNS off keeps the token, so the router can delete its records and put back the CNAMEs they replaced — remove the token only after that has run." Once there's nothing left to delete, later runs do nothing. If the token file itself is gone, systemd skips the service, and nothing is deleted.
 
 :::doc-warning
 If you remove the token before the cleanup has run, the router can't delete anything. The records keep their last addresses, and replaced CNAMEs stay gone, until you fix them in the Cloudflare dashboard.
@@ -292,7 +292,7 @@ The note reads `no Cloudflare zone found for nas.example.com — does the token 
 
 ### The run fails with no records
 
-The **Last run** label shows `no Cloudflare API token (router.ddns.cloudflare.apiTokenFile)`, or the run fails before it starts and the journal says systemd couldn't set up the service's credentials. The token file is empty or doesn't exist at the configured path. Click **Set token…** and save the token again.
+The **Last run** label shows `no Cloudflare API token (router.ddns.cloudflare.apiTokenFile)`, or the run fails before it starts and the journal says systemd couldn't set up the service's credentials. The token file is empty or doesn't exist at the configured path. Click **Set token…** and save the token again. With dynamic DNS off, a missing token file doesn't fail the run: systemd skips the service instead.
 
 ### Records don't update
 
@@ -306,7 +306,7 @@ The **Last run** label shows `no Cloudflare API token (router.ddns.cloudflare.ap
 
 ### Records stay after turning dynamic DNS off
 
-The token file was cleared before the cleanup ran, so the service was removed with nothing deleted. Set the token file again, leave **Enable dynamic DNS** off, click **Save & apply**, and wait for a **Last run** **ok** (or click **Update now**). The router still remembers its records and the CNAMEs it replaced, so this run cleans up as usual. If the **Last run** label shows an error instead, fix it as for any other run.
+The token file was cleared or deleted before the cleanup ran, so the service was removed or skipped with nothing deleted. Set the token file again (click **Set token…** if the file is gone), leave **Enable dynamic DNS** off, click **Save & apply**, and wait for a **Last run** **ok** (or click **Update now**). The router still remembers its records and the CNAMEs it replaced, so this run cleans up as usual. If the **Last run** label shows an error instead, fix it as for any other run.
 
 ### Behind CGNAT or another router
 

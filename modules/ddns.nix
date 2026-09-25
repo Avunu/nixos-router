@@ -264,6 +264,12 @@ in
         unitConfig = {
           StartLimitIntervalSec = 900;
           StartLimitBurst = 5;
+          # Disabled, the unit only cleans up, and without the token file
+          # (never saved — "Set token…", then Cancel — or since deleted) it
+          # could not: skip it rather than fail credential setup, which
+          # would fail the switch and so every apply. Enabled, a missing
+          # token still fails loudly.
+          ConditionPathExists = mkIf (!dcfg.enable) dcfg.cloudflare.apiTokenFile;
         };
       };
 

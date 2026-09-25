@@ -165,6 +165,10 @@ let
       apiTokenFile = "/etc/router/secrets/cloudflare-tunnel.token";
     };
   };
+  # The tunnel turned off with its token path kept, for the teardown.
+  tunnelOff = evalWith {
+    router.cloudflareTunnel.apiTokenFile = "/etc/router/secrets/cloudflare-tunnel.token";
+  };
 
   failedAssertions = c: map (a: a.message) (lib.filter (a: !a.assertion) c.assertions);
 
@@ -435,6 +439,17 @@ let
           "cf-api-token:/etc/router/secrets/cloudflare-tunnel.token"
         ];
       detail = "router-cloudflare-tunnel does not receive the token through LoadCredential";
+    }
+    {
+      # Off, a token path whose file is missing must skip the teardown unit,
+      # not fail credential setup and with it every switch; on, a missing
+      # token must still fail.
+      name = "tunnel-disabled-skips-unit-without-token-file";
+      ok =
+        tunnelOff.systemd.services.router-cloudflare-tunnel.unitConfig.ConditionPathExists or null
+        == "/etc/router/secrets/cloudflare-tunnel.token"
+        && !(tunnelUnit.unitConfig ? ConditionPathExists);
+      detail = "router-cloudflare-tunnel is not conditioned on its token file while the tunnel is off, or is while it is on";
     }
     {
       name = "connector-ordered-after-provisioner";

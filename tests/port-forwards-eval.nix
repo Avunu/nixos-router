@@ -309,6 +309,17 @@ let
       detail = "with DDNS off but a token set, router-ddns (unit, timer, token, enable=false) is not there to delete the records";
     }
     {
+      # Off, a token path whose file is missing (Set token… then Cancel)
+      # must skip the unit, not fail credential setup and with it every
+      # switch; on, a missing token must still fail.
+      name = "ddns-disabled-skips-unit-without-token-file";
+      ok =
+        ddnsOff.systemd.services.router-ddns.unitConfig.ConditionPathExists or null
+        == "/etc/router/secrets/cloudflare-ddns.token"
+        && !(sys.systemd.services.router-ddns.unitConfig ? ConditionPathExists);
+      detail = "router-ddns is not conditioned on its token file while DDNS is off, or is while it is on";
+    }
+    {
       name = "ddns-disabled-without-token-has-no-unit";
       ok = !(ddnsNone.systemd.services ? router-ddns) && !(ddnsNone.systemd.timers ? router-ddns);
       detail = "router-ddns is installed although DDNS is off and has no token";

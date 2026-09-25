@@ -269,6 +269,11 @@ in
         unitConfig = {
           StartLimitIntervalSec = 900;
           StartLimitBurst = 5;
+          # Disabled, without the token file there is nothing it could tear
+          # down: skip the unit rather than fail credential setup, which
+          # would fail the switch and so every apply. Enabled, a missing
+          # token still fails loudly.
+          ConditionPathExists = mkIf (!tcfg.enable) tcfg.apiTokenFile;
         };
       };
 

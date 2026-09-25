@@ -162,7 +162,7 @@ Each service reads the file every time it starts. A token replaced at the same p
 
 ## Turn off dynamic DNS and the tunnel before removing their tokens
 
-Dynamic DNS and the tunnel clean up after themselves when you turn them off, and they need the token to do it. Their services keep running while a token file path is set, even with the feature turned off:
+Dynamic DNS and the tunnel clean up after themselves when you turn them off, and they need the token to do it. Their services keep running while a token file path is set and the file exists, even with the feature turned off:
 
 - **Dynamic DNS:** `router-ddns.service` deletes the router's A and AAAA records and puts back any CNAMEs they replaced. The **Network → Dynamic DNS** tab says so: "Turning dynamic DNS off keeps the token, so the router can delete its records and put back the CNAMEs they replaced — remove the token only after that has run."
 - **Cloudflare Tunnel:** `router-cloudflare-tunnel.service` deletes the tunnel, its CNAME records and its credentials, and puts back any records the CNAMEs replaced. The **Ingress → Tunnel** tab says so: "Turning the tunnel off keeps the token, so the router can delete the tunnel and its DNS records — remove the token only after that has run."

@@ -93,7 +93,7 @@ The state lives in `/var/lib/router-cloudflared/`:
 3. The apply runs a sync, and **Sync now** runs another. It deletes the tunnel's CNAMEs and puts back any records they replaced, deletes the tunnel, and removes the credentials file. When the **Tunnel status** card shows **Last sync** **ok** and **Tunnel** **none**, it's done.
 4. Only then clear the token file path, if you want to.
 
-The Tunnel tab says the same: "Turning the tunnel off keeps the token, so the router can delete the tunnel and its DNS records — remove the token only after that has run."
+The Tunnel tab says the same: "Turning the tunnel off keeps the token, so the router can delete the tunnel and its DNS records — remove the token only after that has run." If the token file itself is gone, systemd skips the sync service, and nothing is deleted.
 
 :::doc-warning
 If you remove the token before the teardown has run, the router can't delete anything. The tunnel and its DNS records stay in your Cloudflare account until you delete them in the dashboard.
@@ -168,7 +168,8 @@ Sync errors appear in **Last sync** and in `journalctl -u router-cloudflare-tunn
 | `a tunnel named 'router' (...) already exists but its credentials are not in /var/lib/router-cloudflared — delete it in the Cloudflare dashboard, or choose another tunnel name` | The router lost `/var/lib/router-cloudflared` while its tunnel still exists, or another router with the same host name uses the account. The router won't take over a tunnel whose secret it doesn't have. | Delete the old tunnel in the dashboard, and the next run creates a new one. Or give the router a different **Host name**. |
 | `no Cloudflare zone found for HOSTNAME — does the token have Zone:Read on it?` | The name isn't in an active zone that the token can read. | Add the zone to the token, or fix the name. |
 | `no Cloudflare API token (apiTokenFile)` | The token file is empty. | Click **Set token…** and save the token again. |
-| **Sync now** fails, and **Last sync** doesn't change | The token file is missing, so systemd can't start the sync service at all; `journalctl -u router-cloudflare-tunnel` shows a credentials error. | Click **Set token…** and save the token again. |
+| **Sync now** fails, and **Last sync** doesn't change | The tunnel is on but the token file is missing, so systemd can't start the sync service at all; `journalctl -u router-cloudflare-tunnel` shows a credentials error. | Click **Set token…** and save the token again. |
+| The tunnel is off, and **Sync now** changes nothing | The token file is missing, so systemd skips the sync service: without the token it couldn't delete anything. | Click **Set token…**, save the token again, and click **Sync now** to run the teardown. |
 | **Last sync** is **ok**, but **Tunnel** shows "none" with "add a hostname to create the tunnel" | The tunnel is on but has no hostnames, and was never created. The router waits for a hostname, since there's nothing to serve and no zone to tell it which account to use. | Add a hostname. |
 | A hostname shows **error** under DNS records | The token lacks **Zone → DNS → Edit** on that name's zone, or the API refused the change. | Read the message next to it, fix the token's scopes, and click **Sync now**. |
 | **Connector** isn't **active** | The tunnel has no hostnames, so no connector runs. Or `cloudflared` can't reach Cloudflare, or has no credentials yet. | Add a hostname. Otherwise check `journalctl -u cloudflared-tunnel-router` (with your router's host name); it keeps retrying every 30 seconds. |
