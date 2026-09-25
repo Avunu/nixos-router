@@ -13,10 +13,13 @@ import {
   EmptyStateBody,
   Form,
   FormGroup,
+  FormHelperText,
   FormSection,
   FormSelect,
   FormSelectOption,
   Gallery,
+  HelperText,
+  HelperTextItem,
   Label,
   NumberInput,
   Pagination,
@@ -40,6 +43,8 @@ import { statsGet, statsGetTop } from "./technitium";
 import { logsCsv, logsQuery, statsTop } from "./logd";
 import type { LogFilters } from "./logd";
 import { QueriesChart, RankCard } from "./widgets";
+import { nextScheduleName, scheduleNameError, timeError } from "./report-schedules";
+import type { ScheduleNameIssue } from "./report-schedules";
 import type {
   HostGroup,
   LogPage,
@@ -566,25 +571,46 @@ const DAYS: NonNullable<ReportSchedule["dayOfWeek"]>[] = [
   "Sun",
 ];
 
-function nextScheduleName(schedules: ReportSchedule[]): string {
-  const names = new Set(schedules.map((sc) => sc.name));
-  let i = schedules.length + 1;
-  while (names.has(`Report ${i}`)) {
-    i += 1;
+const nameErrorText = (issue: ScheduleNameIssue | null): string => {
+  switch (issue) {
+    case "empty": {
+      return _("Schedule name must not be empty.");
+    }
+    case "pattern": {
+      return _("Use only letters, digits, hyphens and underscores.");
+    }
+    case "duplicate": {
+      return _("Another schedule already has this name.");
+    }
+    default: {
+      return "";
+    }
   }
-  return `Report ${i}`;
-}
+};
+
+const FieldError = ({ msg }: { msg: string }) =>
+  msg ? (
+    <FormHelperText>
+      <HelperText>
+        <HelperTextItem variant="error">{msg}</HelperTextItem>
+      </HelperText>
+    </FormHelperText>
+  ) : null;
 
 const ScheduleCard = ({
   schedule,
   index,
   hostGroups,
+  nameMsg,
+  timeMsg,
   onChange,
   onRemove,
 }: {
   schedule: ReportSchedule;
   index: number;
   hostGroups: HostGroup[];
+  nameMsg: string;
+  timeMsg: string;
   onChange: (patch: Partial<ReportSchedule>) => void;
   onRemove: () => void;
 }) => {
@@ -614,8 +640,10 @@ const ScheduleCard = ({
           <TextInput
             id={`sched-${index}-name`}
             value={schedule.name}
+            validated={nameMsg ? "error" : "default"}
             onChange={(_e, v) => onChange({ name: v })}
           />
+          <FieldError msg={nameMsg} />
         </FormGroup>
         <FormGroup label={_("Frequency")} fieldId={`sched-${index}-freq`}>
           <FormSelect
@@ -650,8 +678,10 @@ const ScheduleCard = ({
             id={`sched-${index}-time`}
             value={schedule.time ?? ""}
             placeholder="08:00"
+            validated={timeMsg ? "error" : "default"}
             onChange={(_e, v) => onChange({ time: v })}
           />
+          <FieldError msg={timeMsg} />
         </FormGroup>
         <FormGroup
           label={_("Recipients")}
@@ -855,6 +885,19 @@ const ScheduledReports = ({ s }: { s: Settings }) => {
   const setSchedules = (list: ReportSchedule[]) =>
     s.setLeaf("reporting.schedules", list as unknown as Json);
 
+  // reporting.nix's name and time patterns, checked here because the schema
+  // that Save checks does not carry them. Any error holds back the apply.
+  const messages = schedules.map((sc, index) => ({
+    name: nameErrorText(
+      scheduleNameError(
+        sc.name,
+        schedules.filter((_x, i) => i !== index).map((x) => x.name),
+      ),
+    ),
+    time: timeError(sc.time) ? _("Use 24-hour time, HH:MM, such as 07:30.") : "",
+  }));
+  const hasErrors = messages.some((m) => m.name !== "" || m.time !== "");
+
   const addSchedule = () =>
     setSchedules([
       ...schedules,
@@ -920,6 +963,8 @@ const ScheduledReports = ({ s }: { s: Settings }) => {
                 schedule={sc}
                 index={index}
                 hostGroups={hostGroups}
+                nameMsg={messages[index]?.name ?? ""}
+                timeMsg={messages[index]?.time ?? ""}
                 onChange={(patch) =>
                   setSchedules(schedules.map((x, i) => (i === index ? { ...x, ...patch } : x)))
                 }
@@ -938,6 +983,7 @@ const ScheduledReports = ({ s }: { s: Settings }) => {
             status={s.status}
             onSave={s.save}
             onSaveApply={s.saveAndApply}
+            applyDisabled={hasErrors}
           />
         </Form>
 

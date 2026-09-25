@@ -8,6 +8,7 @@ code:
   - pkgs/router-dns-tools/router_dns_tools/report.py
   - pkgs/router-dns-tools/router_dns_tools/report.typ
   - pkgs/cockpit-router/src/reports.tsx
+  - pkgs/cockpit-router/src/report-schedules.ts
   - pkgs/cockpit-router/src/logd.ts
 ---
 
@@ -80,7 +81,7 @@ To email reports, you need a Cloudflare account set up to send email for the dom
 
 1. On **Reports → Scheduled reports**, click **Add schedule**.
 2. Fill in the new card:
-   - **Name:** letters, digits, hyphens and underscores only, such as `weekly-summary`. It is used in file and service names.
+   - **Name:** starts as `report-1`, `report-2` and so on. Use letters, digits, hyphens and underscores only, such as `weekly-summary`, and give each schedule its own name. It is used in file and service names.
    - **Frequency:** **Daily**, **Weekly** or **Monthly**.
    - **Day of week:** for weekly reports.
    - **Time:** 24-hour local time, such as `07:30`.
@@ -89,9 +90,7 @@ To email reports, you need a Cloudflare account set up to send email for the dom
    - **Host groups:** "Restrict group breakdowns to these host groups; none = all."
 3. Click **Save & apply**.
 
-:::doc-warning
-**Add schedule** names new schedules "Report 1", "Report 2" and so on. A space isn't allowed in a schedule name, so rename the schedule before you apply. Otherwise the apply fails with a type error that names the pattern `[A-Za-z0-9_-]+`.
-:::
+The card checks **Name** and **Time** as you type. While either one shows an error, **Save & apply** stays greyed out.
 
 What each section contains:
 
