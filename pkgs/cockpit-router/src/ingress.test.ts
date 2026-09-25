@@ -1,4 +1,4 @@
-// Unit tests for the Routing page's pure logic (routing.ts).
+// Unit tests for the Ingress page's pure logic (ingress.ts).
 //
 // The checks exist so that a configuration the Reverse proxy and Tunnel tabs
 // accept also passes the assertions of modules/reverse-proxy.nix,
@@ -9,12 +9,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import type { HostRefs, IssueCode, RoutingContext, RoutingIssue } from "./routing.ts";
+import type { HostRefs, IssueCode, IngressContext, IngressIssue } from "./ingress.ts";
 import {
   certName,
   checkIngress,
   checkRoute,
-  checkRouting,
+  checkPage,
   claimsWebPorts,
   countHostRefs,
   effectiveChallenge,
@@ -22,10 +22,10 @@ import {
   normalizeRoute,
   removeHostRefs,
   renameHostRefs,
-} from "./routing.ts";
+} from "./ingress.ts";
 import type { ProxyRoute, TunnelIngress } from "./types.ts";
 
-const ctx = (over: Partial<RoutingContext> = {}): RoutingContext => ({
+const ctx = (over: Partial<IngressContext> = {}): IngressContext => ({
   hosts: [
     { mac: "aa:aa:aa:aa:aa:01", name: "nas", staticIp: "10.0.0.10" },
     { mac: "aa:aa:aa:aa:aa:02", name: "cam", staticIp: null },
@@ -56,15 +56,15 @@ const ingress = (over: Partial<TunnelIngress> = {}): TunnelIngress => ({
   ...over,
 });
 
-const codes = (issues: RoutingIssue[], level?: "error" | "warning"): IssueCode[] =>
+const codes = (issues: IngressIssue[], level?: "error" | "warning"): IssueCode[] =>
   issues.filter((i) => !level || i.level === level).map((i) => i.code);
 
 // Issue codes of one route / ingress row (kept shallow for unicorn/max-nested-calls).
-const rc = (r: ProxyRoute, c: RoutingContext, self: number | null, level?: "error" | "warning") =>
+const rc = (r: ProxyRoute, c: IngressContext, self: number | null, level?: "error" | "warning") =>
   codes(checkRoute(r, c, self), level);
 const ic = (
   i: TunnelIngress,
-  c: RoutingContext,
+  c: IngressContext,
   self: number | null,
   level?: "error" | "warning",
 ) => codes(checkIngress(i, c, self), level);
@@ -283,23 +283,23 @@ void test("checkIngress: disjoint from ddns.names, publicHostname and proxy rout
 });
 
 // ── page level ──────────────────────────────────────────────────────────────
-void test("checkRouting: ACME terms and email once the proxy has a route", () => {
+void test("checkPage: ACME terms and email once the proxy has a route", () => {
   const c = ctx({
     acme: { email: "", acceptTerms: false },
     proxy: { enable: true, publishDns: true, routes: [route()] },
   });
-  assert.deepEqual(codes(checkRouting(c).proxy), ["acmeTerms", "acmeEmail"]);
+  assert.deepEqual(codes(checkPage(c).proxy), ["acmeTerms", "acmeEmail"]);
   // No route (or the proxy off) orders no certificate, so nothing to accept.
-  assert.deepEqual(codes(checkRouting({ ...c, proxy: { ...c.proxy, routes: [] } }).proxy), []);
-  assert.deepEqual(codes(checkRouting({ ...c, proxy: { ...c.proxy, enable: false } }).proxy), []);
+  assert.deepEqual(codes(checkPage({ ...c, proxy: { ...c.proxy, routes: [] } }).proxy), []);
+  assert.deepEqual(codes(checkPage({ ...c, proxy: { ...c.proxy, enable: false } }).proxy), []);
 });
 
-void test("checkRouting: row issues carry the row as subject", () => {
+void test("checkPage: row issues carry the row as subject", () => {
   const c = ctx({
     proxy: { enable: true, publishDns: true, routes: [route({ name: "Nas", host: "ghost" })] },
     tunnel: { enable: true, apiTokenFile: "/t", ingress: [ingress({ host: "cam" })] },
   });
-  const { proxy, tunnel } = checkRouting(c);
+  const { proxy, tunnel } = checkPage(c);
   assert.deepEqual(proxy, [
     { level: "error", code: "unknownHost", names: ["ghost"], subject: "Nas" },
   ]);
@@ -308,15 +308,15 @@ void test("checkRouting: row issues carry the row as subject", () => {
   ]);
 });
 
-void test("checkRouting: publishDns without dynamic DNS warns", () => {
+void test("checkPage: publishDns without dynamic DNS warns", () => {
   const c = ctx({
     ddns: { enable: false, names: [] },
     proxy: { enable: true, publishDns: true, routes: [route()] },
   });
-  assert.deepEqual(codes(checkRouting(c).proxy), ["publishWithoutDdns"]);
+  assert.deepEqual(codes(checkPage(c).proxy), ["publishWithoutDdns"]);
 });
 
-void test("checkRouting: IPv4 tcp 80/443 forwards conflict with an enabled proxy", () => {
+void test("checkPage: IPv4 tcp 80/443 forwards conflict with an enabled proxy", () => {
   const c = ctx({
     portForwards: [
       { name: "web", host: "nas", ports: [443] },
@@ -325,9 +325,9 @@ void test("checkRouting: IPv4 tcp 80/443 forwards conflict with an enabled proxy
       { host: "game", ports: [8080, 80], family: "ipv4" },
     ],
   });
-  const issues = checkRouting(c).proxy;
+  const issues = checkPage(c).proxy;
   assert.deepEqual(issues, [{ level: "error", code: "forwardOnWeb", names: ["web", "game"] }]);
-  assert.deepEqual(checkRouting({ ...c, proxy: { ...c.proxy, enable: false } }).proxy, []);
+  assert.deepEqual(checkPage({ ...c, proxy: { ...c.proxy, enable: false } }).proxy, []);
 });
 
 void test("claimsWebPorts", () => {
@@ -338,10 +338,10 @@ void test("claimsWebPorts", () => {
   assert.equal(claimsWebPorts({ ports: [8080] }), false);
 });
 
-void test("checkRouting: an enabled tunnel needs a token file", () => {
+void test("checkPage: an enabled tunnel needs a token file", () => {
   const c = ctx({ tunnel: { enable: true, apiTokenFile: null, ingress: [] } });
-  assert.deepEqual(codes(checkRouting(c).tunnel), ["tunnelToken"]);
-  assert.deepEqual(checkRouting({ ...c, tunnel: { ...c.tunnel, enable: false } }).tunnel, []);
+  assert.deepEqual(codes(checkPage(c).tunnel), ["tunnelToken"]);
+  assert.deepEqual(checkPage({ ...c, tunnel: { ...c.tunnel, enable: false } }).tunnel, []);
 });
 
 // ── host cascade ────────────────────────────────────────────────────────────

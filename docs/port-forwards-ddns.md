@@ -41,7 +41,7 @@ Forwards saved in the old address-based format (`destination` and `source`) are 
 
 Port forwards have **no NAT loopback**. For a host with both a `publicHostname` and a `staticIp`, the router's resolver answers that name with the LAN address for LAN clients. This is a split-horizon record, and it needs Technitium to be enabled. (The reverse proxy is different: LAN clients reaching its public names are redirected to it. See [reverse-proxy-tunnels.md](reverse-proxy-tunnels.md).)
 
-Forwards are edited on the Cockpit **Routing → Port forwards** tab. While the reverse proxy is enabled, it owns tcp 80 and 443 over IPv4, so a forward of those ports must be IPv6-only.
+Forwards are edited on the Cockpit **Ingress → Port forwards** tab. While the reverse proxy is enabled, it owns tcp 80 and 443 over IPv4, so a forward of those ports must be IPv6-only.
 
 ### Suricata
 

@@ -164,7 +164,7 @@ buildNpmPackage (finalAttrs: {
     avahi
     nmap
     wireguard-tools # `wg genkey`/`wg pubkey` for the Network → WireGuard keypair helper
-    openssl # `openssl x509` for Routing → Reverse proxy certificate expiry
+    openssl # `openssl x509` for Ingress → Reverse proxy certificate expiry
   ];
 
   meta = {

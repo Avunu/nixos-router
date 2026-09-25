@@ -440,7 +440,7 @@ let
 
   failures = lib.filter (c: !c.ok) checks;
 in
-pkgs.runCommand "router-routing-eval" { } (
+pkgs.runCommand "router-ingress-eval" { } (
   if failures == [ ] then
     ''
       # Built for its checkPhase: `nft --check` over the generated ruleset.

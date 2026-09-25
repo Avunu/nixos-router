@@ -33,7 +33,7 @@ import type { useSettings } from "./settings";
 import { getPath, errMsg } from "./nix";
 import { isHostname } from "./ip-math";
 import { loadDdnsStatus, updateNow, DEFAULT_TOKEN_FILE } from "./ddns";
-import { TokenFileField } from "./routing-widgets";
+import { TokenFileField } from "./ingress-widgets";
 import type { DdnsRecordStatus, DdnsStatus, RouterHost } from "./types";
 
 const _ = cockpit.gettext;

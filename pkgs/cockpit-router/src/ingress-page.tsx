@@ -1,8 +1,8 @@
-// Routing page: how services inside the network are reached from outside —
+// Ingress page: how services inside the network are reached from outside —
 // static port forwards, the hostname-routing reverse proxy (with its ACME
 // certificates), and the Cloudflare Tunnel. Each tab owns its useSettings().
 //
-// (Not routing.tsx: that would shadow routing.ts, the pure validation module
+// (Not ingress.tsx: that would shadow ingress.ts, the pure validation module
 // modules/reverse-proxy.nix refers to.)
 import { useState } from "react";
 import { SubNav, TabbedPage } from "./settings";
@@ -12,7 +12,7 @@ import { Tunnel } from "./tunnel";
 
 const _ = cockpit.gettext;
 
-export const Routing = () => {
+export const Ingress = () => {
   const [tab, setTab] = useState("forwards");
   return (
     <TabbedPage

@@ -1,4 +1,4 @@
-// Routing runtime: unit states, the reverse proxy's certificates and the
+// Ingress runtime: unit states, the reverse proxy's certificates and the
 // Cloudflare Tunnel status file — read-only probes plus the "Renew now" /
 // "Sync now" triggers. Settings live in router-settings.json (useSettings);
 // nothing here writes them.

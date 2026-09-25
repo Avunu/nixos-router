@@ -1,4 +1,4 @@
-// Routing → Port forwards: static port forwards (router.portForwards). Moved
+// Ingress → Port forwards: static port forwards (router.portForwards). Moved
 // here from the Firewall page, next to the reverse proxy and tunnel that
 // publish services by name.
 import { useState } from "react";
@@ -29,8 +29,8 @@ import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import { useSettings, Loading, SaveBar, hint, ListEditor } from "./settings";
 import { isPrefix } from "./ip-math";
 import { normalizeForward } from "./forwards";
-import { claimsWebPorts } from "./routing";
-import { hostDetail } from "./routing-widgets";
+import { claimsWebPorts } from "./ingress";
+import { hostDetail } from "./ingress-widgets";
 import type { PortForward, RouterHost } from "./types";
 
 const _ = cockpit.gettext;

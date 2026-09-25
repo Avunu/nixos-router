@@ -1,11 +1,11 @@
-// Routing page logic that needs no browser: certificate naming, row
+// Ingress page logic that needs no browser: certificate naming, row
 // normalization, validation, and the host rename/remove cascade.
 //
 // The checks mirror the assertions of modules/reverse-proxy.nix,
 // modules/cloudflare-tunnel.nix and modules/acme.nix, so a rebuild never fails
-// on something the Routing forms let through. Issues carry a code rather than
+// on something the Ingress forms let through. Issues carry a code rather than
 // a sentence, so this module stays free of `cockpit` (node --test runs it);
-// routing-widgets.tsx turns them into translated text.
+// ingress-widgets.tsx turns them into translated text.
 //
 // Imports carry their .ts extension: node --test resolves them as plain ESM.
 import { isHostname } from "./ip-math.ts";
@@ -34,7 +34,7 @@ export const effectiveChallenge = (
 export const routeLabel = (r: ProxyRoute) => r.name || r.hostnames[0] || r.host;
 
 // ── Normalization ───────────────────────────────────────────────────────────
-// Rows as the Routing page writes them back: fields left at their defaults
+// Rows as the Ingress page writes them back: fields left at their defaults
 // are dropped (port is kept — it is the part a reader looks for), so a list
 // that came from the effective-config fallback is stored as tidily as one the
 // admin typed. Hostnames are lowercased, as the modules do.
@@ -87,7 +87,7 @@ export type IssueCode =
   | "forwardOnWeb"
   | "tunnelToken";
 
-export interface RoutingIssue {
+export interface IngressIssue {
   level: "error" | "warning";
   code: IssueCode;
   // The row an issue belongs to, set by the page-level check (the per-row
@@ -98,7 +98,7 @@ export interface RoutingIssue {
 }
 
 // Everything the checks read, already defaulted.
-export interface RoutingContext {
+export interface IngressContext {
   hosts: RouterHost[];
   portForwards: PortForward[];
   ddns: { enable: boolean; names: string[] };
@@ -117,11 +117,11 @@ const overlap = (names: string[], taken: string[]) => {
   return [...new Set(lower(names).filter((n) => set.has(n)))];
 };
 
-const publicHostnames = (ctx: RoutingContext) =>
+const publicHostnames = (ctx: IngressContext) =>
   ctx.hosts.flatMap((h) => (h.publicHostname ? [h.publicHostname] : []));
 
-function checkTarget(hostName: string, port: number | undefined, ctx: RoutingContext) {
-  const issues: RoutingIssue[] = [];
+function checkTarget(hostName: string, port: number | undefined, ctx: IngressContext) {
+  const issues: IngressIssue[] = [];
   const host = ctx.hosts.find((h) => h.name === hostName);
   if (!hostName) {
     issues.push({ level: "error", code: "noHost" });
@@ -138,8 +138,8 @@ function checkTarget(hostName: string, port: number | undefined, ctx: RoutingCon
 
 // One proxy route. `self` is its index in ctx.proxy.routes (null for a row
 // being added), so it is not compared with itself.
-export function checkRoute(r: ProxyRoute, ctx: RoutingContext, self: number | null) {
-  const issues: RoutingIssue[] = [];
+export function checkRoute(r: ProxyRoute, ctx: IngressContext, self: number | null) {
+  const issues: IngressIssue[] = [];
   const names = lower(r.hostnames);
   if (names.length === 0) {
     issues.push({ level: "error", code: "noHostnames" });
@@ -190,8 +190,8 @@ export function checkRoute(r: ProxyRoute, ctx: RoutingContext, self: number | nu
 }
 
 // One tunnel ingress row; `self` as for checkRoute.
-export function checkIngress(ing: TunnelIngress, ctx: RoutingContext, self: number | null) {
-  const issues: RoutingIssue[] = [];
+export function checkIngress(ing: TunnelIngress, ctx: IngressContext, self: number | null) {
+  const issues: IngressIssue[] = [];
   const name = ing.hostname.toLowerCase();
   if (!name) {
     issues.push({ level: "error", code: "noHostnames" });
@@ -236,7 +236,7 @@ export const claimsWebPorts = (f: Pick<PortForward, "protocol" | "family" | "por
 const forwardLabel = (f: PortForward) => f.name || f.host;
 
 // Tag freshly made row issues with the row they belong to.
-const about = (issues: RoutingIssue[], subject: string) => {
+const about = (issues: IngressIssue[], subject: string) => {
   for (const it of issues) {
     it.subject = subject;
   }
@@ -245,8 +245,8 @@ const about = (issues: RoutingIssue[], subject: string) => {
 
 // Whole-page check: every row plus the section-level assertions, split by the
 // tab that shows them.
-export function checkRouting(ctx: RoutingContext) {
-  const proxy: RoutingIssue[] = ctx.proxy.routes.flatMap((r, i) =>
+export function checkPage(ctx: IngressContext) {
+  const proxy: IngressIssue[] = ctx.proxy.routes.flatMap((r, i) =>
     about(checkRoute(r, ctx, i), routeLabel(r)),
   );
   if (ctx.proxy.enable && ctx.proxy.routes.length > 0) {
@@ -267,7 +267,7 @@ export function checkRouting(ctx: RoutingContext) {
     }
   }
 
-  const tunnel: RoutingIssue[] = ctx.tunnel.ingress.flatMap((ing, i) =>
+  const tunnel: IngressIssue[] = ctx.tunnel.ingress.flatMap((ing, i) =>
     about(checkIngress(ing, ctx, i), ing.hostname || ing.host),
   );
   if (ctx.tunnel.enable && !ctx.tunnel.apiTokenFile) {

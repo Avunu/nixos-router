@@ -1,5 +1,5 @@
 // Firewall page: UPnP / NAT-PMP and the live nftables ruleset. Static port
-// forwards moved to the Routing page (port-forwards.tsx).
+// forwards moved to the Ingress page (port-forwards.tsx).
 import { useEffect, useState, useCallback } from "react";
 import { errMsg } from "./nix";
 import {
@@ -158,10 +158,10 @@ export const Firewall = () => {
           variant="info"
           isInline
           isPlain
-          title={_("Port forwards have moved to the Routing page.")}
+          title={_("Port forwards have moved to the Ingress page.")}
           actionLinks={
-            <AlertActionLink onClick={() => cockpit.jump("/router/routing")}>
-              {_("Go to Routing")}
+            <AlertActionLink onClick={() => cockpit.jump("/router/ingress")}>
+              {_("Go to Ingress")}
             </AlertActionLink>
           }
         />

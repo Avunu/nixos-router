@@ -1,6 +1,6 @@
 # NixOS VM test — the hostname-routing reverse proxy on the wire.
 #
-# tests/routing-eval.nix pins what the generated config SAYS; this proves it
+# tests/ingress-eval.nix pins what the generated config SAYS; this proves it
 # works end to end, including the ACME path nothing else can exercise:
 #
 #   • HTTP-01 issuance: pebble (the ACME test CA, on the WAN node) validates

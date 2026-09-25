@@ -1,7 +1,7 @@
-// Routing → Reverse proxy: router.reverseProxy (hostname routes on the WAN's
+// Ingress → Reverse proxy: router.reverseProxy (hostname routes on the WAN's
 // ports 80/443, proxied to registered hosts) and router.acme (the account its
 // Let's Encrypt certificates are ordered with). One certificate per route,
-// named after its first hostname (routing.ts certName); its state comes from
+// named after its first hostname (ingress.ts certName); its state comes from
 // the cert.pem on disk and the acme-order-renew-<cert> unit.
 import { useCallback, useEffect, useState } from "react";
 import {
@@ -33,8 +33,8 @@ import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import { useSettings, Loading, SaveBar, hint, ListEditor } from "./settings";
 import { getPath, errMsg } from "./nix";
 import type { Json } from "./nix";
-import { certName, checkRoute, checkRouting, effectiveChallenge, normalizeRoute } from "./routing";
-import type { EffectiveChallenge } from "./routing";
+import { certName, checkRoute, checkPage, effectiveChallenge, normalizeRoute } from "./ingress";
+import type { EffectiveChallenge } from "./ingress";
 import {
   DEFAULT_ACME_TOKEN_FILE,
   PROXY_UNIT,
@@ -42,16 +42,16 @@ import {
   renewUnit,
   startUnit,
   unitState,
-} from "./routing-runtime";
-import type { CertInfo, UnitState } from "./routing-runtime";
+} from "./ingress-runtime";
+import type { CertInfo, UnitState } from "./ingress-runtime";
 import {
   hasErrors,
   hostDetail,
   IssueList,
-  routingContext,
+  ingressContext,
   TokenFileField,
   UnitLabel,
-} from "./routing-widgets";
+} from "./ingress-widgets";
 import { scanOpenPorts } from "./hosts-live";
 import type { AcmeChallenge, ProxyRoute, RouterHost } from "./types";
 
@@ -241,7 +241,7 @@ export const ReverseProxy = () => {
   const [renewing, setRenewing] = useState("");
   const [renewError, setRenewError] = useState("");
 
-  const ctx = routingContext(s);
+  const ctx = ingressContext(s);
   const rows = ctx.proxy.routes.map((r) => normalizeRoute(r));
   // The units and certificates exist only once an enabled config is applied.
   const active = getPath(s.effective, "reverseProxy.enable") === true;
@@ -274,7 +274,7 @@ export const ReverseProxy = () => {
   const defaultChallenge = ctx.acme.defaultChallenge ?? "http";
   const ddnsToken = s.valueOf<string | null>("ddns.cloudflare.apiTokenFile", null);
   const acmeToken = ctx.acme.cloudflare?.apiTokenFile ?? null;
-  const pageIssues = checkRouting(ctx).proxy;
+  const pageIssues = checkPage(ctx).proxy;
 
   const setRows = (r: ProxyRoute[]) => s.setLeaf("reverseProxy.routes", r as unknown as Json);
 

@@ -31,10 +31,10 @@
       "order": 33,
       "path": "network.html"
     },
-    "routing": {
-      "label": "Routing",
+    "ingress": {
+      "label": "Ingress",
       "order": 34,
-      "path": "routing.html"
+      "path": "ingress.html"
     },
     "threat-protection": {
       "label": "Threat Protection",

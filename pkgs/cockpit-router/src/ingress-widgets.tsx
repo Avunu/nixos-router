@@ -1,6 +1,6 @@
-// Pieces shared by the Routing tabs (and Network → Dynamic DNS): the API
+// Pieces shared by the Ingress tabs (and Network → Dynamic DNS): the API
 // token path + writer, host labels, unit-state labels, and the text for the
-// validation issues routing.ts reports by code.
+// validation issues ingress.ts reports by code.
 import { useState } from "react";
 import type { ReactNode } from "react";
 import {
@@ -23,8 +23,8 @@ import { hint } from "./settings";
 import type { useSettings } from "./settings";
 import { errMsg } from "./nix";
 import { saveSecret } from "./ddns";
-import type { RoutingContext, RoutingIssue } from "./routing";
-import type { UnitState } from "./routing-runtime";
+import type { IngressContext, IngressIssue } from "./ingress";
+import type { UnitState } from "./ingress-runtime";
 import type {
   AcmeSettings,
   CloudflareTunnelSettings,
@@ -40,8 +40,8 @@ type S = ReturnType<typeof useSettings>;
 export const hostDetail = (h: RouterHost | undefined) =>
   h ? [h.staticIp, h.ipv6Suffix].filter(Boolean).join(" · ") || _("no addresses") : "";
 
-// The settings the Routing checks read, with the module defaults filled in.
-export const routingContext = (s: S): RoutingContext => {
+// The settings the Ingress checks read, with the module defaults filled in.
+export const ingressContext = (s: S): IngressContext => {
   const proxy = s.valueOf<ReverseProxySettings>("reverseProxy", {});
   const tunnel = s.valueOf<CloudflareTunnelSettings>("cloudflareTunnel", {});
   return {
@@ -66,9 +66,9 @@ export const routingContext = (s: S): RoutingContext => {
 };
 
 // ── Issues ──────────────────────────────────────────────────────────────────
-const list = (it: RoutingIssue) => (it.names ?? []).join(", ");
+const list = (it: IngressIssue) => (it.names ?? []).join(", ");
 
-function issueBody(it: RoutingIssue): string {
+function issueBody(it: IngressIssue): string {
   switch (it.code) {
     case "noHostnames": {
       return _("Enter at least one public hostname.");
@@ -158,12 +158,12 @@ function issueBody(it: RoutingIssue): string {
   }
 }
 
-export const issueText = (it: RoutingIssue) =>
+export const issueText = (it: IngressIssue) =>
   it.subject ? `${it.subject}: ${issueBody(it)}` : issueBody(it);
 
-export const hasErrors = (issues: RoutingIssue[]) => issues.some((it) => it.level === "error");
+export const hasErrors = (issues: IngressIssue[]) => issues.some((it) => it.level === "error");
 
-export const IssueList = ({ issues }: { issues: RoutingIssue[] }) =>
+export const IssueList = ({ issues }: { issues: IngressIssue[] }) =>
   issues.length > 0 ? (
     <HelperText>
       {issues.map((it) => (

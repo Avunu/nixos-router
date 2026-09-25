@@ -11,7 +11,7 @@ Both give many web services one public entry point and route requests **by hostn
 | Traffic passes through | nothing | the router | Cloudflare |
 | Non-HTTP protocols | yes | no | no (HTTP(S) only here) |
 
-All three are managed on the Cockpit **Routing** page, which has a tab for each.
+All three are managed on the Cockpit **Ingress** page, which has a tab for each.
 
 ## Reverse proxy
 
@@ -37,7 +37,7 @@ The proxy's own ports are closed to the WAN; only the redirected traffic is let 
 
 ### Certificates
 
-Certificates come from Let's Encrypt through NixOS `security.acme` (lego), one per route, and live in `/var/lib/acme/<first hostname>/` (a `*` in the name becomes `_`). Set these once under **Routing → Reverse proxy → Certificates**:
+Certificates come from Let's Encrypt through NixOS `security.acme` (lego), one per route, and live in `/var/lib/acme/<first hostname>/` (a `*` in the name becomes `_`). Set these once under **Ingress → Reverse proxy → Certificates**:
 
 -   **email and accept terms:** both are required before anything is requested.
 -   **staging:** uses Let's Encrypt's staging CA, whose certificates browsers do not trust but whose rate limits are much higher. Use it while trying out a new route.
@@ -61,7 +61,7 @@ With **publishDns** on (the default), every route hostname is published through 
 The router manages the tunnel entirely through the Cloudflare API, so it is declared in the settings file like everything else:
 
 1.  In the Cloudflare dashboard (**My Profile → API Tokens**), create a token with **Account → Cloudflare Tunnel → Edit**, **Zone → Zone → Read** and **Zone → DNS → Edit**, limited to your account and zones.
-2.  In Cockpit, open **Routing → Tunnel → Set token…**. The token is written to `/etc/router/secrets/cloudflare-tunnel.token` (root, 0600).
+2.  In Cockpit, open **Ingress → Tunnel → Set token…**. The token is written to `/etc/router/secrets/cloudflare-tunnel.token` (root, 0600).
 3.  Enable the tunnel, add the hostnames with their hosts and ports, and apply.
 
 `router-cloudflare-tunnel.service` then does the following:

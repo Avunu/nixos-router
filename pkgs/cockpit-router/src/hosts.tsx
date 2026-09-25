@@ -78,8 +78,8 @@ import {
 } from "./ip-math";
 import type { NetworkShape } from "./ip-math";
 import { loadDirectoryAll } from "./directory";
-import { countHostRefs, removeHostRefs, renameHostRefs } from "./routing";
-import type { HostRefs } from "./routing";
+import { countHostRefs, removeHostRefs, renameHostRefs } from "./ingress";
+import type { HostRefs } from "./ingress";
 import type {
   RouterHost,
   HostGroup,

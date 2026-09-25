@@ -304,8 +304,8 @@
           # addresses and IPv6 pinholes), one ACME certificate per route with
           # the right challenge, the Cloudflare Tunnel's ingress, and every
           # cross-feature name clash rejected with a message naming it.
-          #   nix build .#checks.<system>.routing-eval
-          routing-eval = import ./tests/routing-eval.nix {
+          #   nix build .#checks.<system>.ingress-eval
+          ingress-eval = import ./tests/ingress-eval.nix {
             pkgs = nixpkgs.legacyPackages.${system};
             routerModule = self.nixosModules.router;
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);

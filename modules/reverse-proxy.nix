@@ -47,7 +47,7 @@ let
 
   # The certificate (and its /var/lib/acme directory and acme-* units) is
   # named after the route's first hostname; `*` is not welcome in a unit or
-  # directory name. Cockpit derives the same name (src/routing.ts certName).
+  # directory name. Cockpit derives the same name (src/ingress.ts certName).
   certName = r: replaceStrings [ "*" ] [ "_" ] (toLower (head r.hostnames));
   challengeOf = r: if r.challenge != "default" then r.challenge else acfg.defaultChallenge;
 

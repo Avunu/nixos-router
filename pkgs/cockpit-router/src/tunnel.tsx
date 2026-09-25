@@ -1,4 +1,4 @@
-// Routing → Tunnel: router.cloudflareTunnel — public hostnames served through
+// Ingress → Tunnel: router.cloudflareTunnel — public hostnames served through
 // a Cloudflare Tunnel the router creates and keeps in sync (no WAN port
 // opens), plus the provisioner's last-run status and the connector's health.
 //
@@ -37,7 +37,7 @@ import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import { useSettings, Loading, SaveBar, hint } from "./settings";
 import { getPath, errMsg } from "./nix";
 import type { Json } from "./nix";
-import { checkIngress, checkRouting, normalizeIngress } from "./routing";
+import { checkIngress, checkPage, normalizeIngress } from "./ingress";
 import {
   DEFAULT_TUNNEL_TOKEN_FILE,
   TUNNEL_CONNECTOR_UNIT,
@@ -45,16 +45,16 @@ import {
   loadTunnelStatus,
   startUnit,
   unitState,
-} from "./routing-runtime";
-import type { UnitState } from "./routing-runtime";
+} from "./ingress-runtime";
+import type { UnitState } from "./ingress-runtime";
 import {
   hasErrors,
   hostDetail,
   IssueList,
-  routingContext,
+  ingressContext,
   TokenFileField,
   UnitLabel,
-} from "./routing-widgets";
+} from "./ingress-widgets";
 import type { TunnelIngress, TunnelStatus } from "./types";
 
 const _ = cockpit.gettext;
@@ -279,13 +279,13 @@ export const Tunnel = () => {
     );
   }
 
-  const ctx = routingContext(s);
+  const ctx = ingressContext(s);
   const enabled = ctx.tunnel.enable;
   const rows = ctx.tunnel.ingress.map((i) => normalizeIngress(i));
   const { hosts } = ctx;
   const hostByName = new Map(hosts.map((h) => [h.name, h]));
   const locked = s.lockedOf("cloudflareTunnel.ingress");
-  const pageIssues = checkRouting(ctx).tunnel;
+  const pageIssues = checkPage(ctx).tunnel;
   // The provisioner is installed while the tunnel is on, and also while a
   // token remains after turning it off (so it can tear the tunnel down).
   const canSync =

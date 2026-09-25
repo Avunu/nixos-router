@@ -67,7 +67,7 @@ interface Cockpit {
   file: ((path: string, options: CockpitFileOptions & { binary: true }) => CockpitBinaryFile) &
     ((path: string, options?: CockpitFileOptions) => CockpitFile);
   http: (options: CockpitHttpOptions) => CockpitHttp;
-  // Navigate the shell to another page, e.g. "/router/routing".
+  // Navigate the shell to another page, e.g. "/router/ingress".
   jump: (path: string, host?: string) => void;
 }
 
