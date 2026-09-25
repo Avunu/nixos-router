@@ -189,6 +189,8 @@ Entra ID has **no LDAP endpoint**. To drive policy from it you need **Microsoft 
 
 Set `directory.sssd.adminGroup` to a group name. SSSD then runs its PAM responder with `access_provider = simple` and `simple_allow_groups = <group>`, and the router grants that group sudo and polkit admin, so its members can administer the router through Cockpit. Every other directory user is denied. SSH additionally requires `directory.sssd.adminSsh` (the router is otherwise key-only).
 
+Group membership then decides who is root, so whoever can answer for the directory server can make themselves an admin. The build therefore refuses admin mode unless the connection is TLS with a checked certificate: `ldaps://` servers, or `ldap://` with `directory.sssd.startTls = true`, and `tlsReqCert` left at `demand` (or `hard`). In lookup-only mode the same weakness only affects which policy a user gets, so it is a build warning instead.
+
 Left empty — the default — SSSD runs `services = nss` only. There is no PAM socket for `pam_sss.so` to talk to, the domain's `access_provider` is `deny`, and the module force-removes `pam_sss` from every PAM stack, so no directory user can authenticate to the router at all.
 
 The admin group name must contain no whitespace and must not collide with a local group: `/etc/nsswitch.conf` is `group: files sss`, so a local group of the same name would win every lookup. Both are enforced by assertions.
