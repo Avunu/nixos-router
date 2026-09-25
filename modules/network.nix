@@ -264,10 +264,13 @@ in
     #   • Guest clients can reach DHCP (port 67) and DNS (port 53)
     #     on the router, but nothing else on the router itself.
     #   • IPv4 DNS is hijacked to the local resolver (same as LAN).
-    #   • DoT (port 853) and IPv6 :53 are blocked to prevent DNS bypass.
+    #   • DoT/DoQ (port 853) and IPv6 :53 are blocked to prevent DNS bypass.
     #   • Shorter default DHCP lease (1h) encourages address rotation.
+    #   • Isolation is at layer 3, in the router. Guest clients on the same
+    #     wire or access point still reach each other directly; client
+    #     isolation between them is the access point's or switch's job.
     guest = {
-      enable = mkEnableOption "guest network with client isolation";
+      enable = mkEnableOption "guest network, isolated from the LAN and the router at layer 3";
 
       interfaces = mkOption {
         type = types.listOf types.str;
