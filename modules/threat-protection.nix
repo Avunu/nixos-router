@@ -152,7 +152,7 @@ let
     '';
 
   # ── Build-time config test ───────────────────────────────
-  # The service's ExecStartPre runs `suricata -T` only after the switch, so a
+  # The service's ExecStartPre runs `suricata -T` only when Suricata starts, so a
   # rule that doesn't parse used to leave the IPS down, and traffic passing
   # uninspected, until someone read the journal. This runs the same test in
   # the build sandbox, through system.checks, so it fails the rebuild instead
@@ -363,7 +363,7 @@ in
         description = ''
           Test the local rules and suppressions with `suricata -T` at build
           time (a system.checks entry), so a rule Suricata rejects fails the
-          rebuild instead of stopping Suricata after the switch. Turn it off
+          rebuild instead of stopping Suricata at its next start. Turn it off
           for extra rules that read a file the build sandbox can't see, such
           as a `filemd5` / `filesha*` list, a `dataset` with `load`, or an
           absolute /var/lib path: the test loads local.rules from the Nix

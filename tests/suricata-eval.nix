@@ -12,7 +12,8 @@
 # This pins the config as Suricata itself parses it (`suricata --dump-config`),
 # the generated logrotate.conf, the suppression assertion, and that the
 # system.checks config test passes on a good config, fails the build on a
-# broken rule, and goes away with router.suricata.checkRulesAtBuild = false.
+# broken rule, and goes away with router.suricata.checkRulesAtBuild = false,
+# which still reaches effective.json for the Settings tab's hint.
 {
   pkgs,
   routerModule,
@@ -102,8 +103,12 @@ let
   };
 
   # The opt-out for extra rules that read a file the build sandbox can't see
-  # (filemd5, dataset load). Only its system.checks is read.
-  optOut = evalWith { router.suricata.checkRulesAtBuild = false; };
+  # (filemd5, dataset load). Only its system.checks and effective.json are
+  # read; Cockpit is on so the latter exists.
+  optOut = evalWith {
+    router.suricata.checkRulesAtBuild = false;
+    router.cockpit.enable = true;
+  };
 
   suricata = sys.services.suricata.package;
   configFile = sys.services.suricata.configFile;
@@ -149,6 +154,19 @@ let
       name = "config-test-opt-out";
       ok = configTestOf optOut == null;
       detail = "router.suricata.checkRulesAtBuild = false leaves suricata-config-test in system.checks";
+    }
+    {
+      # The option is hidden from the schema, but the Settings tab reads it
+      # from effective.json to say that applying no longer tests the rules.
+      name = "effective-json-carries-opt-out";
+      ok =
+        let
+          eff = builtins.fromJSON (
+            builtins.unsafeDiscardStringContext optOut.environment.etc."router/effective.json".text
+          );
+        in
+        (eff.suricata.checkRulesAtBuild or null) == false;
+      detail = "effective.json lacks suricata.checkRulesAtBuild = false";
     }
     {
       name = "logrotate-files-is-a-list";

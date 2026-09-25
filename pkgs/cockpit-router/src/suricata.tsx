@@ -15,7 +15,12 @@ import { loadState, writeDesired, getPath, setPath, errMsg } from "./nix";
 import type { Json } from "./nix";
 import { resolveNames } from "./hosts-live";
 import { isPrefix } from "./ip-math";
-import { BUILTIN_SID_MAX, BUILTIN_SID_MIN, lintExtraRules } from "./suricata-rules";
+import {
+  BUILTIN_SID_MAX,
+  BUILTIN_SID_MIN,
+  lintExtraRules,
+  rulesTestedAtBuild,
+} from "./suricata-rules";
 import type { RuleIssue } from "./suricata-rules";
 import suricataCategories from "./suricata-categories.json";
 import {
@@ -1265,9 +1270,13 @@ const SuricataSettings = () => {
             label={_("Extra local rules")}
             fieldId="extraRules"
             labelHelp={hint(
-              _(
-                "Custom Suricata rules, one per line. Applying checks them with Suricata first: a rule it rejects fails the apply, and the running system stays as it was.",
-              ),
+              rulesTestedAtBuild(s.effective)
+                ? _(
+                    "Custom Suricata rules, one per line. Applying checks them with Suricata first: a rule it rejects fails the apply, and the running system stays as it was.",
+                  )
+                : _(
+                    "Custom Suricata rules, one per line. The build-time rule test is turned off in Nix (checkRulesAtBuild), so applying doesn't check these rules. Suricata keeps running when it reloads them, but a rule it rejects stops it the next time it starts, such as after a reboot or a system update, and traffic then passes uninspected until you fix it.",
+                  ),
             )}
           >
             <TextArea

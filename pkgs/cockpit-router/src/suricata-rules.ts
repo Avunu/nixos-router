@@ -2,9 +2,10 @@
 //
 // It is no rule parser: Suricata itself checks the rules when the router is
 // rebuilt (the `suricata -T` system check in modules/threat-protection.nix),
-// and a rule it rejects fails the apply. This catches the common slips before
-// that, while typing: a line that is not a rule, a missing `sid`, a SID used
-// twice or one of the built-in rules' SIDs.
+// and a rule it rejects fails the apply, unless router.suricata.checkRulesAtBuild
+// turns that check off (see rulesTestedAtBuild). This catches the common slips
+// before that, while typing: a line that is not a rule, a missing `sid`, a SID
+// used twice or one of the built-in rules' SIDs.
 //
 // It reads the text the way Suricata's rule loader does: a line whose first
 // character is `#` is a comment, and so is one starting with a space or tab
@@ -12,6 +13,9 @@
 // line onto the rule. Issues carry a code rather than a sentence, so this
 // module stays free of `cockpit` (node --test runs it); suricata.tsx turns
 // them into translated text.
+
+import { getPath } from "./settings-json.ts";
+import type { Json } from "./settings-json.ts";
 
 // The built-in rules (localSuricataRules in modules/threat-protection.nix)
 // use 1000001–1000007, 1000010 and 1000011; the range between stays reserved.
@@ -119,3 +123,10 @@ export function lintExtraRules(text: string): RuleIssue[] {
   }
   return issues.toSorted((a, b) => a.line - b.line);
 }
+
+// Whether applying runs that `suricata -T` check on the local rules. Its switch,
+// router.suricata.checkRulesAtBuild, is Nix-only (hidden from the schema) but
+// still reaches effective.json with the rest of router.suricata. Missing, as
+// when effective.json can't be read and loads as `{}`, means on: the default.
+export const rulesTestedAtBuild = (effective: Json): boolean =>
+  getPath(effective, "suricata.checkRulesAtBuild") !== false;
