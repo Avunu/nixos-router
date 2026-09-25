@@ -11,9 +11,11 @@
 #     and the backend sees X-Forwarded-For/-Proto.
 #   • HTTP → HTTPS redirect; an unknown name gets no certificate; the proxy's
 #     own ports are not reachable directly from the WAN.
-#   • Hairpin: a LAN client reaching the public name (the WAN address) gets
-#     the proxy, while the gateway address keeps its own :443 — the Block
-#     Page's in production, a stand-in listener here.
+#   • Hairpin: a LAN or guest client reaching the public name (the WAN
+#     address) gets the proxy, while the LAN gateway address keeps its own
+#     80/443 — the Block Page's in production, stand-in listeners here. That
+#     includes a guest client, for which the LAN gateway is NOT on its own
+#     network: blocked names resolve to it for every client.
 #   • A reload (what a renewal triggers) keeps the same process serving.
 {
   pkgs,
@@ -59,9 +61,18 @@ pkgs.testers.runNixOSTest {
           router.lan.vlan = null;
           router.lan.taggedInterfaces = [ ];
           router.trunkInterfaces = [ ];
-          router.guest.enable = false;
-          # Keep the VM light: no Technitium/dotnet closure, no IPS.
+          # Untagged guest port, so br-guest is a plain bridge over eth3.
+          router.guest = {
+            enable = true;
+            interfaces = [ "eth3" ];
+            vlan = null;
+            taggedInterfaces = [ ];
+          };
+          # Keep the VM light: no Technitium/dotnet closure, no IPS. The Block
+          # Page setting still shapes the firewall; stand-in listeners take
+          # the app's place on the gateway's 80/443.
           router.dns.technitium.enable = false;
+          router.accessPolicies.blockPage.enable = true;
           router.suricata.enable = false;
           router.cockpit.enable = false;
 
@@ -110,7 +121,8 @@ pkgs.testers.runNixOSTest {
             vlans = [
               1
               2
-            ]; # eth1 = WAN, eth2 = LAN
+              3
+            ]; # eth1 = WAN, eth2 = LAN, eth3 = guest
             memorySize = 1536;
           };
           environment.systemPackages = [
@@ -185,6 +197,17 @@ pkgs.testers.runNixOSTest {
     router.succeed("ip -n lan link set lan-c up")
     router.succeed("ip -n lan route add default via 10.48.4.1")
 
+    # A guest client, for whom the LAN gateway is another network's address.
+    router.wait_until_succeeds("ip -4 addr show br-guest | grep -qw 192.168.20.1", timeout=60)
+    router.succeed("ip netns add guest")
+    router.succeed("ip link add guest-c type veth peer name guest-br")
+    router.succeed("ip link set guest-br master br-guest up")
+    router.succeed("ip link set guest-c netns guest")
+    router.succeed("ip -n guest link set lo up")
+    router.succeed("ip -n guest addr add 192.168.20.50/24 dev guest-c")
+    router.succeed("ip -n guest link set guest-c up")
+    router.succeed("ip -n guest route add default via 192.168.20.1")
+
     router.wait_for_unit("router-proxy.service")
 
     with subtest("HTTP-01 issuance through the WAN :80 redirect"):
@@ -254,10 +277,37 @@ pkgs.testers.runNixOSTest {
             )
         )
         assert headers["x-forwarded-for"] == "10.48.4.50", headers
-        # Stand-in for the Block Page on the gateway address's :443.
-        router.succeed("python3 -m http.server 443 --bind 10.48.4.1 >/dev/null 2>&1 &")
-        router.wait_until_succeeds("ss -ltn | grep -q '10.48.4.1:443'")
-        router.succeed("ip netns exec lan curl -sf --max-time 5 http://10.48.4.1:443/ >/dev/null")
+        # Stand-ins for the Block Page on the gateway address's 80 and 443,
+        # plain HTTP on both. A connection the proxy took instead never sees
+        # the marker: the proxy answers 80 with a 404 and expects TLS on 443.
+        router.succeed("mkdir -p /tmp/blockpage && echo block-page-stand-in > /tmp/blockpage/index.html")
+        for port in (80, 443):
+            router.succeed(
+                f"python3 -m http.server {port} --bind 10.48.4.1 --directory /tmp/blockpage "
+                ">/dev/null 2>&1 &"
+            )
+            router.wait_until_succeeds(f"ss -ltn | grep -q '10.48.4.1:{port} '")
+        out = router.succeed("ip netns exec lan curl -sf --max-time 5 http://10.48.4.1:443/")
+        assert "block-page-stand-in" in out, out
+
+    with subtest("hairpin from guest: the public name, and the LAN gateway left alone"):
+        # The public name still reaches the proxy from the guest network.
+        headers = json.loads(
+            router.succeed(
+                "ip netns exec guest curl -sSf --max-time 10 --cacert /tmp/root.pem "
+                "--resolve app.example.test:443:203.0.113.1 https://app.example.test/"
+            )
+        )
+        assert headers["x-forwarded-for"] == "192.168.20.50", headers
+        # Blocked names resolve to the LAN gateway for every client. From
+        # guest that address is not on the ingress interface, so without the
+        # Block Page exemption the hairpin rule would hand it to the proxy.
+        for port in (80, 443):
+            rc, out = router.execute(
+                f"ip netns exec guest curl -sS --max-time 5 http://10.48.4.1:{port}/"
+            )
+            assert rc == 0 and "block-page-stand-in" in out, \
+                f"guest → 10.48.4.1:{port} did not reach the Block Page stand-in (rc={rc}): {out}"
 
     with subtest("a reload keeps the same process serving"):
         pid = router.succeed("systemctl show -p MainPID --value router-proxy.service").strip()

@@ -12,6 +12,7 @@
 with lib;
 let
   cfg = config.router;
+  netLib = import ./lib/net.nix { inherit lib; };
 
   # ── Derived values ──────────────────────────────────────
   # Network topology (interface names, CIDRs, the VLAN/port model, and
@@ -631,7 +632,10 @@ in
       # cockpit only falls back to accepting the request's own scheme+host
       # when the key is absent entirely (cockpit_web_service_create_socket).
       # So every name the router is reached by is listed, with and without
-      # the port (the latter for a reverse proxy in front on :443).
+      # the port (the latter for a reverse proxy in front on :443). That
+      # includes each WireGuard tunnel's own address, which is what a remote
+      # client naturally opens; a tunnel the UI has just created has no
+      # address yet, and an IPv6 one needs brackets to be an origin.
       #
       # Via allowed-origins rather than settings.WebService.Origins: it is a
       # list option the nixpkgs module folds into Origins itself, so this merges
@@ -639,11 +643,14 @@ in
       allowed-origins =
         let
           port = toString cfg.cockpit.port;
+          tunnelIPs = filter (a: a != "") (map (wg: head (splitString "/" wg.address)) wgInterfaces);
+          asHost = a: if netLib.familyOf a == "ipv6" then "[${a}]" else a;
           hosts = [
             lanGW
             "${cfg.hostName}.local"
             "${cfg.hostName}.${cfg.lan.domain}"
-          ];
+          ]
+          ++ map asHost tunnelIPs;
         in
         concatMap (h: [
           "https://${h}"

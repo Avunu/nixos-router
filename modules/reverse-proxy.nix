@@ -13,7 +13,9 @@
 #   • LAN/guest/WireGuard → a router address that is NOT the one on the
 #     ingress interface, tcp 80/443 — hairpin: a client inside reaching the
 #     public name (i.e. the WAN address) gets the same routes. The gateway
-#     addresses themselves stay with the Block Page.
+#     addresses themselves stay with the Block Page and, while it is on, so
+#     does the LAN gateway from guest and WireGuard: blocked names send
+#     every client there.
 #
 # Certificates come from security.acme, one per route (see modules/acme.nix
 # for the challenge types). A renewal reloads the proxy (SIGHUP), which swaps
