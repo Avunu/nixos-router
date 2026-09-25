@@ -206,6 +206,16 @@ void test("appliedBaseline: a real Nix override still locks", () => {
   );
 });
 
+void test("appliedBaseline: Update system clears the tray only when it switched", () => {
+  // system-upgrade exits 0 either way, so the System page writes the snapshot
+  // only when `stale` says a generation landed after the JSON was saved.
+  // Edits saved at 3000; the running system dates from 2000 when the lock was
+  // unchanged and the rebuild skipped…
+  assert.equal(appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 3000, 2000).stale, false);
+  // …and from 4000 when it switched, building the saved JSON with it.
+  assert.equal(appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 3000, 4000).stale, true);
+});
+
 void test("getPath / setPath round-trip through nested objects", () => {
   const obj: Json = { a: { b: { c: 1 } } };
   assert.equal(getPath(obj, "a.b.c"), 1);

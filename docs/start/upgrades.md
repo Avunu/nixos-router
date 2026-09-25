@@ -7,6 +7,7 @@ code:
   - pkgs/cockpit-router/src/system.tsx
   - pkgs/cockpit-router/src/changes.tsx
   - pkgs/cockpit-router/src/nix.ts
+  - pkgs/cockpit-router/src/settings-json.ts
 ---
 
 # Upgrades and rollback
@@ -63,7 +64,7 @@ Both run the same script. It asks for your password through `sudo` if you aren't
 It never reboots, even for a new kernel; the new kernel runs after the next reboot. To target another flake or configuration, pass them as arguments: `system-upgrade /etc/nixos default`.
 
 :::doc-note
-`system-upgrade` only rebuilds when there is an update. To apply saved settings, use **Apply** in the changes tray or **Apply configuration**, and do that before you press **Update system**: once **Update system** succeeds, the changes tray clears, even if it skipped the rebuild and your saved settings are still unapplied.
+`system-upgrade` only rebuilds when there is an update. To apply saved settings, use **Apply** in the changes tray or **Apply configuration**. When **Update system** does rebuild, it builds your saved settings too, and the changes tray clears. When it skips the rebuild, your saved settings stay in the tray, still unapplied.
 :::
 
 ## The Operations tab

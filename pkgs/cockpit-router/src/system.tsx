@@ -24,6 +24,7 @@ import {
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
 import { flakeHostRef, writeApplied, loadState, errMsg } from "./nix";
+import type { Json } from "./nix";
 import { validateSettings } from "./schema";
 import { useSettings, SubNav, SaveBar, Loading, ListEditor, hint, TabbedPage } from "./settings";
 
@@ -115,16 +116,34 @@ const SystemOps = () => {
     }
   };
 
-  // After a successful switch, snapshot the saved JSON as the applied baseline
-  // So the global changes tray clears, and refresh the generation list.
-  const onApplied = () => {
-    loadState()
-      .then((st) => writeApplied(st.desired))
+  // Let every open form and the changes tray pick up the new generation's
+  // effective config, and refresh the generation list.
+  const afterSwitch = () => {
+    window.dispatchEvent(new Event("router:changed"));
+    loadGenerations();
+  };
+
+  // After a successful switch, snapshot the JSON the rebuild was started from
+  // as the applied baseline, so the changes tray clears. As in the tray's own
+  // Apply, that is the copy apply validated, not a re-read after the rebuild,
+  // which could pick up an edit saved while it ran.
+  const onApplied = (built: Json) => {
+    writeApplied(built)
       .catch(() => {})
-      .finally(() => {
-        window.dispatchEvent(new Event("router:changed"));
-        loadGenerations();
-      });
+      .finally(afterSwitch);
+  };
+
+  // `system-upgrade` also exits 0 when flake.lock did not change and it skipped
+  // the rebuild, so its success says nothing about the saved JSON. loadState
+  // does: snapshotStale is set only when the running generation was activated
+  // after the last write to the JSON and the snapshot disagrees with it — the
+  // switch built from what is on disk. After a skipped rebuild, saved edits
+  // stay in the tray.
+  const onUpgraded = () => {
+    loadState()
+      .then((st) => (st.snapshotStale ? writeApplied(st.desired) : null))
+      .catch(() => {})
+      .finally(afterSwitch);
   };
 
   const apply = () => {
@@ -139,13 +158,13 @@ const SystemOps = () => {
       run(
         _("Apply configuration"),
         ["nixos-rebuild", "switch", "--flake", flakeHostRef(), "--impure"],
-        onApplied,
+        () => onApplied(st.desired),
       );
     });
   };
   const check = () =>
     run(_("Check flake"), ["nixos-rebuild", "dry-build", "--flake", flakeHostRef(), "--impure"]);
-  const update = () => run(_("Update system"), ["system-upgrade"], onApplied);
+  const update = () => run(_("Update system"), ["system-upgrade"], onUpgraded);
   const rollback = () =>
     run(_("Roll back"), ["nixos-rebuild", "switch", "--rollback"], () => loadGenerations());
 
