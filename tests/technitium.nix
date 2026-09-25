@@ -712,24 +712,34 @@ pkgs.testers.runNixOSTest {
         size = int(router.succeed(f"stat -c %s {pdf}").strip())
         assert size > 1024, f"{pdf} is only {size} bytes"
 
-    with subtest("cockpit is reachable over plain http on the LAN"):
-        # Serving the login page over http already worked before this was fixed
-        # — that is why the failure looked like "signs in, then bounces back".
-        # The bug was WebService.Origins: setting it at all makes it the
-        # exclusive allow-list, and an https-only list refuses the WebSocket
-        # upgrade that the login POST hands over to. So assert the ORIGIN list,
-        # not just that a page renders.
+    with subtest("cockpit serves https on the LAN and redirects plain http to it"):
+        # The login password is also the admin's sudo password, so it must never
+        # cross the LAN in clear text: AllowUnencrypted stays unset and
+        # cockpit-tls redirects http to https. The origin list still has to
+        # name every https form the router is reached by — setting
+        # WebService.Origins at all makes it the exclusive allow-list, and a
+        # missing entry refuses the WebSocket upgrade behind the login POST,
+        # which reads as "signs in, then bounces back to the login page".
         conf = router.succeed("cat /etc/cockpit/cockpit.conf")
         origins = next(
             (l.split("=", 1)[1] for l in conf.splitlines() if l.startswith("Origins=")), ""
         ).split()
-        assert "http://10.48.4.1:9090" in origins, conf
-        assert re.search(r"^AllowUnencrypted\s*=\s*true$", conf, re.M | re.I), conf
+        assert "https://10.48.4.1:9090" in origins, conf
+        assert not any(o.startswith("http://") for o in origins), conf
+        assert not re.search(r"^AllowUnencrypted\s*=\s*true$", conf, re.M | re.I), conf
 
-        # And no https redirect in front of it: cockpit-tls forwards plain HTTP
-        # to the http wsinstance only while AllowUnencrypted is set.
+        # From a LAN client, not the router: cockpit-tls never redirects a
+        # loopback peer, so a request from the router itself proves nothing.
+        code, location = router.succeed(
+            "ip netns exec guestpc "
+            "curl -sS -o /dev/null -w '%{http_code} %{redirect_url}' http://10.48.4.1:9090/"
+        ).split()
+        assert code in ("301", "302", "307", "308"), code
+        assert location.startswith("https://"), location
+
         code = router.succeed(
-            "curl -sS -o /dev/null -w '%{http_code}' http://10.48.4.1:9090/"
+            "ip netns exec guestpc "
+            "curl -sSk -o /dev/null -w '%{http_code}' https://10.48.4.1:9090/"
         ).strip()
         assert code == "200", code
 

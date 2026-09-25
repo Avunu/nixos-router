@@ -28,6 +28,18 @@ if [ "${FQDN%%.*}" != "$HOSTNAME" ]; then
   echo "warning: router-settings.json names this router '$HOSTNAME', not '${FQDN%%.*}'" >&2
 fi
 
+# The admin account's first password: what Cockpit and sudo take until it is
+# changed. There is deliberately no default. A router shipped with a known one
+# is root for anyone on its LAN until somebody remembers to change it.
+PASSWORD=$(nix eval --raw --impure --expr '(builtins.fromJSON (builtins.readFile ./router-settings.json)).adminUser.initialPassword or ""')
+case "$PASSWORD" in
+  "" | admin | admin123 | password | changeme)
+    echo "error: set adminUser.initialPassword in $(pwd)/router-settings.json to a password of its own" >&2
+    echo "       (change it after the first login, then clear it from the settings)" >&2
+    exit 1
+    ;;
+esac
+
 echo "🚀 Deploying router $HOSTNAME to $IP_ADDRESS ($FQDN)"
 echo ""
 
@@ -41,10 +53,11 @@ cleanup() {
 trap cleanup EXIT
 
 echo "📋 Staging /etc/nixos (flake.nix, flake.lock, router-settings.json)..."
+# The settings file holds the admin's initial password: root-only.
 mkdir -p "${temp}/etc/nixos"
 install -m 644 flake.nix "${temp}/etc/nixos/flake.nix"
 [ -f flake.lock ] && install -m 644 flake.lock "${temp}/etc/nixos/flake.lock"
-install -m 644 router-settings.json "${temp}/etc/nixos/router-settings.json"
+install -m 600 router-settings.json "${temp}/etc/nixos/router-settings.json"
 
 # Pinned: this runs as root against the target, so it is a release tag rather
 # than whatever the default branch holds today. Bump it deliberately.
@@ -62,8 +75,14 @@ echo ""
 echo "The router's configuration is in /etc/nixos; manage it from Cockpit"
 echo "(https://${FQDN}:9090) or by editing /etc/nixos/router-settings.json."
 echo ""
+# The installed system takes no root logins (PermitRootLogin = no): the admin
+# user signs in with its SSH key and uses sudo.
+ADMIN=$(nix eval --raw --impure --expr '(builtins.fromJSON (builtins.readFile ./router-settings.json)).adminUser.name or "admin"')
 echo "To access the system:"
-echo "  ssh root@${FQDN}"
+echo "  ssh ${ADMIN}@${FQDN}"
 echo ""
 echo "To upgrade it now (it also upgrades nightly):"
-echo "  ssh root@${FQDN} system-upgrade"
+echo "  ssh -t ${ADMIN}@${FQDN} system-upgrade"
+echo ""
+echo "Then change the admin password (Cockpit → Accounts, or passwd) and clear"
+echo "adminUser.initialPassword from router-settings.json."

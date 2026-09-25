@@ -337,7 +337,7 @@
       "properties": {
         "initialPassword": {
           "default": null,
-          "description": "Initial password for the admin user (required for sudo access on first login; should be changed immediately)",
+          "description": "Initial password for the admin user, applied only when the account is\nfirst created (it is what sudo and the Cockpit login take until it is\nchanged). World-readable in the Nix store, like every value in this\nfile: change it after the first login and then clear it here.\n",
           "type": [
             "string",
             "null"
