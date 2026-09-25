@@ -931,8 +931,11 @@ pkgs.testers.runNixOSTest {
         # Rebinding: a LAN device answering with an address off the LAN.
         mdns_host("mdnsrebind", "10.48.4.91/24")
         # Spoofing: a sender whose own address is not on the LAN subnet, with
-        # an otherwise plausible LAN answer.
+        # an otherwise plausible LAN answer. It needs an on-link route to the
+        # LAN, as a real one would configure: the netns inherits rp_filter=1,
+        # which would otherwise drop the router's query before it answers.
         mdns_host("mdnsoffnet", "192.0.2.5/24")
+        router.succeed("ip -n mdnsoffnet route add 10.48.4.0/24 dev veth-mdnsoffnet")
         for ns, args in (
             ("mdnsrebind", "rebind-device.local 10.48.4.91 203.0.113.9"),
             ("mdnsoffnet", "offnet-device.local 192.0.2.5 10.48.4.93"),
