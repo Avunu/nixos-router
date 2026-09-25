@@ -44,6 +44,7 @@ export const ChangesTray = () => {
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState("");
   const [done, setDone] = useState<{ ok: boolean } | null>(null);
+  const [revertError, setRevertError] = useState("");
   const seeded = useRef(false);
   const procRef = useRef<CockpitProcess | null>(null);
   const logRef = useRef<HTMLDivElement>(null);
@@ -150,8 +151,13 @@ export const ChangesTray = () => {
     }
   }, [log]);
 
+  // A refused write (a snapshot the schema no longer accepts, a failed
+  // replace) says why in the tray rather than doing nothing.
   const revert = useCallback(() => {
-    void writeDesired(applied, base).then(refresh);
+    setRevertError("");
+    void writeDesired(applied, base)
+      .then(refresh)
+      .catch((e: unknown) => setRevertError(errMsg(e)));
   }, [applied, base, refresh]);
 
   const cancel = () => {
@@ -180,7 +186,9 @@ export const ChangesTray = () => {
               )}
             </>
           }
-        />
+        >
+          {revertError && <p>{cockpit.format(_("Revert failed: $0"), revertError)}</p>}
+        </Alert>
       )}
       {(running || done) && (
         <Card isCompact>
