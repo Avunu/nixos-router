@@ -41,6 +41,7 @@ let
     guestGW
     allHomeNets
     brLAN
+    brGuest
     ;
 
   catalog = import ./filter-catalog.nix;
@@ -53,6 +54,40 @@ let
 
   stateDir = "/var/lib/router-technitium";
   technitiumStateDir = "/var/lib/technitium-dns-server";
+
+  # Sandbox for the root oneshots that drive Technitium's API. They stay
+  # uid 0, because they read and write root-owned 0600 token and password
+  # files as their owner, but without a single capability: no DAC override,
+  # a read-only system apart from the state directories each one names, no
+  # kernel or device access, and only IP and local sockets.
+  rootToolSandbox = {
+    CapabilityBoundingSet = [ "" ];
+    NoNewPrivileges = true;
+    PrivateTmp = true;
+    PrivateDevices = true;
+    ProtectSystem = "strict";
+    ProtectHome = true;
+    ProtectKernelTunables = true;
+    ProtectKernelModules = true;
+    ProtectKernelLogs = true;
+    ProtectControlGroups = true;
+    ProtectClock = true;
+    ProtectHostname = true;
+    RestrictAddressFamilies = [
+      "AF_INET"
+      "AF_INET6"
+      "AF_UNIX"
+    ];
+    RestrictNamespaces = true;
+    RestrictRealtime = true;
+    RestrictSUIDSGID = true;
+    LockPersonality = true;
+    SystemCallArchitectures = "native";
+    SystemCallFilter = [
+      "@system-service"
+      "~@privileged"
+    ];
+  };
   webUrl = "http://127.0.0.1:${toString tcfg.webPort}";
   localZone = "${cfg.hostName}.${cfg.lan.domain}";
 
@@ -78,16 +113,23 @@ let
   # Branded block page (static-site mode wwwroot). The exception-request form
   # posts to router-logd's portal endpoint — an absolute URL, since the page
   # is served from http://<blocked-domain>/.
+  #
+  # The texts are escaped for where they land: HTML-escaped for the markup,
+  # and the contact address as a whole JavaScript string literal, with `<`
+  # escaped too so it cannot close the <script> element. The page is served on
+  # the origin of every blocked domain, so markup in a setting would run there.
   blockPageWwwroot =
+    let
+      bp = cfg.accessPolicies.blockPage;
+      jsString = s: replaceStrings [ "<" ">" "&" ] [ "\\u003c" "\\u003e" "\\u0026" ] (builtins.toJSON s);
+    in
     pkgs.runCommand "router-blockpage-wwwroot"
       {
         template = routerDnsTools.passthru.blockPageTemplate;
-        inherit (cfg.accessPolicies.blockPage)
-          title
-          heading
-          message
-          contactEmail
-          ;
+        title = escapeXML bp.title;
+        heading = escapeXML bp.heading;
+        message = escapeXML bp.message;
+        contactEmail = jsString bp.contactEmail;
         portalUrl = "http://${lanGW}:${toString cfg.reporting.logd.port}";
       }
       ''
@@ -215,7 +257,7 @@ let
         "Router Live DNS" = {
           hostZone = hostZone;
           dynamicHosts = map (h: {
-            inherit (h) slug mac;
+            inherit (h) slug mac interface;
           }) dynamicHostSlugsUsable;
           neighborRefreshIntervalSeconds = 20;
           ipTool = "${pkgs.iproute2}/bin/ip";
@@ -316,6 +358,10 @@ let
   dynamicHostSlugs = map (h: {
     inherit (h) name mac;
     slug = slugOf h.name;
+    # The bridge of the host's own network: the Router Live DNS app believes
+    # a neighbor entry for this MAC only there, so a device cloning the MAC on
+    # the other network cannot take the name over.
+    interface = if h.network == "guest" then brGuest else brLAN;
   }) (filter (h: h.staticIp == null) cfg.hosts);
 
   slugDupes = attrNames (
@@ -553,11 +599,9 @@ let
     mkdir -p "$apps_dst/Block Page/wwwroot"
     cp --no-preserve=mode,ownership ${blockPageWwwroot}/index.html "$apps_dst/Block Page/wwwroot/index.html"
 
-    # systemd created/owns StateDirectory as the DynamicUser before this
-    # ExecStartPre; give the root-copied app payloads the same owner so the
-    # apps can write their working data (blocklists, certs, sqlite).
+    # The store copies are read-only; the apps write their working data
+    # (blocklists, certs, sqlite) beside them.
     chmod -R u+rwX ${technitiumStateDir}/apps
-    chown -R --reference=${technitiumStateDir} ${technitiumStateDir}/apps
   '';
 in
 {
@@ -903,8 +947,13 @@ in
         };
         serviceConfig = {
           LoadCredential = [ "admin-password:${stateDir}/admin.pass" ];
-          # "+" = run as root despite DynamicUser (writes secrets + app payloads).
-          ExecStartPre = [ "+${seedScript}" ];
+          # As the service's own DynamicUser, not root ("+"): it reads only the
+          # store and writes only the service's StateDirectory. As root it
+          # followed whatever that directory held, and the DNS server itself
+          # can write there, so a compromised server could have planted a
+          # symlink for root to write through. (Secrets are seeded by
+          # router-dns-secrets and arrive by LoadCredential.)
+          ExecStartPre = [ seedScript ];
           # Run "portable" so the log folder lives under the writable StateDirectory
           # (<state>/logs) instead of the Unix default /var/log/technitium/dns,
           # which ProtectSystem=strict makes read-only. Config and apps already use
@@ -933,12 +982,24 @@ in
           dnsToolsConfig
           config.router._policyStaticInputs
         ];
-        serviceConfig = {
+        serviceConfig = rootToolSandbox // {
           Type = "oneshot";
           RemainAfterExit = true;
           ExecStart = "${routerDnsTools}/bin/router-technitium-reconcile --config ${dnsToolsConfig}";
           Restart = "on-failure";
           RestartSec = 15;
+          # Its writable places: the managed passwords, zone bookkeeping and
+          # logd tokens, and the Cockpit plugin's Technitium token. Both stay
+          # 0700 root, as router-dns-secrets and the Cockpit tmpfiles rule
+          # create them.
+          StateDirectory = [
+            "router-technitium"
+            "cockpit-router"
+          ];
+          StateDirectoryMode = "0700";
+          # directory.json is 0640 router-directory-sync:router-data; without
+          # CAP_DAC_OVERRIDE, root reads it through the group like logd does.
+          SupplementaryGroups = [ "router-data" ];
         };
         unitConfig.StartLimitIntervalSec = 300;
         unitConfig.StartLimitBurst = 4;
@@ -948,9 +1009,10 @@ in
       systemd.services.router-policy-push = {
         description = "Compile and push Advanced Blocking policy config";
         after = [ "technitium-reconcile.service" ];
-        serviceConfig = {
+        serviceConfig = rootToolSandbox // {
           Type = "oneshot";
           ExecStart = "${routerDnsTools}/bin/router-policy-push --config ${dnsToolsConfig}";
+          SupplementaryGroups = [ "router-data" ]; # read directory.json (0640)
         };
       };
       systemd.paths.router-policy-push = {

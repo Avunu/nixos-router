@@ -72,12 +72,30 @@ pub fn decide(host_route: Option<usize>, sni_route: Option<usize>) -> Decision {
     }
 }
 
-/// Append the client address to an existing `X-Forwarded-For` value.
-pub fn append_forwarded_for(existing: Option<&str>, client: &str) -> String {
-    match existing.map(str::trim).filter(|v| !v.is_empty()) {
-        Some(prior) => format!("{prior}, {client}"),
-        None => client.to_owned(),
+/// Forwarding headers for the upstream. The router is the edge, with nothing
+/// trusted in front of it (Cloudflare Tunnel reaches upstreams directly, not
+/// through here), so every one of these is SET from what the proxy itself saw
+/// and whatever the client sent is dropped. Appending to a client-supplied
+/// `X-Forwarded-For` kept its claims, and an upstream reading the leftmost
+/// entry believed them; an RFC 7239 `Forwarded` header passed straight through.
+pub fn set_forwarding_headers(
+    req: &mut RequestHeader,
+    client: Option<IpAddr>,
+    host: Option<&str>,
+) -> Result<()> {
+    for name in ["Forwarded", "X-Forwarded-For", "X-Real-IP", "X-Forwarded-Host"] {
+        req.remove_header(name);
     }
+    if let Some(ip) = client {
+        let ip = ip.to_string();
+        req.insert_header("X-Forwarded-For", ip.as_str())?;
+        req.insert_header("X-Real-IP", ip)?;
+    }
+    req.insert_header("X-Forwarded-Proto", "https")?;
+    if let Some(host) = host {
+        req.insert_header("X-Forwarded-Host", host)?;
+    }
+    Ok(())
 }
 
 /// Host a request is addressed to: the Host header, else the HTTP/2 authority,
@@ -192,23 +210,7 @@ impl ProxyHttp for HttpsProxy {
         req: &mut RequestHeader,
         ctx: &mut Ctx,
     ) -> Result<()> {
-        if let Some(ip) = client_ip(session.client_addr()) {
-            let ip = ip.to_string();
-            let prior: Vec<&str> = req
-                .headers
-                .get_all("x-forwarded-for")
-                .iter()
-                .filter_map(|v| v.to_str().ok())
-                .collect();
-            let xff = append_forwarded_for(Some(prior.join(", ").as_str()), &ip);
-            req.insert_header("X-Forwarded-For", xff)?;
-            req.insert_header("X-Real-IP", ip)?;
-        }
-        req.insert_header("X-Forwarded-Proto", "https")?;
-        if let Some(host) = &ctx.host {
-            req.insert_header("X-Forwarded-Host", host.as_str())?;
-        }
-        Ok(())
+        set_forwarding_headers(req, client_ip(session.client_addr()), ctx.host.as_deref())
     }
 
     async fn response_filter(
@@ -255,17 +257,34 @@ mod tests {
     }
 
     #[test]
-    fn forwarded_for() {
-        assert_eq!(append_forwarded_for(None, "192.0.2.1"), "192.0.2.1");
-        assert_eq!(append_forwarded_for(Some(""), "192.0.2.1"), "192.0.2.1");
-        assert_eq!(
-            append_forwarded_for(Some("10.0.0.1"), "2001:db8::1"),
-            "10.0.0.1, 2001:db8::1"
-        );
-        assert_eq!(
-            append_forwarded_for(Some("10.0.0.1, 10.0.0.2 "), "192.0.2.1"),
-            "10.0.0.1, 10.0.0.2, 192.0.2.1"
-        );
+    fn forwarding_headers_replace_client_claims() {
+        let mut req = RequestHeader::build("GET", b"/", None).unwrap();
+        req.insert_header("X-Forwarded-For", "203.0.113.66").unwrap();
+        req.append_header("X-Forwarded-For", "198.51.100.7").unwrap();
+        req.insert_header("X-Real-IP", "203.0.113.66").unwrap();
+        req.insert_header("Forwarded", "for=203.0.113.66").unwrap();
+        req.insert_header("X-Forwarded-Host", "evil.test").unwrap();
+        set_forwarding_headers(&mut req, Some("2001:db8::1".parse().unwrap()), Some("app.test"))
+            .unwrap();
+        let all = |name: &str| -> Vec<String> {
+            req.headers
+                .get_all(name)
+                .iter()
+                .map(|v| v.to_str().unwrap().to_owned())
+                .collect()
+        };
+        assert_eq!(all("x-forwarded-for"), ["2001:db8::1"]);
+        assert_eq!(all("x-real-ip"), ["2001:db8::1"]);
+        assert_eq!(all("x-forwarded-host"), ["app.test"]);
+        assert_eq!(all("x-forwarded-proto"), ["https"]);
+        assert!(all("forwarded").is_empty());
+
+        // No peer address: the client's claims still go.
+        let mut req = RequestHeader::build("GET", b"/", None).unwrap();
+        req.insert_header("X-Forwarded-For", "203.0.113.66").unwrap();
+        set_forwarding_headers(&mut req, None, None).unwrap();
+        assert!(req.headers.get("x-forwarded-for").is_none());
+        assert!(req.headers.get("x-forwarded-host").is_none());
     }
 
     #[test]

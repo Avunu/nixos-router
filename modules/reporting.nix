@@ -177,17 +177,29 @@ in
           ];
           Restart = "always";
           RestartSec = 5;
-          # Hardening
+          # Hardening. The portal is reachable from the guest network.
           CapabilityBoundingSet = [ "" ];
           LockPersonality = true;
           NoNewPrivileges = true;
           PrivateDevices = true;
           PrivateTmp = true;
+          ProtectClock = true;
+          ProtectControlGroups = true;
           ProtectHome = true;
+          ProtectHostname = true;
+          ProtectKernelLogs = true;
+          ProtectKernelModules = true;
+          ProtectKernelTunables = true;
           ProtectSystem = "strict";
           RestrictAddressFamilies = "AF_INET AF_INET6";
           RestrictNamespaces = true;
           RestrictRealtime = true;
+          RestrictSUIDSGID = true;
+          SystemCallArchitectures = "native";
+          SystemCallFilter = [
+            "@system-service"
+            "~@privileged"
+          ];
         };
       };
 
@@ -205,12 +217,45 @@ in
             wants = [ "router-logd.service" ];
             # Typst bundles no fonts; point it at DejaVu (used by report.typ).
             environment.TYPST_FONT_PATHS = "${pkgs.dejavu_fonts}/share/fonts/truetype";
+            # Root (it reads logd's 0600 query token as its owner) but with no
+            # capabilities: it renders DNS log data — names any client chose
+            # to look up — through Typst, so it gets a read-only system, its
+            # own reports directory, and IP for logd and the Cloudflare API.
             serviceConfig = {
               Type = "oneshot";
               ExecStart = "${cfg._dnsToolsPackage}/bin/router-report --config ${cfg._dnsToolsConfig} --schedule ${schedule.name}";
               LoadCredential = optional (
                 rcfg.email.apiTokenFile != null
               ) "cf-api-token:${rcfg.email.apiTokenFile}";
+              StateDirectory = "router-reports";
+              StateDirectoryMode = "0750";
+
+              CapabilityBoundingSet = [ "" ];
+              LockPersonality = true;
+              NoNewPrivileges = true;
+              PrivateDevices = true;
+              PrivateTmp = true;
+              ProtectClock = true;
+              ProtectControlGroups = true;
+              ProtectHome = true;
+              ProtectHostname = true;
+              ProtectKernelLogs = true;
+              ProtectKernelModules = true;
+              ProtectKernelTunables = true;
+              ProtectSystem = "strict";
+              RestrictAddressFamilies = [
+                "AF_INET"
+                "AF_INET6"
+                "AF_UNIX"
+              ];
+              RestrictNamespaces = true;
+              RestrictRealtime = true;
+              RestrictSUIDSGID = true;
+              SystemCallArchitectures = "native";
+              SystemCallFilter = [
+                "@system-service"
+                "~@privileged"
+              ];
             };
           }
         ) rcfg.schedules

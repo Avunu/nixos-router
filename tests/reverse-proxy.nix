@@ -210,6 +210,21 @@ pkgs.testers.runNixOSTest {
         assert headers["x-forwarded-proto"] == "https", headers
         assert headers["host"] == "app.example.test", headers
 
+    with subtest("client-supplied forwarding headers do not reach the backend"):
+        # The router is the edge: what the client claims about itself is
+        # replaced, not appended to.
+        headers = json.loads(
+            fetch(
+                "https://app.example.test/",
+                "-H 'X-Forwarded-For: 6.6.6.6' -H 'X-Real-IP: 6.6.6.6' "
+                "-H 'Forwarded: for=6.6.6.6' -H 'X-Forwarded-Host: evil.test'",
+            )
+        )
+        assert headers["x-forwarded-for"] == "203.0.113.2", headers
+        assert headers["x-real-ip"] == "203.0.113.2", headers
+        assert headers["x-forwarded-host"] == "app.example.test", headers
+        assert "forwarded" not in headers, headers
+
     with subtest("HTTPS by name over IPv6"):
         headers = json.loads(
             fetch("https://app.example.test/", "--resolve app.example.test:443:[2001:db8:ffff::1]")
