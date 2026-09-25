@@ -203,8 +203,9 @@
           # Eval-only guard on Suricata's config and logs: the config file as
           # Suricata parses it (log outputs, stats), the logrotate stanza, the
           # suppression-address assertion, and the build-time `suricata -T`
-          # check failing the rebuild on a broken extra rule. All of these
-          # used to fail silently or only after the switch.
+          # check failing the rebuild on a broken extra rule (and its
+          # checkRulesAtBuild opt-out). All of these used to fail silently or
+          # only after the switch.
           #   nix build .#checks.<system>.suricata-eval
           suricata-eval = import ./tests/suricata-eval.nix {
             pkgs = nixpkgs.legacyPackages.${system};

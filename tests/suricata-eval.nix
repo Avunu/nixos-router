@@ -11,8 +11,8 @@
 #     parse, stopped Suricata only after the switch, leaving the IPS down.
 # This pins the config as Suricata itself parses it (`suricata --dump-config`),
 # the generated logrotate.conf, the suppression assertion, and that the
-# system.checks config test passes on a good config and fails the build on a
-# broken rule.
+# system.checks config test passes on a good config, fails the build on a
+# broken rule, and goes away with router.suricata.checkRulesAtBuild = false.
 {
   pkgs,
   routerModule,
@@ -101,6 +101,10 @@ let
     };
   };
 
+  # The opt-out for extra rules that read a file the build sandbox can't see
+  # (filemd5, dataset load). Only its system.checks is read.
+  optOut = evalWith { router.suricata.checkRulesAtBuild = false; };
+
   suricata = sys.services.suricata.package;
   configFile = sys.services.suricata.configFile;
   localRules = sys.environment.etc."suricata/rules/local.rules".source;
@@ -140,6 +144,11 @@ let
       name = "config-test-is-a-system-check";
       ok = goodTest != null && badTest != null;
       detail = "system.checks has no suricata-config-test";
+    }
+    {
+      name = "config-test-opt-out";
+      ok = configTestOf optOut == null;
+      detail = "router.suricata.checkRulesAtBuild = false leaves suricata-config-test in system.checks";
     }
     {
       name = "logrotate-files-is-a-list";
@@ -204,6 +213,8 @@ pkgs.runCommand "router-suricata-eval"
           || fail "config-test: the broken rule did not fail with a parse error"
         grep -Fq 'router.suricata: Suricata rejected the configuration' ${badTestFails}/testBuildFailure.log \
           || fail "config-test: no router.suricata hint on failure"
+        grep -Fq 'router.suricata.checkRulesAtBuild = false' ${badTestFails}/testBuildFailure.log \
+          || fail "config-test: the failure hint does not mention the opt-out"
 
         touch $out
       ''

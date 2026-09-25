@@ -165,6 +165,12 @@ let
   #   • -l moves the log files Suricata opens under -T into the build dir.
   #   • classification.config comes from the package; on the router
   #     suricata-update installs it next to the rules.
+  # One gap it can't close: a rule that reads a file (a filemd5 / filesha*
+  # list, a dataset `load`) resolves a relative path against local.rules'
+  # directory, here the store rather than /etc/suricata/rules, and the sandbox
+  # has no /var/lib either. So the file is missing and the test fails a rule
+  # that loads fine on the router; router.suricata.checkRulesAtBuild turns the
+  # check off for such rules.
   # Its output is shown only on failure. On success it would be noise, such
   # as "can't suppress sid …: unknown rule" for suppressions of downloaded
   # rules, which this test doesn't load.
@@ -179,6 +185,7 @@ let
           > suricata-test.log 2>&1; then
           cat suricata-test.log >&2
           echo "router.suricata: Suricata rejected the configuration. Fix the rule it names in router.suricata.extraRules, or the suppression, and rebuild." >&2
+          echo "If the rule reads a file that exists only on the router (filemd5, filesha*, dataset load), set router.suricata.checkRulesAtBuild = false in Nix to skip this check." >&2
           exit 1
         fi
         touch "$out"
@@ -225,7 +232,8 @@ in
     #   • A daily timer updates ET Open rules via suricata-update.
     #   • Logs are rotated daily, kept for 14 days.
     #   • Suppression hosts and the local rules are checked at build
-    #     time, so a bad one fails the rebuild rather than Suricata.
+    #     time, so a bad one fails the rebuild rather than Suricata
+    #     (checkRulesAtBuild turns the rule half off).
     suricata = {
       enable = mkEnableOption "Suricata IPS inline inspection";
 
@@ -347,6 +355,24 @@ in
         default = "";
         description = "Additional Suricata local rules";
       };
+
+      checkRulesAtBuild = mkOption {
+        type = types.bool;
+        default = true;
+        visible = false; # Nix-only; never part of the JSON/UI schema
+        description = ''
+          Test the local rules and suppressions with `suricata -T` at build
+          time (a system.checks entry), so a rule Suricata rejects fails the
+          rebuild instead of stopping Suricata after the switch. Turn it off
+          for extra rules that read a file the build sandbox can't see, such
+          as a `filemd5` / `filesha*` list, a `dataset` with `load`, or an
+          absolute /var/lib path: the test loads local.rules from the Nix
+          store, so a relative path resolves there and not under
+          /etc/suricata/rules. With it off, such a rule, or a broken one, is
+          caught only when Suricata starts. The suppression-host assertion
+          stays either way.
+        '';
+      };
     };
   };
 
@@ -376,7 +402,9 @@ in
       }) cfg.suricata.suppressions
     );
 
-    system.checks = mkIf cfg.suricata.enable [ suricataConfigTest ];
+    system.checks = mkIf (cfg.suricata.enable && cfg.suricata.checkRulesAtBuild) [
+      suricataConfigTest
+    ];
 
     services.suricata = mkIf cfg.suricata.enable {
       enable = true;
