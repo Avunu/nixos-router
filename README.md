@@ -46,7 +46,7 @@ See [Install a router](https://avunu.github.io/nixos-router/docs/start/install/)
 
 ## Manage
 
--   **Web UI:** Cockpit at `https://<router>:9090`, reachable from the LAN, or over WireGuard at the router's LAN address. Edit settings there, then press **Apply**.
+-   **Web UI:** Cockpit at `https://<router>:9090`, reachable from the LAN and over WireGuard. Edit settings there, then press **Apply**.
 -   **Upgrade:** `system-upgrade` on the router. Upgrades also run nightly.
 
 ## Binary cache

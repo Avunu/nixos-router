@@ -18,11 +18,27 @@
 # LAN and guest hosts are network namespaces wired into br-lan / br-guest, so
 # the whole round-trip runs on a single node and every packet between them is
 # genuinely *forwarded* through the chain under test.
+#
+# A WireGuard tunnel rides along, because its forwarding is decided by the same
+# kind of silent config generation: the router's forwarding and rp_filter
+# settings once sat in a networkd unit that nixpkgs' own unit for the tunnel
+# shadowed, so `net.ipv4.conf.wg0.forwarding` stayed 0 and a remote site could
+# reach the router but nothing behind it. A netns peer on the LAN (its tunnel
+# endpoint is the LAN gateway) stands in for the remote site's router, with a
+# remote subnet of its own in the router's Allowed IPs.
 {
   pkgs,
   routerModule,
   baseSettings,
 }:
+let
+  # Throwaway test keys. A real router's private key lives in /etc/wireguard,
+  # never in the store.
+  routerKey = "cKQ6Bi8yC5hys1/ACbemMhhU1YHhp0q9BVhyrT5J034=";
+  routerPub = "Zs7aplC8mOtxG16L9fkqDfo3pleUAD3Fwd1j4UcfhGc=";
+  peerKey = pkgs.writeText "wgpeer.key" "uJFUSrGB76Fhjc7oz/v/IES6MT+rOVtYOZ28ffSXznU=";
+  peerPub = "CsExnGzNn3h4vcqD/M8i0Kzj19AlEfpUW1vrQFq5DU4=";
+in
 pkgs.testers.runNixOSTest {
   name = "router-guest-access";
 
@@ -50,6 +66,20 @@ pkgs.testers.runNixOSTest {
           # Keep the VM light: no Technitium/dotnet closure in a firewall test.
           router.dns.technitium.enable = false;
           router.cockpit.enable = false;
+          router.wireguard.wg0 = {
+            address = "10.100.0.1/30";
+            privateKeyFile = "${pkgs.writeText "wg0.key" routerKey}";
+            peers = [
+              {
+                publicKey = peerPub;
+                # The peer router's tunnel address and the remote site's LAN.
+                allowedIPs = [
+                  "10.100.0.2/32"
+                  "192.168.30.0/24"
+                ];
+              }
+            ];
+          };
           router.suricata = {
             enable = true;
             mode = "ips";
@@ -250,5 +280,49 @@ pkgs.testers.runNixOSTest {
                 br in line and "853" in line and "tcp" in line and "udp" in line
                 for line in out.splitlines()
             ), f"no tcp+udp :853 drop for {br}:\n{out}"
+
+    with subtest("networkd applies the tunnel's forwarding and rp_filter"):
+        # Once networkd has finished configuring the link, its per-link
+        # sysctls show which unit it applied.
+        router.wait_until_succeeds("ip -4 addr show wg0 | grep -qw 10.100.0.1", timeout=60)
+        router.wait_until_succeeds("networkctl list wg0 --no-legend | grep -qw configured", timeout=60)
+        fwd = router.succeed("sysctl -n net.ipv4.conf.wg0.forwarding").strip()
+        rpf = router.succeed("sysctl -n net.ipv4.conf.wg0.rp_filter").strip()
+        units = router.succeed("networkctl status wg0 --no-pager | grep -i 'network file' || true")
+        assert fwd == "1", f"net.ipv4.conf.wg0.forwarding = {fwd}, want 1 ({units.strip()})"
+        assert rpf == "0", f"net.ipv4.conf.wg0.rp_filter = {rpf}, want 0 ({units.strip()})"
+
+    with subtest("a remote site's subnet reaches the LAN through the tunnel"):
+        mk_host("wgpeer", "br-lan", "10.48.4.60", "10.48.4.1")
+        # Created inside the netns, so its UDP socket lives there too and the
+        # encrypted packets really cross br-lan to the router's listen port.
+        router.succeed("ip -n wgpeer link add wgp type wireguard")
+        router.succeed(
+            "ip netns exec wgpeer wg set wgp private-key ${peerKey} listen-port 51900 "
+            "peer ${routerPub} endpoint 10.48.4.1:51820 "
+            "allowed-ips 10.100.0.1/32,10.48.4.50/32"
+        )
+        router.succeed("ip -n wgpeer addr add 10.100.0.2/30 dev wgp")
+        router.succeed("ip -n wgpeer link set wgp up")
+        # The peer's underlay is the LAN itself, so only the one LAN host the
+        # test talks to is routed into the tunnel.
+        router.succeed("ip -n wgpeer route add 10.48.4.50/32 dev wgp")
+        router.succeed("ip -n wgpeer link add site type dummy")
+        router.succeed("ip -n wgpeer addr add 192.168.30.1/24 dev site")
+        router.succeed("ip -n wgpeer link set site up")
+
+        # Baseline: the handshake, and the router's own tunnel address — input,
+        # not forward, so this passes whatever the forwarding sysctl says.
+        router.wait_until_succeeds("ip netns exec wgpeer ping -c1 -W2 10.100.0.1", timeout=30)
+
+        # Forwarded both ways between the remote subnet and the LAN: out of the
+        # tunnel into br-lan, and the LAN host's replies back in. The source is
+        # an Allowed IPs subnet, not the tunnel address, so the reverse-path
+        # check sees a source routed via wg0 rather than a connected one.
+        router.succeed("conntrack -F 2>/dev/null || true")
+        rc, out = router.execute("ip netns exec wgpeer ping -c3 -W2 -I 192.168.30.1 10.48.4.50")
+        assert rc == 0, f"remote subnet → LAN over the tunnel failed:\n{out}"
+        router.succeed("conntrack -F 2>/dev/null || true")
+        assert ping("lanhost", "192.168.30.1"), "LAN → remote subnet over the tunnel failed"
   '';
 }

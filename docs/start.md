@@ -38,7 +38,7 @@ A router's whole configuration lives in `/etc/nixos`, in two parts:
 
 ![A browser talks to Cockpit on port 9090, which saves router-settings.json. Applying runs nixos-rebuild, which builds a new NixOS generation that runs the router's services. Rolling back switches to the previous generation.](./images/architecture.svg)
 
-1. You open Cockpit at `https://<router>:9090` from the LAN, or over WireGuard at the router's LAN address.
+1. You open Cockpit at `https://<router>:9090` from the LAN or over WireGuard.
 2. The router's Cockpit pages read and write `router-settings.json`. Saving changes only the file; the router keeps running as before.
 3. Applying runs `nixos-rebuild switch`. It builds a complete new system from the host flake and the settings file, then switches the running services to it.
 4. Each build is a new NixOS **generation**. If a change goes wrong, switch back to the previous generation from the System page, or pick an older one in the boot menu.

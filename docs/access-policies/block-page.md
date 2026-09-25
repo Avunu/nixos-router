@@ -109,7 +109,6 @@ Keep in mind:
 - HTTPS sites show a certificate warning first, and HSTS sites never show the page.
 - The page only appears when the blocked name is opened in a browser. Apps and background requests fail to connect.
 - The form requires the block page, so users on NXDOMAIN policies can't send requests.
-- With the [reverse proxy](/docs/ingress/reverse-proxy/) on, guest and WireGuard clients don't see the block page: their connections to the LAN gateway on 80 and 443 go to the proxy. See [Ports and services](/docs/reference/ports/#redirected-and-blocked-traffic).
 
 ## Troubleshooting
 

@@ -208,8 +208,14 @@ let
   #   • from inside (LAN, WireGuard, guest), when the destination is a router
   #     address that is NOT on the ingress interface — in practice the WAN
   #     address a public name resolves to (hairpin). `fib daddr . iif type`
-  #     answers "local" only for the interface's own addresses, so the gateway
-  #     addresses clients use for the Block Page are left alone.
+  #     answers "local" only for the interface's own addresses, so each
+  #     client's own gateway address is left alone.
+  #   • except the LAN gateway, from anywhere inside, while the Block Page is
+  #     on: blocked names resolve to it for every client, so a guest or
+  #     WireGuard client sent there must reach the Block Page, not the proxy
+  #     (`blockPageExemption`, ahead of the redirects). A separate rule
+  #     rather than an `ip daddr` in the hairpin match, which would make that
+  #     rule IPv4-only.
   #
   # `redirect` is a DNAT, so the input chain admits exactly the redirected
   # flows (`ct status dnat`) and a direct connection to the proxy's ports from
@@ -218,6 +224,7 @@ let
   inherit (config.router._internal) proxyHttpPort proxyHttpsPort;
   proxyPorts = "{ ${toString proxyHttpPort}, ${toString proxyHttpsPort} }";
   hairpinIFs = trustedIFs ++ optional cfg.guest.enable brGuest;
+  blockPageExemption = ''iifname { ${nftSet hairpinIFs} } ip daddr ${lanGW} tcp dport { 80, 443 } return comment "Block page: blocked names resolve to the LAN gateway"'';
   proxyRedirects = port: target: ''
     iifname "${wanIf}" fib daddr type local tcp dport ${toString port} redirect to :${toString target} comment "Reverse proxy"
     iifname { ${nftSet hairpinIFs} } fib daddr type local fib daddr . iif type != local tcp dport ${toString port} redirect to :${toString target} comment "Reverse proxy hairpin"'';
@@ -460,7 +467,11 @@ let
         ${optionalString pcfg.enable ''
           # Reverse proxy: tcp 80/443 to the router → the proxy's local ports.
           # Ahead of the port forwards; an IPv4 forward of tcp 80/443 is
-          # rejected by an assertion in modules/reverse-proxy.nix.
+          # rejected by an assertion in modules/reverse-proxy.nix. The Block
+          # Page exemption's `return` skips only the rest of this chain,
+          # which holds nothing else for these packets: the port forwards
+          # below match the WAN only.
+          ${optionalString cfg.accessPolicies.blockPage.enable blockPageExemption}
           ${proxyRedirects 80 proxyHttpPort}
           ${proxyRedirects 443 proxyHttpsPort}
         ''}

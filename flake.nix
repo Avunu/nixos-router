@@ -288,6 +288,17 @@
             baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
           };
 
+          # Eval-only guard on WireGuard tunnels: the router's forwarding and
+          # rp_filter settings land in the one networkd unit that matches the
+          # tunnel (the one nixpkgs writes too), and Cockpit accepts a login
+          # at each tunnel's own address.
+          #   nix build .#checks.<system>.wireguard-eval
+          wireguard-eval = import ./tests/wireguard-eval.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            routerModule = self.nixosModules.router;
+            baseSettings = builtins.fromJSON (builtins.readFile ./local/router-settings.json);
+          };
+
           # Eval-only guard on the settings loader every router reads its JSON
           # through: old-shape settings are upgraded (and the file rewritten at
           # activation) instead of failing the rebuild on a retired option.
