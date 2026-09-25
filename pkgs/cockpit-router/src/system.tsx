@@ -39,6 +39,9 @@ interface Generation {
 }
 
 const SystemOps = () => {
+  // Only for its error: Apply validates the settings file first, and is
+  // disabled with the reason shown while the file cannot be read.
+  const settings = useSettings();
   const [log, setLog] = useState("");
   const [running, setRunning] = useState(""); // Label of the in-flight operation
   const [done, setDone] = useState<{ ok: boolean; label: string } | null>(null);
@@ -147,20 +150,26 @@ const SystemOps = () => {
   };
 
   const apply = () => {
-    // Validate the on-disk config against the schema before rebuilding.
-    void loadState().then((st) => {
-      const errors = validateSettings(st.desired);
-      if (errors.length > 0) {
-        setLog(`Configuration does not match the schema:\n${errors.join("\n")}`);
-        setDone({ ok: false, label: _("Apply configuration") });
-        return;
-      }
-      run(
-        _("Apply configuration"),
-        ["nixos-rebuild", "switch", "--flake", flakeHostRef(), "--impure"],
-        () => onApplied(st.desired),
-      );
-    });
+    const fail = (msg: string) => {
+      setLog(msg);
+      setDone({ ok: false, label: _("Apply configuration") });
+    };
+    // Validate the on-disk config against the schema before rebuilding. A
+    // settings file that cannot be read stops here too.
+    void loadState()
+      .then((st) => {
+        const errors = validateSettings(st.desired);
+        if (errors.length > 0) {
+          fail(`Configuration does not match the schema:\n${errors.join("\n")}`);
+          return;
+        }
+        run(
+          _("Apply configuration"),
+          ["nixos-rebuild", "switch", "--flake", flakeHostRef(), "--impure"],
+          () => onApplied(st.desired),
+        );
+      })
+      .catch((e: unknown) => fail(errMsg(e)));
   };
   const check = () =>
     run(_("Check flake"), ["nixos-rebuild", "dry-build", "--flake", flakeHostRef(), "--impure"]);
@@ -176,9 +185,23 @@ const SystemOps = () => {
         <Card isCompact style={{ marginBlockEnd: "1rem" }}>
           <CardTitle>{_("Configuration")}</CardTitle>
           <CardBody>
+            {settings.error && (
+              <Alert
+                variant="danger"
+                isInline
+                title={_("Could not load settings")}
+                style={{ marginBlockEnd: "1rem" }}
+              >
+                {settings.error}
+              </Alert>
+            )}
             <Split hasGutter>
               <SplitItem>
-                <Button variant="primary" onClick={apply} isDisabled={busy}>
+                <Button
+                  variant="primary"
+                  onClick={apply}
+                  isDisabled={busy || Boolean(settings.error)}
+                >
                   {_("Apply configuration")}
                 </Button>
               </SplitItem>

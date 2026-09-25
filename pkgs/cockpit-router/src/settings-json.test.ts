@@ -14,6 +14,7 @@ import assert from "node:assert/strict";
 import type { Json, SettingsState } from "./settings-json.ts";
 import {
   appliedBaseline,
+  canRevertTo,
   changedTopKeys,
   deepEqual,
   dropRetiredKeys,
@@ -320,4 +321,14 @@ void test("dropRetiredKeys: a key only the snapshot still carries is not a chang
   const snapshot: Json = { dns: { technitium: { enable: true, listenPort: 53 } } };
   assert.deepEqual(changedTopKeys(saved, snapshot), ["dns"], "compared as read");
   assert.deepEqual(changedTopKeys(dropRetiredKeys(saved), dropRetiredKeys(snapshot)), []);
+});
+
+// The tray's Revert copies the baseline over the settings file. With no
+// snapshot, or one the session cannot read (/var/lib/cockpit-router is 0700),
+// that baseline is {}, and offering Revert would offer to wipe every setting.
+void test("canRevertTo: never to an empty baseline", () => {
+  assert.equal(canRevertTo({}), false);
+  assert.equal(canRevertTo(null), false);
+  assert.equal(canRevertTo([]), false);
+  assert.equal(canRevertTo({ hostName: "r1" }), true);
 });

@@ -10,14 +10,35 @@
 // Default display and locked-field detection. Only a UI apply writes the
 // snapshot, so loadState falls back to the settings file whenever the running
 // generation is newer than it — see appliedBaseline.
+//
+// The settings file is read strictly: a missing or empty file is {}, any other
+// failure rejects loadState (see settings-read.ts), because every save builds
+// on that read and replaces the whole file. The two companions stay lenient,
+// {} when unreadable. Both are root-only (effective.json is 0600, applied.json
+// sits in a 0700 directory), so a session that cannot read them has Limited
+// access and cannot write the settings file either, and switching access on
+// reloads everything (onAdminChange). The one write built on a companion is
+// the tray's Revert, which copies the snapshot over the file; it is never
+// offered for an empty snapshot (canRevertTo).
+import { superuser } from "superuser";
 import { validateSettings } from "./schema";
 import { appliedBaseline, dropRetiredKeys } from "./settings-json";
 import type { Json, SettingsState } from "./settings-json";
+import {
+  ADMIN_NEEDED,
+  NOT_LOADED,
+  isDenied,
+  isLoaded,
+  markLoaded,
+  onSettledChange,
+  readStrict,
+} from "./settings-read";
 
 // Re-exported so every existing `from "./nix"` import keeps working.
 export type { Json, JsonObject, SettingsState } from "./settings-json";
 export {
   appliedBaseline,
+  canRevertTo,
   changedTopKeys,
   deepEqual,
   getPath,
@@ -74,9 +95,10 @@ export function errMsg(e: unknown): string {
   return String(e);
 }
 
-function readJson(path: string, superuser: "try" | "require" = "try"): Promise<Json> {
+// A companion file, {} when it is missing or cannot be read.
+function readJson(path: string): Promise<Json> {
   return cockpit
-    .file(path, { superuser })
+    .file(path, { superuser: "try" })
     .read()
     .then((s: string | null): Json => (s && s.trim() ? (JSON.parse(s) as Json) : {}))
     .catch((): Json => ({}));
@@ -102,9 +124,10 @@ export interface LoadedState extends SettingsState {
   snapshotStale: boolean;
 }
 
+// Rejects when the settings file cannot be read; the error says what to do.
 export function loadState(): Promise<LoadedState> {
   return Promise.all([
-    readJson(SETTINGS_FILE),
+    readStrict(SETTINGS_FILE, () => cockpit.file(SETTINGS_FILE, { superuser: "try" }).read()),
     readJson(EFFECTIVE_FILE),
     readJson(APPLIED_FILE),
     mtime(SETTINGS_FILE),
@@ -114,11 +137,31 @@ export function loadState(): Promise<LoadedState> {
     const desired = dropRetiredKeys(onDisk);
     const snapshot = dropRetiredKeys(snapshotOnDisk);
     const { applied, stale } = appliedBaseline(desired, snapshot, settingsAt, systemAt);
-    return { desired, effective, applied, snapshotStale: stale };
+    return markLoaded({ desired, effective, applied, snapshotStale: stale });
   });
 }
 
-export function writeDesired(obj: Json): Promise<unknown> {
+// effective.json alone, for a view that only shows what is running.
+export function loadEffective(): Promise<Json> {
+  return readJson(EFFECTIVE_FILE);
+}
+
+// Call `cb` whenever Cockpit's administrative access is switched on or off, and
+// return the unsubscribe. Every read here uses superuser: "try", so what a
+// page can read depends on it, and Cockpit does not reload a page when it
+// changes (superuser.reload_page_on_change would, but it throws away edits the
+// admin has not saved; useSettings keeps them across a reload).
+export function onAdminChange(cb: () => void): () => void {
+  return onSettledChange(superuser, cb);
+}
+
+// Replace the settings file with `obj`. `base` is the loaded state `obj` was
+// built from; nothing is written unless it came from a successful loadState,
+// so a page that could not read the file can never save over it.
+export function writeDesired(obj: Json, base: SettingsState | null | undefined): Promise<unknown> {
+  if (!isLoaded(base)) {
+    return Promise.reject(new Error(NOT_LOADED));
+  }
   // Validate against the schema before persisting, so an invalid config never
   // reaches disk (and therefore never reaches `nixos-rebuild`).
   const errors = validateSettings(obj);
@@ -130,10 +173,15 @@ export function writeDesired(obj: Json): Promise<unknown> {
   return cockpit
     .file(SETTINGS_FILE, { superuser: "require" })
     .replace(`${JSON.stringify(obj, null, 2)}\n`)
-    .then((r: unknown) => {
-      window.dispatchEvent(new Event("router:changed"));
-      return r;
-    });
+    .then(
+      (r: unknown) => {
+        window.dispatchEvent(new Event("router:changed"));
+        return r;
+      },
+      (e: unknown) => {
+        throw isDenied(e) ? new Error(ADMIN_NEEDED, { cause: e }) : e;
+      },
+    );
 }
 
 export function writeApplied(obj: Json): Promise<unknown> {

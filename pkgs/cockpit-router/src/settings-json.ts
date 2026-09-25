@@ -198,3 +198,10 @@ export function changedTopKeys(desired: Json, applied: Json): string[] {
   const keys = new Set([...Object.keys(d), ...Object.keys(a)]);
   return [...keys].filter((k) => !deepEqual(d[k], a[k]));
 }
+
+// Can the changes tray's Revert copy `applied` over the settings file? Not when
+// it is empty: then there is no snapshot to go back to (none yet, or one this
+// session cannot read), and the copy would replace every setting with {}.
+export function canRevertTo(applied: Json): boolean {
+  return isObject(applied) && Object.keys(applied).length > 0;
+}

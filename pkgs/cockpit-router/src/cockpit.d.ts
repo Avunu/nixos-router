@@ -98,6 +98,17 @@ declare module "patternfly/*";
 declare module "*.scss";
 declare module "*.css";
 
+// Cockpit's administrative-access state (pkg/lib/superuser.js), resolved the
+// same way as `journal` below. `allowed` is null until the session settles and
+// while a switch is in progress; "changed" fires on every change of it.
+declare module "superuser" {
+  export const superuser: {
+    allowed: boolean | null;
+    addEventListener: (type: "changed", handler: () => void) => void;
+    removeEventListener: (type: "changed", handler: () => void) => void;
+  };
+}
+
 // Cockpit's journal helper (pkg/lib/journal.js), vendored into the build by
 // package.nix and resolved by esbuild's nodePaths. We reuse only `build_cmd`,
 // which turns match strings + an options object into a journalctl argv (the IPS

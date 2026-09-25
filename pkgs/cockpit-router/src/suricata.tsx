@@ -11,7 +11,7 @@
 // (see suricata-events.ts). Policies/Settings edit router.suricata.* through the
 // shared settings store (nix.ts), applied on the next rebuild via the changes tray.
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { loadState, writeDesired, getPath, setPath, errMsg } from "./nix";
+import { loadEffective, loadState, writeDesired, getPath, setPath, errMsg } from "./nix";
 import type { Json } from "./nix";
 import { resolveNames } from "./hosts-live";
 import { isPrefix } from "./ip-math";
@@ -278,9 +278,9 @@ const SuricataOverview = () => {
       })
       .then((o: string) => setStatus(o.trim()))
       .catch(() => setStatus("unknown"));
-    void loadState().then((st) => {
-      setEnabled(Boolean(getPath(st.effective, "suricata.enable")));
-      setMode(String(getPath(st.effective, "suricata.mode") ?? "ids"));
+    void loadEffective().then((effective) => {
+      setEnabled(Boolean(getPath(effective, "suricata.enable")));
+      setMode(String(getPath(effective, "suricata.mode") ?? "ids"));
     });
     fetchEvents({ since: sinceDays(7) })
       .then((r) => {
@@ -415,7 +415,7 @@ const MAX_ROWS = 2000;
 function appendSetting(path: string, item: Json): Promise<void> {
   return loadState().then((st) => {
     const arr = (getPath(st.desired, path) as Json[] | undefined) ?? [];
-    return writeDesired(setPath(st.desired, path, [...arr, item])).then(() => {});
+    return writeDesired(setPath(st.desired, path, [...arr, item]), st).then(() => {});
   });
 }
 

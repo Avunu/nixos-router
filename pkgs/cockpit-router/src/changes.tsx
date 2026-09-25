@@ -4,6 +4,9 @@
 //   • "router:changed" — the JSON was written or a generation was applied;
 //     reload and recount. Every useSettings form listens for it too.
 //   • "router:apply"   — apply the saved config now.
+// Switching Cockpit's administrative access on or off reloads it too. While the
+// settings file cannot be read, the tray offers nothing: it has no honest
+// baseline to diff, apply or revert against.
 import { useEffect, useState, useCallback, useRef } from "react";
 import {
   Alert,
@@ -18,15 +21,26 @@ import {
   SplitItem,
   PageSection,
 } from "@patternfly/react-core";
-import { loadState, writeDesired, writeApplied, changedTopKeys, flakeHostRef, errMsg } from "./nix";
+import {
+  loadState,
+  writeDesired,
+  writeApplied,
+  canRevertTo,
+  changedTopKeys,
+  flakeHostRef,
+  errMsg,
+  onAdminChange,
+} from "./nix";
 import { validateSettings } from "./schema";
-import type { Json } from "./nix";
+import type { Json, LoadedState } from "./nix";
 
 const _ = cockpit.gettext;
 
 export const ChangesTray = () => {
   const [desired, setDesired] = useState<Json>({});
   const [applied, setApplied] = useState<Json>({});
+  // The state `desired` came from; null while the settings cannot be read.
+  const [base, setBase] = useState<LoadedState | null>(null);
   const [running, setRunning] = useState(false);
   const [log, setLog] = useState("");
   const [done, setDone] = useState<{ ok: boolean } | null>(null);
@@ -35,23 +49,31 @@ export const ChangesTray = () => {
   const logRef = useRef<HTMLDivElement>(null);
 
   const refresh = useCallback(() => {
-    void loadState().then((s) => {
-      setDesired(s.desired || {});
-      setApplied(s.applied || {});
-      // Persist a baseline the UI had to supply itself, so it also holds once
-      // the JSON is edited again and loadState can no longer derive it:
-      //   • no snapshot yet — assume the running system matches the on-disk
-      //     JSON (true right after deploy) and seed it;
-      //   • snapshotStale — a rebuild landed outside this tray (the shell, the
-      //     nightly nixos-upgrade, or an apply whose rebuild reported failure),
-      //     and loadState already fell back to the on-disk JSON.
-      const unseeded =
-        Object.keys(s.applied || {}).length === 0 && Object.keys(s.desired || {}).length > 0;
-      if (!seeded.current && (s.snapshotStale || unseeded)) {
-        seeded.current = true;
-        void writeApplied(s.desired).catch(() => null);
-      }
-    });
+    loadState()
+      .then((s) => {
+        setBase(s);
+        setDesired(s.desired);
+        setApplied(s.applied || {});
+        // Persist a baseline the UI had to supply itself, so it also holds once
+        // the JSON is edited again and loadState can no longer derive it:
+        //   • no snapshot yet — assume the running system matches the on-disk
+        //     JSON (true right after deploy) and seed it;
+        //   • snapshotStale — a rebuild landed outside this tray (the shell, the
+        //     nightly nixos-upgrade, or an apply whose rebuild reported failure),
+        //     and loadState already fell back to the on-disk JSON.
+        const unseeded =
+          Object.keys(s.applied || {}).length === 0 && Object.keys(s.desired || {}).length > 0;
+        if (!seeded.current && (s.snapshotStale || unseeded)) {
+          seeded.current = true;
+          void writeApplied(s.desired).catch(() => null);
+        }
+      })
+      .catch(() => {
+        // The pages say why; the tray just stops offering Apply and Revert.
+        setBase(null);
+        setDesired({});
+        setApplied({});
+      });
   }, []);
 
   const apply = useCallback(() => {
@@ -61,41 +83,47 @@ export const ChangesTray = () => {
     setRunning(true);
     setLog("");
     setDone(null);
-    // Snapshot the JSON exactly as applied once the rebuild succeeds.
-    void loadState().then((s) => {
-      // Validate the on-disk config against the schema before rebuilding.
-      const errors = validateSettings(s.desired);
-      if (errors.length > 0) {
-        setLog(`Configuration does not match the schema:\n${errors.join("\n")}`);
-        setDone({ ok: false });
-        setRunning(false);
-        return;
-      }
-      const proc = cockpit.spawn(
-        ["nixos-rebuild", "switch", "--flake", flakeHostRef(), "--impure"],
-        { superuser: "require", err: "out" },
-      );
-      procRef.current = proc;
-      void proc.stream((d: string) => setLog((p) => p + d));
-      proc
-        .then(() => writeApplied(s.desired))
-        .then(() => {
-          setApplied(s.desired);
-          setDone({ ok: true });
-          // /etc/router/effective.json changed with the new generation: let
-          // every open form pick up its defaults and locks (as the System
-          // page's apply does).
-          window.dispatchEvent(new Event("router:changed"));
-        })
-        .catch((e: unknown) => {
-          setLog((p) => `${p}\n${errMsg(e)}\n`);
-          setDone({ ok: false });
-        })
-        .finally(() => {
-          setRunning(false);
-          procRef.current = null;
-        });
-    });
+    const fail = (msg: string) => {
+      setLog(msg);
+      setDone({ ok: false });
+      setRunning(false);
+    };
+    // Snapshot the JSON exactly as applied once the rebuild succeeds. A
+    // settings file that cannot be read stops here, before any rebuild.
+    void loadState()
+      .then((s) => {
+        // Validate the on-disk config against the schema before rebuilding.
+        const errors = validateSettings(s.desired);
+        if (errors.length > 0) {
+          fail(`Configuration does not match the schema:\n${errors.join("\n")}`);
+          return;
+        }
+        const proc = cockpit.spawn(
+          ["nixos-rebuild", "switch", "--flake", flakeHostRef(), "--impure"],
+          { superuser: "require", err: "out" },
+        );
+        procRef.current = proc;
+        void proc.stream((d: string) => setLog((p) => p + d));
+        proc
+          .then(() => writeApplied(s.desired))
+          .then(() => {
+            setApplied(s.desired);
+            setDone({ ok: true });
+            // /etc/router/effective.json changed with the new generation: let
+            // every open form pick up its defaults and locks (as the System
+            // page's apply does).
+            window.dispatchEvent(new Event("router:changed"));
+          })
+          .catch((e: unknown) => {
+            setLog((p) => `${p}\n${errMsg(e)}\n`);
+            setDone({ ok: false });
+          })
+          .finally(() => {
+            setRunning(false);
+            procRef.current = null;
+          });
+      })
+      .catch((e: unknown) => fail(errMsg(e)));
   }, []);
 
   // Both callbacks are stable (useCallback with stable deps), so the listeners
@@ -106,9 +134,11 @@ export const ChangesTray = () => {
     const onApply = () => apply();
     window.addEventListener("router:changed", onChanged);
     window.addEventListener("router:apply", onApply);
+    const offAdmin = onAdminChange(onChanged);
     return () => {
       window.removeEventListener("router:changed", onChanged);
       window.removeEventListener("router:apply", onApply);
+      offAdmin();
     };
   }, [refresh, apply]);
 
@@ -121,8 +151,8 @@ export const ChangesTray = () => {
   }, [log]);
 
   const revert = useCallback(() => {
-    void writeDesired(applied).then(refresh);
-  }, [applied, refresh]);
+    void writeDesired(applied, base).then(refresh);
+  }, [applied, base, refresh]);
 
   const cancel = () => {
     if (procRef.current) {
@@ -145,7 +175,9 @@ export const ChangesTray = () => {
           actionLinks={
             <>
               <AlertActionLink onClick={apply}>{_("Apply")}</AlertActionLink>
-              <AlertActionLink onClick={revert}>{_("Revert")}</AlertActionLink>
+              {canRevertTo(applied) && (
+                <AlertActionLink onClick={revert}>{_("Revert")}</AlertActionLink>
+              )}
             </>
           }
         />

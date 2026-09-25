@@ -147,6 +147,15 @@ const UsersTab = ({
   }, [directory]);
   const groupName = (gid: string) => groupNames.get(gid.toLowerCase()) ?? gid;
 
+  // The policies come from the settings file: say why it could not be read
+  // rather than wait on it.
+  if (s.error) {
+    return (
+      <Alert variant="danger" isInline title={_("Could not load settings")}>
+        {s.error}
+      </Alert>
+    );
+  }
   if (loading || !s.ready) {
     return <Loading />;
   }
@@ -327,6 +336,15 @@ const GroupsTab = ({
 }) => {
   const section = s.valueOf<AccessPoliciesSection>("accessPolicies", {});
 
+  // The policies come from the settings file: say why it could not be read
+  // rather than wait on it.
+  if (s.error) {
+    return (
+      <Alert variant="danger" isInline title={_("Could not load settings")}>
+        {s.error}
+      </Alert>
+    );
+  }
   if (loading || !s.ready) {
     return <Loading />;
   }

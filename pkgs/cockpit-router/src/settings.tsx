@@ -19,7 +19,16 @@ import {
   PageSection,
 } from "@patternfly/react-core";
 import { HelpIcon } from "@patternfly/react-icons";
-import { loadState, writeDesired, getPath, setPath, isLocked, errMsg, rebaseEdits } from "./nix";
+import {
+  loadState,
+  writeDesired,
+  getPath,
+  setPath,
+  isLocked,
+  errMsg,
+  rebaseEdits,
+  onAdminChange,
+} from "./nix";
 import type { SettingsState, Json } from "./nix";
 
 const _ = cockpit.gettext;
@@ -119,6 +128,12 @@ export const SaverStatus = ({ status }: { status: { ok: boolean; msg: string } |
 // loaded — otherwise a page left open across the changes tray's Revert, or
 // another form's save, would write its stale copy straight back over them.
 // Edits the admin has not saved yet survive the rebuild (see rebaseEdits).
+//
+// A settings file that cannot be read (root-only, in a session with Limited
+// access) is an `error`, never an empty form: `ready` stays false, so pages
+// show the message instead of a form and a Save button, and writeDesired
+// refuses anyway without a loaded state. Switching administrative access on or
+// off reloads, since it changes what can be read.
 export function useSettings() {
   const [state, setState] = useState<SettingsState | null>(null);
   const [desired, setDesired] = useState<Json>({});
@@ -132,14 +147,23 @@ export function useSettings() {
     loadState()
       .then((s) => {
         setState(s);
-        setDesired(rebaseEdits(s.desired || {}, pending.current));
+        setError("");
+        setDesired(rebaseEdits(s.desired, pending.current));
       })
-      .catch((e: unknown) => setError(errMsg(e)));
+      .catch((e: unknown) => {
+        // Drop a copy loaded earlier too, so no form outlives a failed read.
+        setState(null);
+        setError(errMsg(e));
+      });
   }, []);
   useEffect(() => {
     reload();
     window.addEventListener("router:changed", reload);
-    return () => window.removeEventListener("router:changed", reload);
+    const offAdmin = onAdminChange(reload);
+    return () => {
+      window.removeEventListener("router:changed", reload);
+      offAdmin();
+    };
   }, [reload]);
 
   const setLeaf = useCallback((path: string, val: Json) => {
@@ -171,7 +195,7 @@ export function useSettings() {
     (apply: boolean) => {
       setSaving(true);
       setStatus(null);
-      return writeDesired(desired)
+      return writeDesired(desired, state)
         .then(() => {
           setStatus({
             ok: true,
@@ -184,8 +208,13 @@ export function useSettings() {
         .catch((e: unknown) => setStatus({ ok: false, msg: errMsg(e) }))
         .finally(() => setSaving(false));
     },
-    [desired],
+    [desired, state],
   );
+
+  // Replace the whole settings file with `obj`, built from `desired`, for a
+  // page that writes outside the working copy. Refused like `save` when the
+  // settings were not read.
+  const write = useCallback((obj: Json) => writeDesired(obj, state), [state]);
 
   return {
     ready: Boolean(state),
@@ -197,6 +226,7 @@ export function useSettings() {
     lockedOf,
     save: () => persist(false),
     saveAndApply: () => persist(true),
+    write,
     saving,
     status,
     reload,
