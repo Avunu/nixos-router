@@ -131,9 +131,11 @@ A single-port router needs a VLAN-capable switch that delivers every network to 
 }
 ```
 
+The build accepts this layout, but the Network page doesn't yet: it reports "Assign at least one physical interface to a network." and keeps **Save & apply** disabled. Click **Save**, then **Apply** in the changes tray.
+
 ### Rules the router checks
 
-The Network page lists broken rules under "Network configuration is invalid" and disables **Save & apply** until they are fixed. The build checks the same rules and fails with these messages:
+The Network page lists broken rules under "Network configuration is invalid" and disables **Save & apply** until they are fixed. The build checks the same rules, apart from the single-port case above, and fails with these messages:
 
 | Message | Fix |
 | --- | --- |

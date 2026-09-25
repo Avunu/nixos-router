@@ -15,7 +15,7 @@ code:
 
 # Hosts and host groups
 
-The host registry is the router's list of known devices, keyed by MAC address. Registering a device lets you give it a fixed address, a DNS name, a public name and a group. Access policies, port forwards, the reverse proxy, the Cloudflare Tunnel and dynamic DNS all refer to devices by their registered name, so most setups start here.
+The host registry is the router's list of known devices, keyed by MAC address. Registering a device lets you give it a fixed address, a DNS name, a public name and a group. Port forwards, the reverse proxy and the Cloudflare Tunnel refer to devices by their registered name, and access policies and dynamic DNS use the group, user and public name set on a registered device, so most setups start here.
 
 You manage the registry on the **Hosts** page, which has two tabs: **Devices** and **Groups**.
 
@@ -70,7 +70,7 @@ A static IP is what most other features need:
 - **Access policies.** Policies tell devices apart by IPv4 address, so a device's group and user only take effect with a static IP. Without one, the device gets its network's policy, and the editor warns "No static IP — device-tier policies cannot apply". See [Assign policies](/docs/access-policies/assignments/).
 - **Port forwards.** An IPv4 forward sends traffic to the device's static IP. See [Port forwards](/docs/ingress/port-forwards/).
 - **Reverse proxy and Cloudflare Tunnel.** Both forward requests to the device's static IP. See [Reverse proxy](/docs/ingress/reverse-proxy/) and [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/).
-- **Local DNS.** While **Publish static hosts** is on (the default, on **DNS → Resolver**), the router publishes the device as `<name>.<lan.domain>`, such as `nas.lan`, with a reverse (PTR) record. Names are lowercased, and characters that DNS doesn't allow become dashes, so `Kiosk 1` becomes `kiosk-1.lan`. Registered devices without a static IP get the same name, resolved live from the address they use at the moment. Two devices whose names turn into the same DNS name both go without one.
+- **Local DNS.** While **Publish static hosts** is on (the default, on **DNS → Resolver**), the router publishes the device as `<name>.<lan.domain>`, such as `nas.lan`, with a reverse (PTR) record. Names are lowercased, and characters that DNS doesn't allow become dashes, so `Kiosk 1` becomes `kiosk-1.lan`. Registered devices without a static IP get the same kind of name, whether or not that setting is on, resolved live from the address they use at the moment. Two devices whose names turn into the same DNS name both go without one.
 
 ### IPv6 suffix
 
@@ -164,7 +164,7 @@ Only `mac` and `name` are required. MAC addresses use colons.
 
 ## Troubleshooting
 
-The editor checks each field as you type and won't save an invalid one. The build checks the same rules:
+The editor checks the static IP, IPv6 suffix and public hostname as you type, and won't save while one of them has an error. It doesn't check the name's characters or that the name is unique; the build does. The build checks these rules:
 
 | Build message | Fix |
 | --- | --- |

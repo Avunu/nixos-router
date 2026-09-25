@@ -57,8 +57,10 @@ Never put `0.0.0.0/0` or `::/0` in a peer's **Allowed IPs** on the router. The r
 - **Routes each peer's Allowed IPs** into the tunnel.
 - **Forwards between the LAN and the tunnel**, in both directions.
 - **Forwards from the tunnel to the internet.** Traffic that leaves by the WAN is masqueraded behind the WAN's IPv4 address, like LAN traffic. Replies come back in, but the internet can't open new connections into the tunnel.
-- **Trusts the tunnel like the LAN.** Anything that comes out of the tunnel can reach every service on the router, including Cockpit, SSH and DNS.
+- **Trusts the tunnel like the LAN.** Anything that comes out of the tunnel can reach every service on the router, including Cockpit, SSH and DNS. Open Cockpit by the router's LAN address, not its tunnel address; see [Open Cockpit over the tunnel](/docs/wireguard/remote-access/#open-cockpit-over-the-tunnel).
 - **Counts the tunnel as an internal network.** The tunnel address and every peer's Allowed IPs join Suricata's home networks ([Threat protection](/docs/threat-protection/)), may use the router's DNS resolver, and make up the **WireGuard** network that you can assign an access policy to.
+
+A known issue currently keeps the two forwarding items from working; see [Limits](#limits).
 
 The router doesn't translate addresses inside the tunnel. Devices on your LAN reach the other side with their own addresses, and devices over there arrive with theirs. That's why both ends need each other's subnets in their Allowed IPs.
 
@@ -72,7 +74,7 @@ The steps are the same for every kind of peer. [Site-to-site VPN](/docs/wireguar
    - **Address (CIDR):** the router's own address on the tunnel subnet, with its prefix length, such as `10.100.0.1/30`. Use a subnet that isn't in use at either end.
    - **Listen port:** the UDP port, 51820 by default. Every tunnel needs its own port. A new tunnel always starts at 51820, so change it for the second one, for example to 51821.
    - **Private key file:** where the key is stored. It defaults to `/etc/wireguard/<name>.key`. Its help reads "Path to the private key on the router (never in the Nix store)." Keep the default.
-   - **Routes:** leave it empty. Its help reads "Extra destinations routed through this tunnel.", but every peer's Allowed IPs are routed already, and WireGuard drops traffic for any address outside all peers' Allowed IPs, so an extra route has nowhere to go.
+   - **Routes:** leave it empty. Its help reads "Extra destinations routed through this tunnel.", but every peer's Allowed IPs are routed already, and WireGuard drops traffic for any address outside all peers' Allowed IPs, so an extra route has nowhere to go. The field also has no effect at the moment; see [Limits](#limits).
 4. Click **Generate keypair**. The router writes a new private key to the file straight away and shows **Public key (share with peers)**. Click the copy button and keep the key: the page shows it only until you leave. See [Keys](#keys).
 5. Under **Peers**, click **Add peer** and fill in the new card. Repeat for each peer.
    - **Public key:** the peer's public key.
@@ -87,7 +89,7 @@ The steps are the same for every kind of peer. [Site-to-site VPN](/docs/wireguar
 Click **Generate keypair** before **Save & apply**. If the private key file doesn't exist when the configuration is applied, systemd-networkd, the service that manages every network interface on the router, can't start. The apply fails, and among other things the LAN's DHCP server stops. To recover, click **Generate keypair** and then run `sudo systemctl restart systemd-networkd` on the router, or delete the tunnel and apply again.
 :::
 
-**Delete tunnel** removes the selected tunnel and its peers when you save and apply. The key file stays on the router.
+**Delete tunnel** removes the selected tunnel and its peers when you save and apply. The key file stays on the router. So does the interface, without its address or firewall rules, until the next reboot; `sudo ip link delete wg0` removes it at once.
 
 The page doesn't check what you type. Mistakes show up as errors when you apply; see [Troubleshooting](#troubleshooting). If the page says "WireGuard is locked in the Nix configuration.", the tunnels are set in the router's Nix configuration and can only be changed there.
 
@@ -124,7 +126,7 @@ The UI writes the `wireguard` key of `/etc/nixos/router-settings.json`, a map fr
 
 **Generate keypair** runs `wg genkey` on the router and writes the private key to the path in **Private key file** at once, before you save anything. Only root can read the file or enter its directory. The private key never leaves the router; the page shows only the public key.
 
-It overwrites an existing key without asking. The running tunnel keeps its old key until the network service restarts: at the next reboot, or when you apply a change to a tunnel's port or peers. From then on the tunnel uses the new key, and every peer that still has the old public key stops connecting. If you clicked it by mistake, copy the key the tunnel is running with back into the file:
+It overwrites an existing key without asking. The running tunnel keeps its old key until the network service restarts: at the next reboot, or when an apply restarts it, as a change to a tunnel's port or peers does. From then on the tunnel uses the new key, and every peer that still has the old public key stops connecting. If you clicked it by mistake, copy the key the tunnel is running with back into the file:
 
 ```bash
 sudo sh -c 'wg show wg0 private-key > /etc/wireguard/wg0.key'
@@ -159,6 +161,10 @@ The `wg` command is installed once the router has at least one tunnel.
 Peers can't connect between steps 2 and 3, so do them close together.
 
 ## Limits
+
+:::doc-warning
+**Known issue: traffic that arrives through a tunnel isn't forwarded.** The router leaves IPv4 forwarding off on its tunnels. Devices behind a peer reach the router's own services, such as Cockpit, SSH and DNS, but not the LAN or the internet, and LAN connections to them get no replies. The **Routes** field has no effect either. As a workaround, run `sudo sysctl -w net.ipv4.conf.wg0.forwarding=1` for each tunnel; it lasts until the next reboot. [Forwarding workaround](/docs/wireguard/site-to-site/#forwarding-workaround) shows how to keep it.
+:::
 
 - **No routing between tunnels, or between the peers of one tunnel.** The router forwards only between each tunnel and the LAN, and from each tunnel to the internet. Two branches can't reach each other through HQ (hub and spoke), and a laptop connected to HQ can't reach the branch. Give each pair of sites that must talk a direct tunnel of their own.
 - **No NAT inside the tunnel.** The far side must route your LAN into its tunnel and list your LAN in its Allowed IPs, or replies never come back.
