@@ -865,16 +865,20 @@ pkgs.testers.runNixOSTest {
         router.succeed(
             "ip neigh replace 10.48.4.71 lladdr aa:bb:cc:dd:ee:04 dev br-lan nud permanent"
         )
+        # Each wait spans at least one 20 s neighbor refresh, and a miss costs
+        # a 10 s dig timeout (the name falls through to the unreachable
+        # forwarder), so these get more room than a single refresh suggests: a
+        # loaded CI host can stall the VM for longer than a minute.
         router.wait_until_succeeds(
             dig_short.format(ns="guestpc", name="dyn-1.lan") + " | grep -qx 10.48.4.71",
-            timeout=60,
+            timeout=180,
         )
         # With only the clone left, the name goes unanswered rather than
         # following the MAC off the LAN.
         router.succeed("ip neigh del 10.48.4.71 dev br-lan")
         router.wait_until_succeeds(
             f'test -z "$({dig_short.format(ns="guestpc", name="dyn-1.lan")})"',
-            timeout=60,
+            timeout=180,
         )
         router.succeed("ip link del vclone")
 
