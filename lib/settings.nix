@@ -23,7 +23,9 @@
 # settings file: routers installed before this loader feed their JSON to the
 # module directly, so no migration reaches them. Such an option stays declared
 # as well, hidden (visible = false keeps it out of the schema) and ignored,
-# next to its migration — see dns.technitium.listenPort.
+# next to its migration, and Cockpit drops the key when it reads the file
+# (RETIRED_KEYS in pkgs/cockpit-router/src/settings-json.ts) — see
+# dns.technitium.listenPort.
 #
 # Every migration takes and returns the raw settings attrset and must be
 # idempotent: all of them run on every evaluation, including over JSON that is

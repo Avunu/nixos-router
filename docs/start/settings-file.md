@@ -165,4 +165,4 @@ Nothing is switched, so the running system is unaffected. Fix `/etc/nixos/flake.
    ```
    Use your router's `hostName` in place of `router`. Don't rely on `system-upgrade` here: it skips the rebuild when the lock file is unchanged, and the failed upgrade has usually updated it already.
 
-The removed `dns.technitium.listenPort` doesn't stop these routers. Routers were installed with `"listenPort": 53` in their settings, so the module still accepts the key and ignores it. Any other value builds with a warning that it is ignored.
+The removed `dns.technitium.listenPort` doesn't stop these routers. Routers were installed with `"listenPort": 53` in their settings, so the module still accepts the key and ignores it, and Cockpit drops it the next time it saves. Any other value builds with a warning that it is ignored.

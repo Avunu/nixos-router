@@ -11,7 +11,7 @@
 // snapshot, so loadState falls back to the settings file whenever the running
 // generation is newer than it — see appliedBaseline.
 import { validateSettings } from "./schema";
-import { appliedBaseline } from "./settings-json";
+import { appliedBaseline, dropRetiredKeys } from "./settings-json";
 import type { Json, SettingsState } from "./settings-json";
 
 // Re-exported so every existing `from "./nix"` import keeps working.
@@ -109,7 +109,10 @@ export function loadState(): Promise<LoadedState> {
     readJson(APPLIED_FILE),
     mtime(SETTINGS_FILE),
     mtime(CURRENT_SYSTEM),
-  ]).then(([desired, effective, snapshot, settingsAt, systemAt]) => {
+  ]).then(([onDisk, effective, snapshotOnDisk, settingsAt, systemAt]) => {
+    // Both sides, so a key only one of them still carries is never a change.
+    const desired = dropRetiredKeys(onDisk);
+    const snapshot = dropRetiredKeys(snapshotOnDisk);
     const { applied, stale } = appliedBaseline(desired, snapshot, settingsAt, systemAt);
     return { desired, effective, applied, snapshotStale: stale };
   });
