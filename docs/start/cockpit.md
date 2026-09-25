@@ -25,15 +25,16 @@ Open Cockpit at `https://<router>:9090` from a computer on the LAN. Any of these
 
 - the LAN gateway address, such as `https://192.168.1.1:9090`;
 - `https://router.lan:9090`, that is `<hostName>.<lan.domain>`;
-- `https://router.local:9090`, the router's mDNS name, from the LAN only.
+- `https://router.local:9090`, the router's mDNS name, from the LAN only;
+- the router's address on a WireGuard tunnel, such as `https://10.100.0.1:9090`, over that tunnel.
 
-Over WireGuard, use the LAN gateway address, or `router.lan` if the client resolves names through the router. That works when the client's tunnel sends the LAN subnet to the router. The router's own tunnel address, such as `10.100.0.1`, isn't an allowed name, so Cockpit refuses the login there. See [WireGuard](/docs/wireguard/) for setting up the tunnel.
+Over WireGuard, the LAN gateway address works too when the client's tunnel sends the LAN subnet to the router, and so does `router.lan` if the client also resolves names through the router. See [WireGuard](/docs/wireguard/) for setting up the tunnel.
 
 Sign in with the admin account (`adminUser.name`, `admin` by default) and its password. After a fresh install, that is the initial password from the settings file; change it on Cockpit's **Accounts** page.
 
 - **HTTPS only.** Cockpit uses a self-signed certificate, so your browser warns the first time. Plain `http://` requests are redirected to HTTPS, so the password never crosses the network in clear text.
 - **LAN and WireGuard only.** The firewall accepts connections to port 9090 from the LAN bridge and WireGuard tunnels, and drops them from the guest network and the WAN.
-- **Known names only.** Cockpit accepts only the LAN gateway address, `<hostName>.local` and `<hostName>.<lan.domain>`, not the router's WAN or WireGuard addresses. To reach it by another name, for example through a reverse proxy, add that origin to `router.cockpit.allowedOrigins` in the host flake.
+- **Known names only.** Cockpit accepts only the LAN gateway address, each WireGuard tunnel's address, `<hostName>.local` and `<hostName>.<lan.domain>`, not the router's WAN address or public name. To reach it by another name, for example through a reverse proxy, add that origin to `router.cockpit.allowedOrigins` in the host flake.
 - **Slow retries.** Each failed password costs a short delay, so the login can't be guessed at network speed.
 
 :::doc-note
@@ -112,6 +113,6 @@ The UI finds locked fields by comparing the last-applied file with the values th
 ## Troubleshooting
 
 - **The login page doesn't load.** Check that you are on the LAN or a WireGuard tunnel, not the guest network, and that you used `https://`.
-- **Cockpit won't sign in or connect under one name but works under another.** The failing name isn't one of the allowed origins, for example the router's WireGuard tunnel address. Use the LAN address, or add the name to `router.cockpit.allowedOrigins` in the host flake.
+- **Cockpit won't sign in or connect under one name but works under another.** The failing name isn't one of the allowed origins, for example the router's public name. Use one of the addresses under [Sign in](#sign-in), or add the name to `router.cockpit.allowedOrigins` in the host flake.
 - **Save fails with "Configuration does not match the schema".** The line after it names the setting and the problem. Fix that field; if the path points at a value you didn't touch, the file was edited by hand.
 - **Apply fails.** Scroll the tray's log to the first `error:` line. An assertion message names the setting to fix. A build that fails changes nothing on the running system, so fix the setting, save and apply again, or use **Revert**.

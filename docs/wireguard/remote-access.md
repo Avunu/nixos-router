@@ -16,10 +16,6 @@ code:
 
 WireGuard gives laptops and phones an encrypted way into your LAN from anywhere. Each device is a peer of the router with its own key and one address. You choose per device whether only LAN traffic goes through the tunnel (split tunnel) or everything does (full tunnel), in which case the device reaches the internet through the router.
 
-:::doc-warning
-**Known issue:** the router doesn't yet forward traffic that arrives through a tunnel. A connected device reaches the router's own services, including Cockpit, SSH and DNS, but not other LAN devices or, with a full tunnel, the internet. Once the tunnel exists, run `sudo sysctl -w net.ipv4.conf.wg1.forwarding=1` on the router. That lasts until the next reboot; [Forwarding workaround](/docs/wireguard/site-to-site/#forwarding-workaround) shows how to keep it.
-:::
-
 ## Before you start
 
 - **A public name for the router,** such as `hq.example.com`, kept current by [dynamic DNS](/docs/dynamic-dns/), or a fixed public IP.
@@ -133,11 +129,11 @@ The router doesn't force tunnel devices onto its DNS the way it does LAN devices
 
 ## Open Cockpit over the tunnel
 
-Browse to the router's LAN address, such as `https://192.168.1.1:9090`. The device's AllowedIPs must include it, as the LAN range does in the example. A device that uses the router's DNS can also use `https://<host name>.lan:9090`, with the router's host name and your **Local domain**.
+Browse to the router's tunnel address, such as `https://10.100.1.1:9090`. Every configuration on this page sends it through the tunnel. The router's LAN address, such as `https://192.168.1.1:9090`, works too when the device's AllowedIPs include the LAN, and a device that uses the router's DNS can also use `https://<host name>.lan:9090`, with the router's host name and your **Local domain**.
 
-Don't use the tunnel address. Cockpit accepts only the addresses it was set up with (the LAN gateway address, `<host name>.local` and `<host name>.<local domain>`) and refuses a browser that reached it as `https://10.100.1.1:9090`.
+Cockpit accepts only the LAN gateway address, each tunnel's own address, `<host name>.local` and `<host name>.<local domain>`. It refuses any other name, such as the router's public name.
 
-SSH has no such limit. It answers on the LAN and tunnel addresses alike.
+SSH answers on the LAN and tunnel addresses alike.
 
 ## Revoke a device
 
@@ -156,7 +152,7 @@ Peers have no names, so keep a list of which address and public key belong to wh
 ## Troubleshooting
 
 - **No handshake.** Check that the device's `Endpoint` port is the tunnel's **Listen port** (51821 here, not 51820) and that its `PublicKey` is the router's key for this tunnel. An ISP modem in front of the router needs a UDP forward for this port too. Some guest and hotel networks block outgoing UDP, and the tunnel can't come up on them.
-- **Handshake, but nothing on the LAN answers.** First check the known issue at the top of this page: `sysctl net.ipv4.conf.wg1.forwarding` must print `1`. Then check that the device's `Address` equals its entry in the router's **Allowed IPs**, and that its `AllowedIPs` include the LAN.
+- **Handshake, but nothing on the LAN answers.** Check that the device's `Address` equals its entry in the router's **Allowed IPs**, and that its `AllowedIPs` include the LAN.
 - **Names don't resolve.** The DNS server, `10.100.1.1`, must be inside the device's `AllowedIPs`.
-- **Cockpit won't connect.** Use the router's LAN address, not its tunnel address.
+- **Cockpit won't connect.** Use the router's tunnel address, its LAN address or `<host name>.lan`, not its public name. See [Open Cockpit over the tunnel](#open-cockpit-over-the-tunnel).
 - **Some pages stall on mobile networks.** Lower the device's MTU, for example with `MTU = 1280` in its `[Interface]` section.

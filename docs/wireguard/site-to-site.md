@@ -16,10 +16,6 @@ A site-to-site VPN joins two offices' LANs so that devices at each site reach de
 
 ![Two sites, HQ with LAN 192.168.1.0/24 and the branch with LAN 192.168.2.0/24, joined by a WireGuard tunnel between their routers at 10.100.0.1 and 10.100.0.2. The branch, behind NAT, dials out to HQ's public name on UDP port 51820. HQ's Allowed IPs for the branch are 10.100.0.2/32 and 192.168.2.0/24; the branch's Allowed IPs for HQ are 10.100.0.1/32 and 192.168.1.0/24.](../images/site-to-site.svg)
 
-:::doc-warning
-**Known issue: the router doesn't forward traffic that arrives through a tunnel.** Its forwarding setting for each tunnel sits in a network unit that systemd-networkd ignores, so `net.ipv4.conf.wg0.forwarding` stays at 0. The tunnel comes up and the two routers reach each other, but devices on one LAN can't reach the other LAN, and the **Routes** field has no effect. Until a release fixes this, run `sudo sysctl -w net.ipv4.conf.wg0.forwarding=1` on both routers once the tunnel exists. That lasts until the next reboot; [Forwarding workaround](#forwarding-workaround) makes it permanent.
-:::
-
 ## The example
 
 | | Site A (HQ) | Site B (branch) |
@@ -190,7 +186,6 @@ The routers ping each other's addresses (steps 2 and 3 above), but LAN devices c
 
 - **A LAN is missing from Allowed IPs.** Each router must list the *other* site's LAN in its peer's **Allowed IPs**. Without it there's no route, and WireGuard drops packets from that LAN. `ip route show dev wg0` on each router should list the other site's LAN.
 - **The subnets overlap.** A router always delivers its own LAN's range locally, so a remote LAN with the same range can't be reached.
-- **Forwarding is off on the tunnel.** This is the known issue at the top of this page. If `sysctl net.ipv4.conf.wg0.forwarding` prints `net.ipv4.conf.wg0.forwarding = 0` on either router, nothing that arrives through the tunnel is forwarded to its LAN. See [Forwarding workaround](#forwarding-workaround).
 - **The device's own firewall.** Many hosts answer only their own subnet. Windows, for one, doesn't answer pings from other subnets by default. Try another service or another device before blaming the tunnel.
 
 ### Works in one direction only
@@ -208,22 +203,6 @@ ping -c 3 -M do -s 1392 10.100.0.2
 ```
 
 If that fails while `-s 1300` works, lower the tunnel MTU on both routers to confirm the cause, for example `sudo ip link set wg0 mtu 1380`. There's no setting for it, so the change lasts only until the tunnel is recreated, such as at the next reboot.
-
-### Forwarding workaround
-
-Until a release fixes the known issue at the top of this page, turn on forwarding for each tunnel yourself, on both routers. To do it right away:
-
-```bash
-sudo sysctl -w net.ipv4.conf.wg0.forwarding=1
-```
-
-That lasts until the next reboot. To keep it, add one line per tunnel to your router's Nix settings: the inline module in `/etc/nixos/flake.nix` on a network install, or `/etc/nixos/local.nix` on an installer-image router ([Nix overrides the file](/docs/start/settings-file/#nix-overrides-the-file)):
-
-```nix
-boot.kernel.sysctl."net.ipv4.conf.wg0.forwarding" = 1;
-```
-
-Then rebuild with `sudo nixos-rebuild switch --flake /etc/nixos#default --impure`. The setting applies at once, and again each time the tunnel's interface is created, at boot or when you add the tunnel. Remove the line once the fix is released.
 
 ## Security notes
 

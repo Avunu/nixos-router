@@ -61,6 +61,7 @@ Run every check, including the VM tests, with `nix flake check`. The VM tests bo
 | `settings-loader` | Evaluation | Old settings are upgraded, current ones are left alone, and the file is rewritten at activation. |
 | `port-forwards-eval` | Evaluation | The nftables rules each port forward produces, and every misconfiguration rejected by name. |
 | `ingress-eval` | Evaluation | Reverse proxy redirects, certificates, tunnel ingress, and name clashes between features. |
+| `wireguard-eval` | Evaluation | Each WireGuard tunnel's network unit (forwarding, reverse-path filter, routes, address) and Cockpit accepting the tunnel address. |
 | `dns-fallback` | Evaluation | Something always answers DNS on the LAN, even with Technitium off. |
 | `dns-overrides` | Evaluation | Split-horizon DNS: which zone each record lands in. |
 | `wireless-eval` | Evaluation | The UniFi and OpenWISP controllers' wiring. |
@@ -70,9 +71,9 @@ Run every check, including the VM tests, with `nix flake check`. The VM tests bo
 | `cockpit-router` | Sandbox | The plugin's formatting, lint, type checks and unit tests. |
 | `router-schema-fresh` | Sandbox | The committed settings schema matches the options (x86_64 only). |
 | `technitium-vm` | VM | Filtering policies, static leases, the query log, the block page and reports. |
-| `guest-access-vm` | VM | LAN to guest works one way only, with and without Suricata. |
+| `guest-access-vm` | VM | LAN to guest works one way only, with and without Suricata, and a remote site reaches the LAN through a WireGuard tunnel. |
 | `port-forwards-vm` | VM | IPv4 DNAT, IPv6 pinholes, source restrictions and dynamic DNS on the wire. |
-| `reverse-proxy-vm` | VM | Certificate issuance, HTTPS by name, redirects, hairpin and reloads. |
+| `reverse-proxy-vm` | VM | Certificate issuance, HTTPS by name, redirects, hairpin from the LAN and guest, the block page kept out of the hairpin, and reloads. |
 | `suricata-vm` | VM | The IPS inline end to end. |
 | `wireless-podman-vm` | VM | The container network survives an nftables reload. |
 

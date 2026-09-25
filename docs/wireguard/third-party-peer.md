@@ -11,10 +11,6 @@ code:
 
 The router speaks standard WireGuard, so the far end of a site-to-site tunnel doesn't have to be another nixos-router. It can be a Linux machine running wg-quick, a cloud VM or another vendor's router. This page covers what that far end must do, gives a wg-quick configuration for a Linux site gateway, and shows the matching entry on the router. The steps on the router are the same as in [Site-to-site VPN](/docs/wireguard/site-to-site/).
 
-:::doc-warning
-**Known issue:** the router doesn't yet forward traffic that arrives through a tunnel, so devices on the far side's LAN can't reach your LAN, and your LAN gets no replies from them. Once the tunnel exists, run `sudo sysctl -w net.ipv4.conf.wg0.forwarding=1` on the router. That lasts until the next reboot; [Forwarding workaround](/docs/wireguard/site-to-site/#forwarding-workaround) shows how to keep it.
-:::
-
 ## The example
 
 - **The router (HQ):** LAN `192.168.1.0/24`, reachable as `hq.example.com`, tunnel `wg0` with address `10.100.2.1/30` on UDP port 51820.
