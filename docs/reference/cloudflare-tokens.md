@@ -170,7 +170,7 @@ Dynamic DNS and the tunnel clean up after themselves when you turn them off, and
 For either feature:
 
 1. Turn it off (**Enable dynamic DNS** or **Enable Cloudflare Tunnel**) and click **Save & apply**.
-2. Wait until the status card shows a successful run (**Last run** on **Last update**, or **Last sync** on **Tunnel status**), or click **Update now** or **Sync now**.
+2. Wait until the status card shows a successful run (**Last run** on **Last update**, or **Last sync** on **Tunnel status**), or click **Update now** or **Sync now**. If a row says a record is waiting until the tunnel or dynamic DNS releases the name, the other feature still holds a name you moved to it; keep the token until a later run puts that record back (see [Names moved to or from the tunnel](/docs/dynamic-dns/#names-moved-to-or-from-the-tunnel)).
 3. Clear **Cloudflare API token file**, click **Save & apply**, delete the file, and revoke the token in Cloudflare.
 
 If you remove the token first, the records (and the tunnel) stay in your Cloudflare account, and you have to fix them in the dashboard.

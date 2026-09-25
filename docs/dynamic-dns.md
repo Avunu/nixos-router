@@ -84,7 +84,7 @@ The **Last update** card at the bottom of **Network → Dynamic DNS** shows the 
 - **Router IPv6** is the address used for router names, or "none".
 - The records table has one row per name and record type:
   - **Name**: the public name. For a device name, the host's name follows in parentheses.
-  - **Type**: `A` or `AAAA`. A `CNAME` row appears for each replaced CNAME when its name is dropped, whether it was put back or not.
+  - **Type**: `A` or `AAAA`. A `CNAME` row appears for each replaced CNAME when its name is dropped, whether it was put back or not. While a CNAME waits for the tunnel to let go of the name, its row appears on every run (see [Names moved to or from the tunnel](#names-moved-to-or-from-the-tunnel)).
   - **Address**: the address the record should hold.
   - **Result**: what the run did, with a note beside it.
 
@@ -146,7 +146,7 @@ The service runs as a temporary system user with most privileges removed. It nev
 
 ### What it writes to Cloudflare
 
-- **Only what changed.** Each run reads the addresses from the router's interfaces, or from Cloudflare's trace endpoint behind another NAT. It contacts the Cloudflare API only when an address changed, a name or record type was added or removed, **TTL (seconds)** or **Proxy through Cloudflare** changed, the previous run had errors, or 6 hours have passed since the last full check. Otherwise it reports the records as `unchanged` without an API call.
+- **Only what changed.** Each run reads the addresses from the router's interfaces, or from Cloudflare's trace endpoint behind another NAT. It contacts the Cloudflare API only when an address changed, a name or record type was added or removed, **TTL (seconds)** or **Proxy through Cloudflare** changed, the previous run had errors, a replaced CNAME is waiting to be put back, or 6 hours have passed since the last full check. Otherwise it reports the records as `unchanged` without an API call.
 - **A full check every 6 hours.** That check compares every record with what it should be, which repairs records someone edited by hand.
 - **One record per type per name.** If a name holds several A records, the router keeps one, preferring its own, and deletes the rest.
 - **Tagged records.** Records the router writes carry the comment `managed by nixos-router`. An A or AAAA record that already existed at the name is overwritten and tagged. It isn't remembered, so it isn't restored later.
@@ -162,6 +162,17 @@ DNS allows nothing else beside a CNAME, so Cloudflare would refuse an A record a
 When you later remove the name from the configuration, or turn dynamic DNS off, the router deletes its own A and AAAA records and puts the CNAME back exactly as it was. The table then shows a `CNAME` row, `created` with "restored: the name is no longer configured". If the same CNAME is already back at the name, put back by hand, the router leaves it as it is, and the row shows `unchanged` with "already back: the name is no longer configured".
 
 A CNAME can't sit beside another CNAME, or beside an A or AAAA record, so the router never puts one back where it would clash. If you put a different CNAME at the name by hand, the router leaves yours, and the row for the remembered CNAME shows `unchanged` with "a CNAME is already back: the name is no longer configured". While the name is still configured, though, the next full check takes it back, and your CNAME is remembered as well. When the name is dropped later, the router puts back only the CNAME it deleted last, your latest choice. The row for the older one shows `unchanged` with "superseded by a CNAME taken over later: the name is no longer configured".
+
+These rules are about records made by hand. A record tagged `managed by nixos-router` at the name is the router's own, never your choice, as the next section explains.
+
+### Names moved to or from the tunnel
+
+The [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/) tags its CNAMEs with the same comment. A name can't be in both at once, but you can move one from the tunnel to dynamic DNS, or back, in a single **Save & apply**. The two services then run in no fixed order, so for a moment the name can still hold the other one's record:
+
+- **Taking the name over.** Dynamic DNS deletes the tunnel's CNAME without remembering it, since it was never yours. The tunnel still remembers the record it replaced there, and puts that back itself once dynamic DNS lets go of the name.
+- **Letting the name go.** If the tunnel already holds the name when dynamic DNS goes to put your CNAME back, dynamic DNS keeps your CNAME rather than dropping it. The row shows `unchanged` with "waiting until the tunnel releases the name", and each later run tries again, including runs with dynamic DNS off. Once the name leaves the tunnel too, the next run puts your CNAME back and the row shows `created`.
+
+The tunnel does the same in the other direction, so moving a name doesn't lose the record that was there before the router took it over.
 
 ### Address detection
 
@@ -211,7 +222,7 @@ Turning off **Enable dynamic DNS** deletes the router's records from Cloudflare 
 
 1. Switch off **Enable dynamic DNS**, but leave the token file set.
 2. Click **Save & apply**.
-3. The apply runs the cleanup, and **Update now** runs it again. It doesn't look up any address. When the **Last update** card shows **Last run** **ok**, with each record `removed` and each restored CNAME `created`, it's done.
+3. The apply runs the cleanup, and **Update now** runs it again. It doesn't look up any address. When the **Last update** card shows **Last run** **ok**, with each record `removed` and each restored CNAME `created`, it's done. A CNAME row with "waiting until the tunnel releases the name" isn't done yet: the tunnel still holds that name, and a later run puts the CNAME back once it lets go (see [Names moved to or from the tunnel](#names-moved-to-or-from-the-tunnel)).
 4. Only then clear **Cloudflare API token file**, if you want to. That removes the service and its timer.
 
 The tab says the same under the switch: "Turning dynamic DNS off keeps the token, so the router can delete its records and put back the CNAMEs they replaced — remove the token only after that has run." Once there's nothing left to delete, later runs do nothing. If the token file itself is gone, systemd skips the service, and nothing is deleted.

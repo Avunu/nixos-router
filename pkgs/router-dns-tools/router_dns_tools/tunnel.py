@@ -14,7 +14,10 @@ writes nothing:
              carrying the same managed-by comment as router-ddns. A configured
              name belongs to the router: A, AAAA and CNAME records already
              holding it are replaced, remembered in state.json, and put back
-             once the name is dropped from the configuration.
+             once the name is dropped from the configuration. router-ddns's
+             records are replaced but not remembered (it remembers what it
+             replaced), and while it holds a dropped name, what the tunnel
+             remembers there stays in state.json for a later run to put back.
 
 enable=false tears it all down — the CNAMEs (restoring what they replaced),
 the tunnel, and the credentials — and does nothing at all when there is
@@ -49,6 +52,7 @@ from pathlib import Path
 
 from .cloudflare import (
     COMMENT,
+    WAITING,
     Cloudflare,
     CloudflareError,
     load_json,
@@ -191,7 +195,12 @@ def point(cf: Cloudflare, zone: str, name: str, target: str, replaced: dict) -> 
 
 
 def release(cf: Cloudflare, zone: str, name: str, replaced: dict) -> str:
-    """Delete the managed CNAME at `name` and put back what it replaced."""
+    """Delete the managed CNAME at `name` and put back what it replaced.
+
+    While router-ddns holds the name (it took the name over before this run
+    dropped it), the replaced records stay in `replaced`, so every later run
+    releases the name again and puts them back once router-ddns lets go.
+    """
     removed = 0
     for r in cf.records(zone, name, "CNAME"):
         if _is_ours(r):
@@ -199,14 +208,22 @@ def release(cf: Cloudflare, zone: str, name: str, replaced: dict) -> str:
             removed += 1
     note = f"removed {removed} record(s)"
     if replaced.get(name):
-        restored = sum(why == "restored" for _, why in restore(cf, zone, replaced[name]))
+        outcomes = restore(cf, zone, replaced[name])
+        if any(why == WAITING for _, why in outcomes):
+            return f"{note}; {len(outcomes)} replaced record(s) waiting until dynamic DNS releases the name"
+        restored = sum(why == "restored" for _, why in outcomes)
         note += f"; restored {restored} replaced record(s)"
     replaced.pop(name, None)
     return note
 
 
 def release_all(cf: Cloudflare, state: dict, names: list[str], records: dict) -> list[str]:
-    """Release `names`; returns the ones that failed, still to be tracked."""
+    """Release `names`; returns the ones that failed, still to be tracked.
+
+    A name whose replaced records are waiting is not a failure; it stays in
+    `replaced`, which every run releases again, and gets a status row so the
+    card shows what is still to come back.
+    """
     zones = state.setdefault("zones", {})
     replaced = state.setdefault("replaced", {})
     failed = []
@@ -214,6 +231,8 @@ def release_all(cf: Cloudflare, state: dict, names: list[str], records: dict) ->
         try:
             note = release(cf, cf.zone_for(name, zones)["id"], name, replaced)
             print(f"  released  {name} {note}", file=sys.stderr)
+            if name in replaced:
+                records[name] = {"ok": True, "message": note}
         except CloudflareError as exc:
             records[name] = {"ok": False, "message": f"removing: {exc}"}
             failed.append(name)

@@ -25,7 +25,12 @@
 #   • a replaced CNAME already put back by hand is left as it is, not
 #     refused as a duplicate, and so is a different CNAME put there by hand;
 #   • a name taken over again after a hand edit, which remembers two CNAMEs,
-#     gets back only the one taken over last.
+#     gets back only the one taken over last;
+#   • a name moved between the tunnel and dynamic DNS in one apply, with the
+#     tool taking it over running first, in both directions: the taker does
+#     not remember the other tool's record, and the one letting go keeps the
+#     owner's CNAME — through its disabled and idle runs too — until the name
+#     is free, then puts it back.
 #
 # The sandbox has no WAN, so the IPv4 address comes from the fake's trace
 # endpoint (the path a router behind another NAT takes), and IPv6 is off.
@@ -69,12 +74,17 @@ let
       enable ? true,
       ttl ? 1,
       proxied ? false,
+      stateDir ? "state",
     }:
     pkgs.writeText "router-ddns.json" (
       builtins.toJSON {
         ddns = {
-          inherit enable ttl proxied;
-          stateDir = "state";
+          inherit
+            enable
+            ttl
+            proxied
+            stateDir
+            ;
           records = map (name: {
             inherit name;
             v4 = true;
@@ -112,6 +122,44 @@ let
     enable = false;
     ttl = 300;
     proxied = true;
+  };
+
+  # Steps 10 and 11: wiki.example.com moves between router-ddns and
+  # router-cloudflare-tunnel, each with its own state directory, as on a
+  # router.
+  ddnsWiki = configFor {
+    names = [ "wiki.example.com" ];
+    stateDir = "move-ddns";
+  };
+  ddnsNone = configFor {
+    names = [ ];
+    stateDir = "move-ddns";
+  };
+  ddnsOff = configFor {
+    names = [ ];
+    enable = false;
+    stateDir = "move-ddns";
+  };
+  tunnelFor =
+    {
+      enable ? true,
+      hostnames,
+    }:
+    pkgs.writeText "router-cloudflare-tunnel.json" (
+      builtins.toJSON {
+        tunnel = {
+          inherit enable hostnames;
+          stateDir = "move-tunnel";
+          name = "router";
+          apiTokenFile = null;
+        };
+      }
+    );
+  tunnelWiki = tunnelFor { hostnames = [ "wiki.example.com" ]; };
+  tunnelNone = tunnelFor { hostnames = [ ]; };
+  tunnelOff = tunnelFor {
+    enable = false;
+    hostnames = [ ];
   };
 in
 pkgs.runCommand "router-ddns-cloudflare"
@@ -285,6 +333,87 @@ pkgs.runCommand "router-ddns-cloudflare"
       == [["unchanged", "new-ddns.example.net", "superseded by a CNAME taken over later: the name is no longer configured"],
           ["created", "old-ddns.example.net", "restored: the name is no longer configured"]]' state/status.json >/dev/null \
       || fail "status.json does not say which CNAME was restored: $(cat state/status.json)"
+
+    # 10 — wiki moves from the tunnel to dynamic DNS in one apply, and
+    # router-ddns happens to run first. It takes the tunnel's CNAME over
+    # without remembering it (that was never the owner's). The tunnel then
+    # finds router-ddns's A record at wiki: the router's own, not the owner's
+    # choice, so it keeps the owner's CNAME instead of forgetting it, and
+    # puts it back once dynamic DNS lets go of the name.
+    at() { live | jq -c '[.records[] | select(.name == "wiki.example.com") | {type, content}] | sort_by(.type)'; }
+    wantAt() { [ "$(at)" = "$1" ] || fail "$2: wiki.example.com holds $(at), want $1"; }
+    ownerWiki='{"type":"CNAME","name":"wiki.example.com","content":"owner-wiki.example.net","ttl":300,"proxied":false,"comment":"owner"}'
+    remembers() {
+      jq -e --argjson r "$ownerWiki" '.replaced == {"wiki.example.com": [$r]}' "$1/state.json" >/dev/null \
+        || fail "$2: $1 remembers $(jq -c .replaced "$1/state.json"), want the owner's CNAME"
+    }
+    curl -sf -X POST -H "$auth" -H 'Content-Type: application/json' -d "$ownerWiki" \
+      $api/client/v4/zones/zone-1/dns_records >/dev/null
+    router-cloudflare-tunnel --config ${tunnelWiki} || fail "the tunnel taking wiki over failed"
+    remembers move-tunnel "after the tunnel took wiki over"
+    router-ddns --config ${ddnsWiki} || fail "dynamic DNS taking wiki from the tunnel failed"
+    wantAt '[{"type":"A","content":"203.0.113.1"}]' "after dynamic DNS took wiki from the tunnel"
+    jq -e '.replaced == {}' move-ddns/state.json >/dev/null \
+      || fail "dynamic DNS remembered the tunnel's CNAME as replaced: $(jq -c .replaced move-ddns/state.json)"
+    router-cloudflare-tunnel --config ${tunnelNone} || fail "the tunnel letting go of wiki held by dynamic DNS failed: $(cat move-tunnel/status.json)"
+    wantAt '[{"type":"A","content":"203.0.113.1"}]' "after the tunnel let go of wiki held by dynamic DNS"
+    remembers move-tunnel "while dynamic DNS holds wiki"
+    jq -e '.ok and .records["wiki.example.com"].ok
+      and (.records["wiki.example.com"].message | endswith("1 replaced record(s) waiting until dynamic DNS releases the name"))' move-tunnel/status.json >/dev/null \
+      || fail "the tunnel's status does not say wiki is waiting: $(cat move-tunnel/status.json)"
+    # Turned off meanwhile: the tunnel goes but the entry stays, and a later
+    # disabled run, with only that entry left, tries again without a write.
+    router-cloudflare-tunnel --config ${tunnelOff} || fail "tearing the tunnel down with wiki waiting failed: $(cat move-tunnel/status.json)"
+    [ ! -e move-tunnel/credentials.json ] || fail "the teardown with wiki waiting kept the credentials"
+    remembers move-tunnel "after the teardown with wiki waiting"
+    before=$(writes)
+    router-cloudflare-tunnel --config ${tunnelOff} || fail "the disabled run with wiki waiting failed: $(cat move-tunnel/status.json)"
+    [ "$(writes)" = "$before" ] || fail "the disabled run with wiki waiting wrote $(( $(writes) - before )) time(s)"
+    remembers move-tunnel "after the disabled run with wiki waiting"
+    # wiki leaves dynamic DNS too, which has nothing of its own to put back;
+    # the tunnel's next run (on again, idle with no hostnames) puts the
+    # owner's CNAME back as it was.
+    router-ddns --config ${ddnsNone} || fail "dynamic DNS dropping wiki failed"
+    wantAt '[]' "after dynamic DNS dropped wiki"
+    router-cloudflare-tunnel --config ${tunnelNone} || fail "the tunnel putting the owner's CNAME back failed: $(cat move-tunnel/status.json)"
+    live | jq -e --argjson r "$ownerWiki" '[.records[] | select(.name == "wiki.example.com") | del(.id)] == [$r]' >/dev/null \
+      || fail "the owner's CNAME did not come back as it was: wiki.example.com holds $(at)"
+    jq -e '.replaced == {} and .managed == []' move-tunnel/state.json >/dev/null \
+      || fail "the tunnel still tracks wiki: $(jq -c . move-tunnel/state.json)"
+
+    # 11 — and back the other way: wiki moves from dynamic DNS to the tunnel,
+    # and the tunnel runs first. It takes router-ddns's A record over without
+    # remembering it, and router-ddns, finding the tunnel's CNAME at wiki,
+    # keeps the owner's CNAME until the tunnel lets go of the name.
+    router-ddns --config ${ddnsWiki} || fail "dynamic DNS taking wiki over failed"
+    remembers move-ddns "after dynamic DNS took wiki over"
+    router-cloudflare-tunnel --config ${tunnelWiki} || fail "the tunnel taking wiki from dynamic DNS failed"
+    wantAt "[{\"type\":\"CNAME\",\"content\":\"$(jq -r .TunnelID move-tunnel/credentials.json).cfargotunnel.com\"}]" \
+      "after the tunnel took wiki from dynamic DNS"
+    jq -e '.replaced == {}' move-tunnel/state.json >/dev/null \
+      || fail "the tunnel remembered dynamic DNS's A record as replaced: $(jq -c .replaced move-tunnel/state.json)"
+    router-ddns --config ${ddnsNone} || fail "dynamic DNS letting go of wiki held by the tunnel failed: $(cat move-ddns/status.json)"
+    remembers move-ddns "while the tunnel holds wiki"
+    jq -e '.ok and [.records[] | select(.type == "CNAME") | [.state, .content, .detail]]
+      == [["unchanged", "owner-wiki.example.net", "waiting until the tunnel releases the name"]]' move-ddns/status.json >/dev/null \
+      || fail "dynamic DNS's status does not say wiki is waiting: $(cat move-ddns/status.json)"
+    # Dynamic DNS turned off meanwhile: the disabled run still has the entry
+    # to put back, and tries again without a write.
+    before=$(writes)
+    router-ddns --config ${ddnsOff} || fail "the disabled run with wiki waiting failed: $(cat move-ddns/status.json)"
+    [ "$(writes)" = "$before" ] || fail "the disabled run with wiki waiting wrote $(( $(writes) - before )) time(s)"
+    remembers move-ddns "after the disabled run with wiki waiting"
+    # wiki leaves the tunnel, which has nothing of its own to put back; the
+    # next dynamic DNS run puts the owner's CNAME back as it was.
+    router-cloudflare-tunnel --config ${tunnelNone} || fail "the tunnel dropping wiki failed: $(cat move-tunnel/status.json)"
+    wantAt '[]' "after the tunnel dropped wiki"
+    router-ddns --config ${ddnsOff} || fail "dynamic DNS putting the owner's CNAME back failed: $(cat move-ddns/status.json)"
+    live | jq -e --argjson r "$ownerWiki" '[.records[] | select(.name == "wiki.example.com") | del(.id)] == [$r]' >/dev/null \
+      || fail "the owner's CNAME did not come back as it was: wiki.example.com holds $(at)"
+    jq -e '.managed == [] and .replaced == {}' move-ddns/state.json >/dev/null \
+      || fail "dynamic DNS still tracks wiki: $(jq -c . move-ddns/state.json)"
+    jq -e '.ok and [.records[] | [.state, .type, .detail]] == [["created", "CNAME", "restored: the name is no longer configured"]]' move-ddns/status.json >/dev/null \
+      || fail "dynamic DNS's status does not say the owner's CNAME was restored: $(cat move-ddns/status.json)"
 
     touch $out
   ''

@@ -11,7 +11,9 @@ coexist with records made by hand, so they share:
   • the comment that marks a record as this router's, and the take-over /
     restore pair: a configured name belongs to the router, so a conflicting
     hand-made record is deleted — but remembered, and put back once the name
-    is dropped, so taking a name over is never a one-way loss.
+    is dropped, so taking a name over is never a one-way loss. A record the
+    router's other tool made is deleted without being remembered, and nothing
+    is put back while that tool still holds the name.
 
 Environment overrides (the tests point them at a fake API):
   ROUTER_CLOUDFLARE_API_BASE (preferred), ROUTER_DDNS_API_BASE
@@ -37,6 +39,10 @@ CREDENTIAL = "cf-api-token"
 
 # The fields of a replaced record needed to create it again.
 RESTORE_FIELDS = ("type", "name", "content", "ttl", "proxied", "comment")
+
+# restore()'s outcome for every entry while the router still holds the name:
+# the caller keeps the list and tries again on a later run.
+WAITING = "waiting"
 
 
 class CloudflareError(Exception):
@@ -133,11 +139,15 @@ def take_over(
 ) -> list[dict]:
     """Delete the records of `types` at `name` that stand in the router's way.
 
-    Records `keep` accepts (the caller's own) are left alone. Each deleted one
-    is appended to `replaced[name]` — the caller persists that dict in its
-    state.json and hands the list to restore() once the name is dropped — as
-    it goes, so a failure part-way loses nothing. Returns this call's
-    deletions, reduced to RESTORE_FIELDS.
+    Records `keep` accepts (the caller's own) are left alone. Each other
+    deleted one is appended to `replaced[name]` — the caller persists that
+    dict in its state.json and hands the list to restore() once the name is
+    dropped — as it goes, so a failure part-way loses nothing. A record
+    carrying COMMENT is the router's other tool's (a name moved between
+    dynamic DNS and the tunnel): it is deleted but not remembered, since it
+    was never the owner's to put back, and whatever it replaced is still
+    remembered by that tool. Returns the deletions this call remembered,
+    reduced to RESTORE_FIELDS.
     """
     removed = []
     for rtype in types:
@@ -145,6 +155,8 @@ def take_over(
             if keep(r):
                 continue
             cf.call("DELETE", f"/zones/{zone}/dns_records/{r['id']}")
+            if r.get("comment") == COMMENT:
+                continue
             saved = {k: r.get(k) for k in RESTORE_FIELDS}
             replaced.setdefault(name, []).append(saved)
             removed.append(saved)
@@ -164,22 +176,31 @@ def _kind(r: dict) -> str:
 
 
 def restore(cf: Cloudflare, zone: str, records: list[dict]) -> list[tuple[dict, str]]:
-    """Recreate the records take_over replaced at one name, once the router's
+    """Recreate the records take_over replaced at one name, once the caller's
     own records there are gone (a CNAME cannot sit beside them).
 
-    Nothing at the name is overwritten: Cloudflare would refuse a clashing
-    record, and a refusal fails every later run too, since the list stays to
-    be retried. So an entry is left out when it is already back (put back by
-    hand, or remembered twice), when a record it cannot sit beside holds the
-    name (a different CNAME made by hand), or when a later entry supersedes
-    it — take_over appends each record a name loses, so a name taken over
-    again after a hand edit remembers several, and the last is the owner's
-    latest intent.
+    While any record at the name carries COMMENT, the router's other tool
+    holds it: the name moved between dynamic DNS and the tunnel in one apply,
+    and the tool taking it over ran first. That record is no one's hand edit,
+    so nothing is put back or forgotten: every entry comes back as WAITING,
+    for the caller to keep and try again on a later run, once that tool has
+    let go of the name.
 
-    Returns each entry, in order, with what became of it: "restored", or why
-    it was left out.
+    Otherwise nothing at the name is overwritten: Cloudflare would refuse a
+    clashing record, and a refusal fails every later run too, since the list
+    stays to be retried. So an entry is left out when it is already back (put
+    back by hand, or remembered twice), when a hand-made record it cannot sit
+    beside holds the name (a different CNAME), or when a later entry
+    supersedes it — take_over appends each record a name loses, so a name
+    taken over again after a hand edit remembers several, and the last is the
+    owner's latest intent.
+
+    Returns each entry, in order, with what became of it: "restored",
+    WAITING, or why it was left out.
     """
     present = cf.records(zone, records[0]["name"]) if records else []
+    if any(e.get("comment") == COMMENT for e in present):
+        return [(r, WAITING) for r in records]
     chosen: list[dict] = []
     outcomes = []
     for r in reversed(records):

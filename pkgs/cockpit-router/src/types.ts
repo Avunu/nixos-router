@@ -226,7 +226,8 @@ export interface DirectoryStatus {
 export interface DdnsRecordStatus {
   name: string;
   // CNAME rows appear when a name is dropped: one per record replaced to take
-  // it over, restored or left out (the detail says why).
+  // it over, restored, left out or waiting for the tunnel to release the name
+  // (the detail says which).
   type: "A" | "AAAA" | "CNAME";
   host?: string | null; // set for a host's publicHostname, absent for router names
   content: string | null;
@@ -261,6 +262,8 @@ export interface TunnelStatus {
   // Set while there are no hostnames and no tunnel yet: why there is none.
   message?: string;
   connections?: TunnelConnection[];
+  // Keyed by hostname. A dropped name appears too while removing it failed,
+  // or while what it replaced waits for dynamic DNS to release the name.
   records?: Record<string, { ok: boolean; message: string }>;
 }
 

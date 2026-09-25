@@ -25,7 +25,10 @@ carrying the comment.
 A configured name belongs to the router: an A/AAAA record already there is
 overwritten, and a CNAME — which DNS allows nothing else beside — is replaced.
 The replaced CNAME is kept in state.json and put back when the name is dropped
-from the configuration, so taking a name over is never a one-way loss.
+from the configuration, so taking a name over is never a one-way loss. The
+tunnel's CNAME is replaced but not kept: the tunnel remembers what it replaced.
+While the tunnel holds a dropped name, the CNAME remembered there stays in
+state.json and is put back by a later run, once the tunnel has let go.
 
 enable=false drops every name: the managed records are deleted and the
 replaced CNAMEs restored, without looking up any address. A disabled run with
@@ -60,6 +63,7 @@ from pathlib import Path
 
 from .cloudflare import (
     COMMENT,
+    WAITING,
     Cloudflare,
     CloudflareError,
     load_json,
@@ -187,8 +191,9 @@ def take_over(cf: Cloudflare, zone: str, name: str, replaced: dict) -> str:
     """Clear `name` of CNAMEs, which DNS allows no other record beside.
 
     Each one is remembered in `replaced` (persisted in state.json) so it can be
-    restored when the name leaves the configuration. Returns a note for the
-    status file, or "" when there was nothing to replace.
+    restored when the name leaves the configuration — except the tunnel's own
+    (tagged), which the tunnel is left to account for. Returns a note for the
+    status file, or "" when nothing was remembered.
     """
     removed = _take_over(cf, zone, name, replaced, ("CNAME",))
     return "; ".join(f"replaced CNAME → {r.get('content')} (restored if the name is dropped)" for r in removed)
@@ -306,6 +311,8 @@ def run(cfg: dict, force: bool = False) -> int:
     configured_keys = sorted({f"{r['name']}/{r['type']}" for r in configured})
     stale = [k for k in state.get("managed", []) if k not in configured_keys]
     # Names taken over from a CNAME that are no longer configured: put it back.
+    # One still waiting for the tunnel to let go stays here, so every run
+    # takes the API path and tries again.
     replaced = state.setdefault("replaced", {})
     configured_names = {r["name"] for r in configured}
     to_restore = [n for n in replaced if n not in configured_names]
@@ -381,17 +388,26 @@ def run(cfg: dict, force: bool = False) -> int:
                     # Also clears records left from a run whose state was lost.
                     for rtype in ("A", "AAAA"):
                         remove_managed(cf, zone, name, rtype)
-                    for rec, why in restore(cf, zone, replaced[name]):
+                    outcomes = restore(cf, zone, replaced[name])
+                    for rec, why in outcomes:
                         results.append(
                             {
                                 "name": name,
                                 "type": rec.get("type"),
                                 "content": rec.get("content"),
                                 "state": "created" if why == "restored" else "unchanged",
-                                "detail": f"{why}: the name is no longer configured",
+                                "detail": (
+                                    "waiting until the tunnel releases the name"
+                                    if why == WAITING
+                                    else f"{why}: the name is no longer configured"
+                                ),
                             }
                         )
-                    del replaced[name]
+                    # The tunnel holds the name: keep the list, so a later
+                    # run (the timer's, or a disabled run's teardown) puts
+                    # it back once the tunnel lets go.
+                    if not any(why == WAITING for _, why in outcomes):
+                        del replaced[name]
                 except CloudflareError as exc:
                     results.append(
                         {"name": name, "type": "CNAME", "content": None, "state": "error", "detail": f"restoring the replaced record: {exc}"}
