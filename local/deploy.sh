@@ -46,8 +46,12 @@ install -m 644 flake.nix "${temp}/etc/nixos/flake.nix"
 [ -f flake.lock ] && install -m 644 flake.lock "${temp}/etc/nixos/flake.lock"
 install -m 644 router-settings.json "${temp}/etc/nixos/router-settings.json"
 
+# Pinned: this runs as root against the target, so it is a release tag rather
+# than whatever the default branch holds today. Bump it deliberately.
+NIXOS_ANYWHERE="github:nix-community/nixos-anywhere/1.13.0"
+
 echo "🔧 Running nixos-anywhere..."
-nix run github:nix-community/nixos-anywhere -- \
+nix run "$NIXOS_ANYWHERE" -- \
   --extra-files "$temp" \
   --flake ".#${HOSTNAME}" \
   --target-host "root@${IP_ADDRESS}"
