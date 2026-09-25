@@ -44,9 +44,17 @@ import duckdb as dbapi
 
 DB_ENGINE = "duckdb"
 
+from . import csvsafe
 from .compile_policies import _load_directory, compile_config
 
 BLOCKED_TYPES = ("Blocked", "UpstreamBlocked", "UpstreamBlockedCached")
+
+# Request-body ceilings. /ingest is authenticated and carries Log Exporter
+# batches; the portal form is unauthenticated and reachable from the guest
+# network, so it gets only what a domain and a 1000-character reason need.
+INGEST_BODY_LIMIT = 32 * 1024 * 1024
+PORTAL_BODY_LIMIT = 16 * 1024
+STATUS_BODY_LIMIT = 4 * 1024
 
 # DuckDB has no SQLite-style implicit rowid: `INTEGER PRIMARY KEY` is just a
 # NOT NULL column, and an INSERT that omits it fails the constraint. Ids come
@@ -256,6 +264,9 @@ PORTAL_RESPONSE = """<!doctype html><html><head><meta charset="utf-8"><title>{ti
 class Handler(BaseHTTPRequestHandler):
     server_version = "router-logd"
     daemon: "Daemon"
+    # Socket timeout per connection (StreamRequestHandler applies it): a client
+    # that stalls mid-request is dropped instead of holding a thread forever.
+    timeout = 30
 
     # ── helpers ──────────────────────────────────────────────
     def _bearer_ok(self, token: str) -> bool:
@@ -315,14 +326,29 @@ class Handler(BaseHTTPRequestHandler):
             return self._portal_status(int(m.group(1)))
         self._json({"error": "not found"}, 404)
 
-    def _body(self) -> bytes:
-        length = int(self.headers.get("Content-Length") or 0)
-        return self.rfile.read(min(length, 32 * 1024 * 1024))
+    def _body(self, limit: int) -> bytes | None:
+        """The request body, or None after answering 400/413 when the declared
+        length is malformed, negative or over `limit`. A negative length used to
+        reach rfile.read(-1), which reads until the client hangs up."""
+        try:
+            length = int(self.headers.get("Content-Length") or 0)
+        except ValueError:
+            length = -1
+        if length < 0:
+            self._send(400, b"Bad Content-Length", "text/plain")
+            return None
+        if length > limit:
+            self._send(413, b"Request body too large", "text/plain")
+            return None
+        return self.rfile.read(length)
 
     # ── ingest ───────────────────────────────────────────────
     def _ingest(self):
+        body = self._body(INGEST_BODY_LIMIT)
+        if body is None:
+            return
         try:
-            payload = json.loads(self._body().decode("utf-8", "replace"))
+            payload = json.loads(body.decode("utf-8", "replace"))
         except ValueError:
             return self._json({"error": "bad json"}, 400)
         events = payload.get("events", payload) if isinstance(payload, dict) else payload
@@ -395,7 +421,7 @@ class Handler(BaseHTTPRequestHandler):
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(LOG_COLUMNS)
-        writer.writerows(rows)
+        writer.writerows(csvsafe.row(r) for r in rows)
         self._send(200, buf.getvalue().encode(), "text/csv")
 
     def _stats_top(self, q):
@@ -439,12 +465,22 @@ class Handler(BaseHTTPRequestHandler):
         d = self.daemon
         client_ip = self.client_address[0]
         now = time.time()
-        recent = [t for t in d.portal_hits.get(client_ip, []) if now - t < 3600]
-        if len(recent) >= d.portal_rate_limit:
+        with d.portal_lock:
+            recent = [t for t in d.portal_hits.get(client_ip, []) if now - t < 3600]
+            limited = len(recent) >= d.portal_rate_limit
+            if not limited:
+                d.portal_hits[client_ip] = recent + [now]
+            # Forget clients idle for an hour, so a guest network cycling
+            # through addresses cannot grow the table without bound.
+            if len(d.portal_hits) > 1024:
+                d.portal_hits = {ip: ts for ip, ts in d.portal_hits.items() if now - ts[-1] < 3600}
+        if limited:
             return self._send(429, b"Too many requests", "text/plain")
-        d.portal_hits[client_ip] = recent + [now]
 
-        form = urllib.parse.parse_qs(self._body().decode("utf-8", "replace"))
+        body = self._body(PORTAL_BODY_LIMIT)
+        if body is None:
+            return
+        form = urllib.parse.parse_qs(body.decode("utf-8", "replace"))
         domain = (form.get("domain", [""])[0]).strip().lower()[:253]
         reason = (form.get("reason", [""])[0]).strip()[:1000]
         if not re.fullmatch(r"[a-z0-9.-]{1,253}", domain or ""):
@@ -487,8 +523,11 @@ class Handler(BaseHTTPRequestHandler):
         self._json({"requests": [dict(zip(cols, r)) for r in rows]})
 
     def _portal_status(self, request_id: int):
+        raw = self._body(STATUS_BODY_LIMIT)
+        if raw is None:
+            return
         try:
-            body = json.loads(self._body().decode() or "{}")
+            body = json.loads(raw.decode() or "{}")
         except ValueError:
             body = {}
         status = body.get("status")
@@ -519,6 +558,7 @@ class Daemon:
         self.query_token = _secret("query-token", cfg["queryTokenFile"])
         self.portal_rate_limit = cfg.get("portalRateLimitPerHour", 10)
         self.portal_hits: dict[str, list[float]] = {}
+        self.portal_lock = threading.Lock()
         self.cfg = cfg
 
     def prune_loop(self):
@@ -528,6 +568,34 @@ class Daemon:
             except Exception as exc:  # pruning must never kill the daemon
                 print(f"prune failed: {exc}", file=sys.stderr)
             time.sleep(24 * 3600)
+
+
+class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+    """ThreadingHTTPServer with a ceiling on concurrent connections. The stock
+    server starts a thread per connection with no limit, and the portal is open
+    to the guest network; past the ceiling a new connection is closed at once."""
+
+    max_connections = 64
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._slots = threading.BoundedSemaphore(self.max_connections)
+
+    def process_request(self, request, client_address):
+        if not self._slots.acquire(blocking=False):
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            self._slots.release()
+            raise
+
+    def process_request_thread(self, request, client_address):
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self._slots.release()
 
 
 def main() -> None:
@@ -540,7 +608,7 @@ def main() -> None:
     threading.Thread(target=daemon.prune_loop, daemon=True).start()
 
     handler = type("BoundHandler", (Handler,), {"daemon": daemon})
-    server = ThreadingHTTPServer((cfg.get("listenAddress", "0.0.0.0"), cfg.get("port", 8067)), handler)
+    server = BoundedThreadingHTTPServer((cfg.get("listenAddress", "0.0.0.0"), cfg.get("port", 8067)), handler)
     print(f"router-logd listening on {server.server_address} (db engine: {DB_ENGINE})", file=sys.stderr)
     server.serve_forever()
 

@@ -37,12 +37,18 @@ let
   # responder behavior, and required so the reply reaches the resolver's
   # per-query socket regardless of how the kernel's SO_REUSEPORT unicast
   # hashing would otherwise split traffic with avahi-daemon's own listener).
+  #
+  # Arguments (all optional): the name to answer, this netns's own address,
+  # and the address to answer with — which the resolver-hardening subtest
+  # points off the LAN, or sends from off it.
   mdnsTestResponder = pkgs.writers.writePython3Bin "mdns-test-responder" { } ''
     import socket
     import struct
+    import sys
 
-    TARGET = "test-device.local"
-    ANSWER_IP = "10.48.4.90"
+    TARGET = sys.argv[1] if len(sys.argv) > 1 else "test-device.local"
+    LOCAL_IP = sys.argv[2] if len(sys.argv) > 2 else "10.48.4.90"
+    ANSWER_IP = sys.argv[3] if len(sys.argv) > 3 else LOCAL_IP
 
 
     def encode_name(name):
@@ -75,9 +81,9 @@ let
         # The join's interface selector must be a real local address - "0.0.0.0"
         # (kernel picks the default-route interface) raises ENODEV in a netns
         # with no default route, which this fixture's netns deliberately has
-        # none of. ANSWER_IP is this netns's own veth address, so it always
+        # none of. LOCAL_IP is this netns's own veth address, so it always
         # resolves to the one interface that matters here.
-        iface = socket.inet_aton(ANSWER_IP)
+        iface = socket.inet_aton(LOCAL_IP)
         mreq = struct.pack("4s4s", group, iface)
         sock.setsockopt(socket.IPPROTO_IP, socket.IP_ADD_MEMBERSHIP, mreq)
         # Same reasoning for SENDING: with no default route in this netns,
@@ -109,6 +115,7 @@ let
             # A multicast reply is delivered to every group member instead,
             # so the resolver (having joined 224.0.0.251) always gets it.
             sock.sendto(header + answer, ("224.0.0.251", 5353))
+            print("answered", TARGET, flush=True)
 
 
     if __name__ == "__main__":
@@ -855,6 +862,36 @@ pkgs.testers.runNixOSTest {
             timeout=60,
         )
 
+    with subtest("a dynamic host's MAC seen on another interface does not take its name"):
+        # A device cloning dyn-1's MAC anywhere but br-lan (the guest network,
+        # say) must not become dyn-1.lan. A veth off the bridge stands in for
+        # that other segment, with the cloned MAC pinned in its neighbor table.
+        router.succeed("ip link add vclone type veth peer name vclone-p")
+        router.succeed("ip addr add 172.31.0.1/24 dev vclone")
+        router.succeed("ip link set vclone up && ip link set vclone-p up")
+        router.succeed(
+            "ip neigh replace 172.31.0.9 lladdr aa:bb:cc:dd:ee:04 dev vclone nud permanent"
+        )
+        router.succeed(
+            "ip neigh replace 10.48.4.71 lladdr aa:bb:cc:dd:ee:04 dev br-lan nud permanent"
+        )
+        # Each wait spans at least one 20 s neighbor refresh, and a miss costs
+        # a 10 s dig timeout (the name falls through to the unreachable
+        # forwarder), so these get more room than a single refresh suggests: a
+        # loaded CI host can stall the VM for longer than a minute.
+        router.wait_until_succeeds(
+            dig_short.format(ns="guestpc", name="dyn-1.lan") + " | grep -qx 10.48.4.71",
+            timeout=180,
+        )
+        # With only the clone left, the name goes unanswered rather than
+        # following the MAC off the LAN.
+        router.succeed("ip neigh del 10.48.4.71 dev br-lan")
+        router.wait_until_succeeds(
+            f'test -z "$({dig_short.format(ns="guestpc", name="dyn-1.lan")})"',
+            timeout=180,
+        )
+        router.succeed("ip link del vclone")
+
     with subtest("resolveMdns: local is an authoritative Primary zone carrying the app record"):
         zones = json.loads(
             router.succeed(
@@ -894,6 +931,59 @@ pkgs.testers.runNixOSTest {
     with subtest("resolveMdns: a name nobody answers for is NXDOMAIN, not a hang"):
         out = router.succeed(dig.format(ns="guestpc", name="nobody-here.local"))
         assert "NXDOMAIN" in out, out
+
+    with subtest("resolveMdns: answers from off the LAN subnet, or pointing off it, are refused"):
+        def mdns_host(ns, cidr):
+            router.succeed(f"ip netns add {ns}")
+            router.succeed(f"ip link add veth-{ns} type veth peer name vbr-{ns}")
+            router.succeed(f"ip link set vbr-{ns} master br-lan up")
+            router.succeed(f"ip link set veth-{ns} netns {ns}")
+            router.succeed(f"ip -n {ns} link set lo up")
+            router.succeed(f"ip -n {ns} addr add {cidr} dev veth-{ns}")
+            router.succeed(f"ip -n {ns} link set veth-{ns} up")
+
+        # Rebinding: a LAN device answering with an address off the LAN.
+        mdns_host("mdnsrebind", "10.48.4.91/24")
+        # Spoofing: a sender whose own address is not on the LAN subnet, with
+        # an otherwise plausible LAN answer. It needs an on-link route to the
+        # LAN, as a real one would configure: the netns inherits rp_filter=1,
+        # which would otherwise drop the router's query before it answers.
+        mdns_host("mdnsoffnet", "192.0.2.5/24")
+        router.succeed("ip -n mdnsoffnet route add 10.48.4.0/24 dev veth-mdnsoffnet")
+        for ns, args in (
+            ("mdnsrebind", "rebind-device.local 10.48.4.91 203.0.113.9"),
+            ("mdnsoffnet", "offnet-device.local 192.0.2.5 10.48.4.93"),
+        ):
+            router.succeed(
+                f"ip netns exec {ns} sh -c "
+                f"'nohup mdns-test-responder {args} </dev/null >/tmp/{ns}.log 2>&1 &'"
+            )
+
+        for ns, name in (
+            ("mdnsrebind", "rebind-device.local"),
+            ("mdnsoffnet", "offnet-device.local"),
+        ):
+            # Ask until the responder has answered at least once, so the
+            # NXDOMAIN below means "answer refused", not "nobody listening yet".
+            router.wait_until_succeeds(
+                f"{dig.format(ns='guestpc', name=name)} >/dev/null; grep -q answered /tmp/{ns}.log",
+                timeout=30,
+            )
+            out = router.succeed(dig.format(ns="guestpc", name=name))
+            assert "NXDOMAIN" in out, f"{name} resolved from an answer it should refuse:\n{out}"
+
+    with subtest("the portal refuses malformed and oversized bodies without reading them"):
+        # A negative Content-Length used to reach rfile.read(-1), which reads
+        # until the client hangs up; the portal is open to the guest network.
+        # Nothing is sent after the headers, so a server that tried to read a
+        # body would hold the request open until curl's --max-time.
+        for length, want in (("-1", "400"), ("99999999", "413")):
+            code = router.succeed(
+                "ip netns exec guestpc curl -s -o /dev/null -w '%{http_code}' --max-time 10 "
+                f"-X POST -H 'Content-Length: {length}' "
+                "http://10.48.4.1:8067/portal/request-exception"
+            ).strip()
+            assert code == want, f"Content-Length {length}: got {code}, want {want}"
 
     with subtest("removing an override reaps its zone"):
         # Reconcile is idempotent but it is also the only thing that DELETES;

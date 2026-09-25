@@ -74,6 +74,7 @@ let
     ldap_default_authtok_type = "password";
     ldap_default_authtok = "\$${bindPwVar}";
   }
+  // optionalAttrs scfg.startTls { ldap_id_use_start_tls = true; }
   // optionalAttrs (scfg.tlsCaCertFile != null) { ldap_tls_cacert = scfg.tlsCaCertFile; }
   // optionalAttrs (scfg.tlsClientCertFile != null) { ldap_tls_cert = scfg.tlsClientCertFile; }
   // optionalAttrs (scfg.tlsClientKeyFile != null) { ldap_tls_key = scfg.tlsClientKeyFile; }
@@ -81,6 +82,18 @@ let
   // optionalAttrs (scfg.groupSearchBase != "") { ldap_group_search_base = scfg.groupSearchBase; }
   // optionalAttrs adminMode { simple_allow_groups = scfg.adminGroup; }
   // scfg.extraDomainSettings; # escape hatch wins
+
+  # Whether the directory connection is encrypted AND its certificate checked,
+  # read from the final domain settings so the extraDomainSettings escape
+  # hatch cannot quietly undo it. ldaps:// is TLS from the first byte;
+  # ldap:// is TLS only with StartTLS.
+  tlsEncrypted =
+    all (u: hasPrefix "ldaps://" u) scfg.servers
+    || (domainSettings.ldap_id_use_start_tls or false) == true;
+  tlsVerified = elem (domainSettings.ldap_tls_reqcert or "demand") [
+    "demand"
+    "hard"
+  ];
 
   sssdSettings = {
     sssd = {
@@ -241,6 +254,17 @@ in
         '';
       };
 
+      startTls = mkOption {
+        type = types.bool;
+        default = false;
+        description = ''
+          Upgrade ldap:// connections with StartTLS (ldap_id_use_start_tls).
+          Without it, or ldaps:// URIs, the bind password and every lookup
+          cross the network in clear text. Required when adminGroup is set and
+          any server is ldap://.
+        '';
+      };
+
       tlsCaCertFile = mkOption {
         type = types.nullOr types.str;
         default = null;
@@ -385,6 +409,19 @@ in
           assertion = all (u: hasPrefix "ldap://" u || hasPrefix "ldaps://" u) scfg.servers;
           message = "router.directory.sssd.servers entries must be ldap:// or ldaps:// URIs.";
         }
+        # Admin mode turns directory group membership into sudo, polkit and
+        # Cockpit access, so whoever can answer for the directory server can
+        # make themselves root: plaintext LDAP or an unchecked certificate
+        # would let anyone on the path do exactly that.
+        {
+          assertion = adminMode -> tlsEncrypted && tlsVerified;
+          message = ''
+            router.directory.sssd.adminGroup grants directory members sudo and
+            Cockpit access, so the directory connection must be TLS with a
+            checked certificate: use ldaps:// servers (or set startTls = true)
+            and keep tlsReqCert at "demand" or "hard".
+          '';
+        }
         {
           assertion = scfg.bindDn == "" -> scfg.bindPasswordFile == null;
           message = "router.directory.sssd.bindPasswordFile is set but bindDn is empty (anonymous bind takes no password).";
@@ -440,11 +477,20 @@ in
         }
       ];
 
-      warnings = optional (adminMode && scfg.adminSsh) ''
-        router.directory.sssd.adminSsh re-enables keyboard-interactive SSH
-        authentication for directory group "${scfg.adminGroup}". The router is
-        otherwise SSH-key-only.
-      '';
+      warnings =
+        optional (adminMode && scfg.adminSsh) ''
+          router.directory.sssd.adminSsh re-enables keyboard-interactive SSH
+          authentication for directory group "${scfg.adminGroup}". The router is
+          otherwise SSH-key-only.
+        ''
+        ++ optional (!adminMode && !(tlsEncrypted && tlsVerified)) ''
+          router.directory.sssd: the directory connection is not TLS with a
+          checked certificate (ldap:// without startTls, or tlsReqCert below
+          "demand"). ${
+            if scfg.bindDn != "" then "The bind password crosses the network in clear text, and a" else "A"
+          } host on the path can rewrite group membership, and with it which
+          access policy each user gets.
+        '';
 
       services.sssd = {
         enable = true;

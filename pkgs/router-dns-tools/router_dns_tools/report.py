@@ -23,6 +23,8 @@ import urllib.request
 from importlib import resources
 from pathlib import Path
 
+from . import csvsafe
+
 RANGE_DAYS = {"daily": 1, "weekly": 7, "monthly": 30}
 PRUNE_DAYS = 365
 
@@ -122,7 +124,7 @@ def write_csv(data: dict, out_csv: Path) -> None:
                 writer.writerow(["overview", "total", rows["total"], rows["blocked"]])
                 continue
             for row in rows:
-                writer.writerow([section, row["name"], row["hits"], row["blocked"]])
+                writer.writerow(csvsafe.row([section, row["name"], row["hits"], row["blocked"]]))
 
 
 def _cf_token(cfg: dict) -> str | None:

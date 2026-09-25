@@ -579,6 +579,11 @@
               },
               "type": "array"
             },
+            "startTls": {
+              "default": false,
+              "description": "Upgrade ldap:// connections with StartTLS (ldap_id_use_start_tls).\nWithout it, or ldaps:// URIs, the bind password and every lookup\ncross the network in clear text. Required when adminGroup is set and\nany server is ldap://.\n",
+              "type": "boolean"
+            },
             "tlsCaCertFile": {
               "default": null,
               "description": "PEM CA bundle validating the directory server certificate\n(ldap_tls_cacert). Active Directory LDAPS certificates are usually\nissued by an enterprise CA that is not in the system trust store.\n",

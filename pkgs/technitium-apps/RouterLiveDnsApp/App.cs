@@ -51,7 +51,7 @@ namespace RouterLiveDns
             //-> reconcile), so the previous refresh timer must be torn down first or
             //repeated reconciles leak concurrent refresh loops
             _neighborCache?.Dispose();
-            _neighborCache = new NeighborCache(dnsServer, newConfig.IpTool, newConfig.NeighborRefreshIntervalSeconds, newConfig.SlugToMac);
+            _neighborCache = new NeighborCache(dnsServer, newConfig.IpTool, newConfig.NeighborRefreshIntervalSeconds, newConfig.DynamicHosts);
 
             _mdnsResolver?.Dispose();
             _mdnsResolver = new MdnsResolver(dnsServer, newConfig.MdnsInterface, newConfig.MdnsQueryTimeoutMs);

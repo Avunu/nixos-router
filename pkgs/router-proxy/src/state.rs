@@ -151,6 +151,23 @@ fn dns_names(cert: &X509) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Whether `host` (normalized, port stripped) is a DNS name: dot-separated
+/// labels of 1-63 letters, digits, `-` or `_`. The Host header and SNI are
+/// client input. Before this check the wildcard match accepted any first
+/// label, so `evil.test/.example.com` matched `*.example.com` and then went
+/// out in the redirect's `Location` and upstream as `X-Forwarded-Host`.
+pub fn is_dns_name(host: &str) -> bool {
+    !host.is_empty()
+        && host.len() <= 253
+        && host.split('.').all(|label| {
+            !label.is_empty()
+                && label.len() <= 63
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+        })
+}
+
 /// Remove a `:port` suffix from a Host header value (IPv6 literals keep their brackets).
 pub fn strip_port(host: &str) -> &str {
     if host.starts_with('[') {
@@ -198,6 +215,9 @@ impl<T> HostTable<T> {
     /// Exact match first, then a wildcard covering exactly one extra label.
     fn lookup(&self, host: &str) -> Option<&T> {
         let host = normalize_host(host);
+        if !is_dns_name(&host) {
+            return None;
+        }
         self.exact
             .get(&host)
             .or_else(|| match host.split_once('.') {
@@ -229,6 +249,13 @@ mod tests {
         assert_eq!(s.route_index("a.b.example.com"), None);
         assert_eq!(s.route_index("example.com"), None);
         assert_eq!(s.route_index(".example.com"), None);
+        // Client input: a wildcard covers one real DNS label, nothing else.
+        assert_eq!(s.route_index("evil.test/.example.com"), None);
+        assert_eq!(s.route_index("1869573999/.example.com"), None);
+        assert_eq!(s.route_index("evil%2etest.example.com"), None);
+        assert_eq!(s.route_index("a b.example.com"), None);
+        assert_eq!(s.route_index("x-1_y.example.com"), Some(1));
+        assert!(s.cert_for("evil.test/.example.com").is_none());
         assert_eq!(s.route_index("mixed.test"), Some(2));
         assert_eq!(s.route_index(strip_port("mixed.test:8443")), Some(2));
         assert_eq!(s.routes[2].sni, "Mixed.Test");

@@ -1,7 +1,8 @@
 <!doctype html>
 <!-- Served by the Technitium Block Page app (static-site mode) for every
      blocked domain. Placeholders (@TITLE@ …) are substituted at Nix build
-     time from router.accessPolicies.blockPage; the browser lands here at
+     time from router.accessPolicies.blockPage, HTML-escaped (@CONTACT@ as a
+     complete JavaScript string literal); the browser lands here at
      http://<blocked-domain>/, so location.hostname IS the blocked domain.
      The form posts to router-logd's portal endpoint (plain form navigation —
      no CORS involvement). -->
@@ -56,7 +57,7 @@
     var domain = location.hostname;
     document.getElementById("blocked-domain").textContent = domain;
     document.getElementById("domain-field").value = domain;
-    var contact = "@CONTACT@";
+    var contact = @CONTACT@;
     if (contact) {
       document.getElementById("contact").hidden = false;
       var link = document.getElementById("contact-link");
