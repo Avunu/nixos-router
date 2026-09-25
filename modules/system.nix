@@ -635,7 +635,15 @@ in
       # the port (the latter for a reverse proxy in front on :443). That
       # includes each WireGuard tunnel's own address, which is what a remote
       # client naturally opens; a tunnel the UI has just created has no
-      # address yet, and an IPv6 one needs brackets to be an origin.
+      # address yet.
+      #
+      # Each origin is an fnmatch() glob, so an IPv6 address's brackets are
+      # backslash-escaped, as cockpit.conf(5) asks: bare, "[fd00::1]" is a
+      # character class that refuses the browser's "https://[fd00::1]" and
+      # accepts "https://f". The INI generator and cockpit's parser both pass
+      # the backslashes through. The rest matches literally, so an IPv6
+      # address works only in the compressed form browsers send
+      # (fd00:100::1, not fd00:0100:0::1).
       #
       # Via allowed-origins rather than settings.WebService.Origins: it is a
       # list option the nixpkgs module folds into Origins itself, so this merges
@@ -644,7 +652,7 @@ in
         let
           port = toString cfg.cockpit.port;
           tunnelIPs = filter (a: a != "") (map (wg: head (splitString "/" wg.address)) wgInterfaces);
-          asHost = a: if netLib.familyOf a == "ipv6" then "[${a}]" else a;
+          asHost = a: if netLib.familyOf a == "ipv6" then "\\[${a}\\]" else a;
           hosts = [
             lanGW
             "${cfg.hostName}.local"

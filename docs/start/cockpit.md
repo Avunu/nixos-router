@@ -26,7 +26,7 @@ Open Cockpit at `https://<router>:9090` from a computer on the LAN. Any of these
 - the LAN gateway address, such as `https://192.168.1.1:9090`;
 - `https://router.lan:9090`, that is `<hostName>.<lan.domain>`;
 - `https://router.local:9090`, the router's mDNS name, from the LAN only;
-- the router's address on a WireGuard tunnel, such as `https://10.100.0.1:9090`, over that tunnel.
+- the router's address on a WireGuard tunnel, such as `https://10.100.0.1:9090` or `https://[fd00:100::1]:9090`, over that tunnel.
 
 Over WireGuard, the LAN gateway address works too when the client's tunnel sends the LAN subnet to the router, and so does `router.lan` if the client also resolves names through the router. See [WireGuard](/docs/wireguard/) for setting up the tunnel.
 
@@ -34,7 +34,7 @@ Sign in with the admin account (`adminUser.name`, `admin` by default) and its pa
 
 - **HTTPS only.** Cockpit uses a self-signed certificate, so your browser warns the first time. Plain `http://` requests are redirected to HTTPS, so the password never crosses the network in clear text.
 - **LAN and WireGuard only.** The firewall accepts connections to port 9090 from the LAN bridge and WireGuard tunnels, and drops them from the guest network and the WAN.
-- **Known names only.** Cockpit accepts only the LAN gateway address, each WireGuard tunnel's address, `<hostName>.local` and `<hostName>.<lan.domain>`, not the router's WAN address or public name. To reach it by another name, for example through a reverse proxy, add that origin to `router.cockpit.allowedOrigins` in the host flake.
+- **Known names only.** Cockpit accepts only the LAN gateway address, each WireGuard tunnel's address, `<hostName>.local` and `<hostName>.<lan.domain>`, not the router's WAN address or public name. It compares them with the browser's address as written, ignoring only case, so an IPv6 tunnel address works only if **Address (CIDR)** holds it in the compressed form browsers use: `fd00:100::1/64`, not `fd00:0100:0:0::1/64`. To reach it by another name, for example through a reverse proxy, add that origin to `router.cockpit.allowedOrigins` in the host flake. Each entry is a glob, so escape an IPv6 address's brackets: `"https://\\[2001:db8::1\\]:9090"`.
 - **Slow retries.** Each failed password costs a short delay, so the login can't be guessed at network speed.
 
 :::doc-note

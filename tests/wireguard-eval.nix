@@ -13,7 +13,11 @@
 #
 # It also pins Cockpit's origin list: setting WebService.Origins makes it the
 # exclusive allow-list, so a tunnel address missing from it refuses the login
-# of a remote client that opened Cockpit by that address.
+# of a remote client that opened Cockpit by that address. cockpit-ws matches
+# each entry as an fnmatch() glob, so the rendered cockpit.conf is also run
+# through libc's fnmatch against the Origin a browser sends: an IPv6 entry
+# that merely reads right, "https://[fd00:100::1]:9090", is a character class
+# that refuses that browser and accepts "https://f:9090".
 {
   pkgs,
   routerModule,
@@ -69,7 +73,8 @@ let
         routes = [ "192.168.9.0/24" ];
         peers = [ peer ];
       };
-      # An IPv6 tunnel address, which an origin must bracket.
+      # An IPv6 tunnel address, which an origin must bracket, with the
+      # brackets escaped for fnmatch.
       wg1 = {
         address = "fd00:100::1/64";
         listenPort = 51821;
@@ -167,8 +172,8 @@ let
       detail = "Origins = ${lib.concatStringsSep " " origins}";
     }
     {
-      name = "cockpit-brackets-ipv6-tunnel-address";
-      ok = lib.elem "https://[fd00:100::1]:${port}" origins;
+      name = "cockpit-escapes-ipv6-tunnel-address";
+      ok = lib.elem "https://\\[fd00:100::1\\]:${port}" origins;
       detail = "Origins = ${lib.concatStringsSep " " origins}";
     }
     {
@@ -184,17 +189,76 @@ let
   ];
 
   failures = lib.filter (c: !c.ok) checks;
+
+  # ── Cockpit's origin match, on the rendered file ──
+  # The file nixpkgs writes to /etc/cockpit/cockpit.conf, and the match
+  # cockpit-ws makes against the Origin header (src/ws/websocketserver.c).
+  # Its config parser (src/common/cockpitconf.c) takes the value raw, so the
+  # patterns here are byte for byte the ones cockpit-ws sees.
+  cockpitConf = sys.environment.etc."cockpit/cockpit.conf".source;
+  originMatch = pkgs.writeText "origin-match.c" ''
+    /* origin-match CONF ORIGIN: exit 0 if Cockpit accepts ORIGIN. */
+    #define _GNU_SOURCE
+    #include <fnmatch.h>
+    #include <stdio.h>
+    #include <string.h>
+
+    int main (int argc, char **argv)
+    {
+      static char line[65536];
+      FILE *f = argc == 3 ? fopen (argv[1], "r") : NULL;
+      if (!f)
+        return 2;
+      while (fgets (line, sizeof line, f))
+        if (strncmp (line, "Origins=", 8) == 0)
+          {
+            line[strcspn (line, "\n")] = '\0';
+            for (char *p = strtok (line + 8, " "); p; p = strtok (NULL, " "))
+              if (fnmatch (p, argv[2], FNM_CASEFOLD) == 0)
+                return 0;
+          }
+      return 1;
+    }
+  '';
+  # What a browser sends as Origin after opening each tunnel address.
+  acceptedOrigins = [
+    "https://10.100.0.1:${port}"
+    "https://10.100.0.1"
+    "https://[fd00:100::1]:${port}"
+    "https://[fd00:100::1]"
+  ];
+  # What an unescaped "[fd00:100::1]" accepts instead (any one of its
+  # characters), and the tunnel's neighbour.
+  refusedOrigins = [
+    "https://f:${port}"
+    "https://[fd00:100::2]:${port}"
+  ];
 in
-pkgs.runCommand "router-wireguard-eval" { } (
-  if failures == [ ] then
-    "touch $out"
-  else
-    ''
-      echo "WireGuard generation regressed:" >&2
-      ${lib.concatMapStringsSep "\n" (f: ''
-        echo "  FAIL ${f.name}" >&2
-        echo ${lib.escapeShellArg "       ${f.detail}"} >&2
-      '') failures}
-      exit 1
-    ''
-)
+pkgs.runCommandCC "router-wireguard-eval" { } ''
+  failed=
+  fail() {
+    [ -n "$failed" ] || echo "WireGuard generation regressed:" >&2
+    failed=1
+    echo "  FAIL $1" >&2
+    echo "       $2" >&2
+  }
+  ${lib.concatMapStringsSep "\n" (
+    f: "fail ${lib.escapeShellArg f.name} ${lib.escapeShellArg f.detail}"
+  ) failures}
+
+  $CC -Wall -Werror -o origin-match ${originMatch}
+  conf=${cockpitConf}
+  for o in ${lib.escapeShellArgs acceptedOrigins}; do
+    ./origin-match "$conf" "$o" \
+      || fail cockpit-matches-tunnel-origin "refuses $o: $(grep '^Origins=' "$conf")"
+  done
+  for o in ${lib.escapeShellArgs refusedOrigins}; do
+    rc=0
+    ./origin-match "$conf" "$o" || rc=$?
+    [ "$rc" = 1 ] \
+      || fail cockpit-refuses-stray-origin "accepts $o (exit $rc): $(grep '^Origins=' "$conf")"
+  done
+
+  [ -z "$failed" ] || exit 1
+  touch $out
+''

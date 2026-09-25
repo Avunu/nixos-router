@@ -133,6 +133,8 @@ Browse to the router's tunnel address, such as `https://10.100.1.1:9090`. Every 
 
 Cockpit accepts only the LAN gateway address, each tunnel's own address, `<host name>.local` and `<host name>.<local domain>`. It refuses any other name, such as the router's public name.
 
+An IPv6 tunnel address works too, in brackets, such as `https://[fd00:100::1]:9090`. Cockpit compares it with the address the browser sends as written, so **Address (CIDR)** must hold it in the compressed form browsers use: `fd00:100::1/64`, not `fd00:0100:0:0::1/64`.
+
 SSH answers on the LAN and tunnel addresses alike.
 
 ## Revoke a device
