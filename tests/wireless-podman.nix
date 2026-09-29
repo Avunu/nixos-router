@@ -74,6 +74,7 @@ pkgs.testers.runNixOSTest {
           # listener to a test that is only about containers.
           dns.technitium.enable = lib.mkForce false;
           suricata.enable = lib.mkForce false;
+          cockpit.enable = false;
           # Brings up the openwisp network definition, the firewall rules, and
           # the native PostgreSQL and Redis. The containers it also declares are
           # neutralised below.

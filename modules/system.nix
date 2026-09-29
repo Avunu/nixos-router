@@ -385,15 +385,20 @@ in
     };
 
     # ── Cockpit web UI ────────────────────────────────────
-    # Optional browser-based system administration interface.
+    # Browser-based system administration interface, on by default.
     # Accessible from trusted interfaces (LAN + WG) on the
     # configured port (default 9090). The NixOS firewall is not
     # used (openFirewall = false) because nftables already allows
     # all traffic from trusted IFs in the input chain.
+    #
+    # The default is what keeps it: an installer-image router's
+    # /etc/nixos flake (nixos-install-helper) imports only this module
+    # and the settings file, not the install-time modules, so an
+    # `enable = true` set at install time was gone on the first rebuild.
     cockpit = {
       enable = mkOption {
         type = types.bool;
-        default = false;
+        default = true;
         visible = false; # Nix-locked; never part of the JSON/UI schema
         description = "Enable the Cockpit web-based system administration UI.";
       };
@@ -933,17 +938,24 @@ in
       (mkIf cfg.cockpit.enable { cockpit.failDelay.enable = true; })
     ];
 
-    # State dir for the cockpit-router plugin (the Technitium API token, see
-    # dns-technitium.nix). Root-only. applied.json is the snapshot older
-    # versions of the plugin wrote after each apply, replaced by
-    # /etc/router/applied-settings.json.
-    systemd.tmpfiles.rules = mkIf cfg.cockpit.enable [
-      "d /var/lib/cockpit-router 0700 root root -"
-      "r /var/lib/cockpit-router/applied.json - - - -"
-      # router-rebuild's status file (see routerRebuild), world-readable so
-      # the web UI follows a rebuild even with Limited access.
-      "d /run/cockpit-router 0755 root root -"
-    ];
+    systemd.tmpfiles.rules =
+      optionals cfg.cockpit.enable [
+        # State dir for the cockpit-router plugin (the Technitium API token,
+        # see dns-technitium.nix). Root-only. applied.json is the snapshot
+        # older versions of the plugin wrote after each apply, replaced by
+        # /etc/router/applied-settings.json.
+        "d /var/lib/cockpit-router 0700 root root -"
+        "r /var/lib/cockpit-router/applied.json - - - -"
+        # router-rebuild's status file (see routerRebuild), world-readable so
+        # the web UI follows a rebuild even with Limited access.
+        "d /run/cockpit-router 0755 root root -"
+      ]
+      # The settings file carries adminUser.initialPassword. Installers
+      # before nixos-install-helper's 0600 fix seeded it 0644, and so did
+      # Cockpit saves before the plugin set the mode; `z` corrects an existing
+      # file on every boot and switch. Only an absolute path is a real file
+      # on the router (a test may point it at a relative one).
+      ++ optional (hasPrefix "/" cfg.cockpit.settingsFile) "z ${cfg.cockpit.settingsFile} 0600 root root -";
 
     # ── 8. Packages ──────────────────────────────────────
     # Baseline diagnostic tools for router troubleshooting:

@@ -10,3 +10,4 @@ __pycache__/
 *.pyc
 # Cargo build output (pkgs/router-proxy)
 target/
+.claude/worktrees

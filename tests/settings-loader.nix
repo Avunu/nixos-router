@@ -19,7 +19,10 @@
 #   • the generation carries the settings it was built from as
 #     /etc/router/applied-settings.json (Cockpit's baseline for unapplied
 #     changes), equal to the file activation leaves on disk, and a router
-#     that bypasses the loader has none rather than a wrong one.
+#     that bypasses the loader has none rather than a wrong one;
+#   • the module plus the settings file alone — what an installer-image
+#     router's /etc/nixos flake imports — keeps Cockpit, and keeps the
+#     settings file root-only.
 {
   pkgs,
   routerModule,
@@ -105,11 +108,10 @@ let
   legacyFile = builtins.toFile "router-settings.json" (builtins.toJSON legacy);
   sys = evalRouter [
     (settingsModule legacyFile)
-    {
-      router.cockpit.enable = true;
-      router.cockpit.settingsFile = "router-settings.json";
-    }
+    { router.cockpit.settingsFile = "router-settings.json"; }
   ];
+  # The same router with the settings file where a real one keeps it.
+  sysInstalled = evalRouter [ (settingsModule legacyFile) ];
 
   failedAssertions = failedAssertionsOf sys;
 
@@ -128,15 +130,6 @@ let
     ];
   preLoaderSeeded = preLoader 53;
   preLoaderMoved = preLoader 5353;
-  preLoaderCockpit = evalRouter [
-    (
-      { lib, ... }:
-      {
-        router = lib.mkDefault baseSettings;
-      }
-    )
-    { router.cockpit.enable = true; }
-  ];
   listenPortWarnings = s: lib.filter (lib.hasInfix "router.dns.technitium.listenPort") s.warnings;
   # What router-technitium-reconcile sets Technitium's listeners to.
   endpointsOf =
@@ -272,8 +265,23 @@ let
     }
     {
       name = "pre-loader-has-no-applied-settings";
-      ok = !(preLoaderCockpit.environment.etc ? "router/applied-settings.json");
+      ok = !(preLoaderSeeded.environment.etc ? "router/applied-settings.json");
       detail = "a router that bypasses the loader got a baseline it cannot know";
+    }
+    {
+      name = "installed-router-keeps-cockpit";
+      ok = sys.services.cockpit.enable;
+      detail = "Cockpit is off in a router built from the module and its settings file alone";
+    }
+    {
+      name = "settings-file-kept-root-only";
+      ok = lib.elem "z /etc/nixos/router-settings.json 0600 root root -" sysInstalled.systemd.tmpfiles.rules;
+      detail = "no tmpfiles rule resets the settings file to 0600";
+    }
+    {
+      name = "relative-settings-path-no-tmpfiles";
+      ok = !lib.any (lib.hasInfix "router-settings.json") sys.systemd.tmpfiles.rules;
+      detail = "a tmpfiles rule names the relative settings path";
     }
     {
       name = "activation-rewrites-file";

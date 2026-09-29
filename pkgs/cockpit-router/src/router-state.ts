@@ -137,8 +137,9 @@ function lenientJson(content: string | null, error: CockpitError | null): Json |
 function watch(
   path: string,
   callback: (content: string | null, tag: string | null, error: CockpitError | null) => void,
+  options: CockpitFileOptions = {},
 ): CockpitFile {
-  const file = cockpit.file(path, { superuser: "try" });
+  const file = cockpit.file(path, { superuser: "try", ...options });
   const handle = file.watch(callback);
   closers.push(() => {
     handle.remove();
@@ -154,23 +155,32 @@ function open() {
     close();
   }
   closers = [];
-  settingsFile = watch(SETTINGS_FILE, (content, tag, error) => {
-    if (error) {
-      settingsRead = {
-        error: isDenied(error) ? ADMIN_NEEDED : `Could not read ${SETTINGS_FILE}: ${error.message}`,
-      };
-    } else {
-      try {
+  // Root-only, whatever it was before: the file carries
+  // adminUser.initialPassword. The tag alone keeps the existing mode, but not
+  // for a file a save creates.
+  settingsFile = watch(
+    SETTINGS_FILE,
+    (content, tag, error) => {
+      if (error) {
         settingsRead = {
-          desired: dropRetiredKeys(parseSettings(SETTINGS_FILE, content)),
-          tag: tag ?? "-",
+          error: isDenied(error)
+            ? ADMIN_NEEDED
+            : `Could not read ${SETTINGS_FILE}: ${error.message}`,
         };
-      } catch (e) {
-        settingsRead = { error: errMsg(e) };
+      } else {
+        try {
+          settingsRead = {
+            desired: dropRetiredKeys(parseSettings(SETTINGS_FILE, content)),
+            tag: tag ?? "-",
+          };
+        } catch (e) {
+          settingsRead = { error: errMsg(e) };
+        }
       }
-    }
-    compose();
-  });
+      compose();
+    },
+    { attrs: { mode: 0o600 } },
+  );
   watch(APPLIED_SETTINGS_FILE, (content, _tag, error) => {
     appliedRead = lenientJson(content, error);
     companionChanged();
