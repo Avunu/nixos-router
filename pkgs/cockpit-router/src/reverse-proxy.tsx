@@ -30,7 +30,7 @@ import {
   TextInput,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { useSettings, Loading, SaveBar, hint, ListEditor } from "./settings";
+import { useSettings, Loading, hint, ListEditor } from "./settings";
 import { getPath, errMsg } from "./nix";
 import type { Json } from "./nix";
 import { certName, checkRoute, checkPage, effectiveChallenge, normalizeRoute } from "./ingress";
@@ -771,16 +771,6 @@ export const ReverseProxy = () => {
               </Card>
             </StackItem>
           )}
-
-          <StackItem>
-            <SaveBar
-              saving={s.saving}
-              status={s.status}
-              onSave={s.save}
-              onSaveApply={s.saveAndApply}
-              applyDisabled={hasErrors(pageIssues)}
-            />
-          </StackItem>
         </Stack>
       </StackItem>
     </Stack>

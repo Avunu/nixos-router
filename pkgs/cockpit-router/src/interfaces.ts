@@ -79,7 +79,7 @@ export interface NetView {
 const uniq = (a: string[]) => [...new Set(a)];
 
 // Returns human-readable error strings (empty list = valid). Mirrors the
-// Assertions in flake.nix so Save & Apply can be blocked on an invalid topology.
+// Assertions in flake.nix so applying can be held back on an invalid topology.
 export function validateNetwork(n: NetView): string[] {
   const errs: string[] = [];
   const wanIf = n.wan.interface ? [n.wan.interface] : [];

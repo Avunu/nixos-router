@@ -25,7 +25,7 @@ Start Suricata in IDS mode, where it only alerts, and leave it there for about a
 1. In Cockpit, open **Threat Protection → Settings**.
 2. Turn on **Enable Suricata IPS**.
 3. Leave **Drop high-risk packets automatically (IPS mode)** off. Off is IDS mode.
-4. Click **Save & apply**. (Or click **Save**, and later **Apply** in the **Unapplied changes** bar.)
+4. Choose **Save and apply** from the **Save** menu. (Or click **Save**, and apply later.)
 5. When the apply finishes, open **Threat Protection → Overview**. Under **Status**, **Protection** shows **IDS — alert only**. **Service** shows `activating` while Suricata's configuration test runs, then `active`. The tab doesn't refresh itself; switch tabs and back to update it.
 
 `active` means the process has started, not that it's inspecting yet: Suricata loads its rules once more before it attaches to the queue. On low-power hardware the test and the load take a few minutes together. Until then, forwarded traffic passes uninspected; see [While Suricata restarts](#while-suricata-restarts).
@@ -42,7 +42,7 @@ Leave IDS mode on for about a week, so the events cover a normal cycle of weekda
 
 1. Open **Threat Protection → Settings**.
 2. Turn on **Drop high-risk packets automatically (IPS mode)**.
-3. Click **Save & apply**.
+3. Choose **Save and apply** from the **Save** menu.
 4. On **Overview**, **Protection** now shows **IPS — dropping**.
 
 IPS mode doesn't make every rule drop. It applies only the drop actions on the **Policies** tab: categories set to **Drop** and signatures set to **Drop**. With none set, IPS mode behaves like IDS mode.
@@ -100,4 +100,4 @@ In each case, forwarded traffic passes uninspected until Suricata has loaded its
 
 ## Turn it off
 
-Turn off **Enable Suricata IPS** on **Threat Protection → Settings** and click **Save & apply**. The router stops Suricata and removes the `inet ips` table, so forwarded traffic no longer goes through the queue. Your policies stay in the settings file for when you turn it back on.
+Turn off **Enable Suricata IPS** on **Threat Protection → Settings** and choose **Save and apply** from the **Save** menu. The router stops Suricata and removes the `inet ips` table, so forwarded traffic no longer goes through the queue. Your policies stay in the settings file for when you turn it back on.

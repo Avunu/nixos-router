@@ -29,9 +29,29 @@ interface CockpitFileOptions {
   attrs?: { mode?: number };
 }
 
+// A bridge error: `problem` is the machine-readable code ("access-denied",
+// "not-authorized", "change-conflict", …).
+interface CockpitError {
+  problem?: string | null;
+  message: string;
+}
+
+interface CockpitFileWatchHandle {
+  remove: () => void;
+}
+
 interface CockpitFile {
   read: () => Promise<string | null>;
-  replace: (content: string) => Promise<unknown>;
+  // With `expectedTag`, the bridge refuses ("change-conflict") unless the file
+  // is still the one that tag was read from, and keeps its mode and owner.
+  replace: (content: string, expectedTag?: string) => Promise<string>;
+  // Called with the content (null: no such file, tag "-") on every change,
+  // and once at the start; `error` when it cannot be read.
+  watch: (
+    callback: (content: string | null, tag: string | null, error: CockpitError | null) => void,
+    options?: { read?: boolean },
+  ) => CockpitFileWatchHandle;
+  close: () => void;
 }
 
 // Binary variant (cockpit.file(path, { binary: true })) — used for PDF report
@@ -63,6 +83,14 @@ interface CockpitHttp {
   request: (options: CockpitHttpRequestOptions) => Promise<string>;
 }
 
+// The page's own address below its Cockpit path: `#/<path>?<options>`.
+interface CockpitLocation {
+  path: string[];
+  options: Record<string, string | string[]>;
+  go: (path: string[] | string, options?: Record<string, string>) => void;
+  replace: (path: string[] | string, options?: Record<string, string>) => void;
+}
+
 interface Cockpit {
   gettext: (message: string) => string;
   format: (template: string, ...args: unknown[]) => string;
@@ -72,6 +100,18 @@ interface Cockpit {
   http: (options: CockpitHttpOptions) => CockpitHttp;
   // Navigate the shell to another page, e.g. "/router/ingress".
   jump: (path: string, host?: string) => void;
+  location: CockpitLocation;
+  // True while the page is not the one shown (a preloaded page, or one the
+  // admin navigated away from); "visibilitychange" fires when that changes.
+  hidden: boolean;
+  addEventListener: (event: "locationchanged" | "visibilitychange", handler: () => void) => void;
+  removeEventListener: (event: "locationchanged" | "visibilitychange", handler: () => void) => void;
+  transport: {
+    // Messages for the shell, e.g. "notify" with a page_status.
+    control: (command: string, options: Record<string, unknown>) => void;
+    // Call `callback` once the connection to the shell is up.
+    wait: (callback: () => void) => void;
+  };
 }
 
 declare const cockpit: Cockpit;
@@ -88,7 +128,7 @@ interface Window {
     ddnsStatusPath?: string;
     macPrefixesPath?: string;
     // Baked in by package.nix: where the editable JSON config lives, the host
-    // name, and the flake path used for nixos-rebuild.
+    // name, and the flake path router-rebuild builds.
     hostName?: string;
     flakePath?: string;
     settingsFile?: string;
@@ -134,4 +174,18 @@ declare module "journal" {
   export const journal: {
     build_cmd: (...args: (string | string[] | JournalOptions)[]) => string[];
   };
+}
+
+// Cockpit's systemd unit watcher (pkg/lib/service.js), resolved like
+// `superuser`. Unprivileged: it only reads unit state over D-Bus, so it works
+// with Limited access. `unit` is the org.freedesktop.systemd1.Unit proxy.
+declare module "service" {
+  interface ServiceProxy {
+    exists: boolean | null;
+    state: "starting" | "running" | "stopping" | "stopped" | "failed" | null | undefined;
+    unit?: { ActiveState?: string; InvocationID?: unknown };
+    addEventListener: (type: "changed", handler: () => void) => void;
+    removeEventListener: (type: "changed", handler: () => void) => void;
+  }
+  export function proxy(name: string, kind?: string): ServiceProxy;
 }

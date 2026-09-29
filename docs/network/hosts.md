@@ -39,9 +39,9 @@ Use the filter box to search by name, IP, MAC, vendor, group or user. Turn off *
 1. Find the device in the table. It shows as **new**.
 2. Click **Adopt**. The editor opens as "Adopt device" with the MAC address, and pre-fills a name, its network, and a suggested static IP. The name is the one the device announces, without `.local` and with any character a device name can't hold turned into a dash. A device that announces none gets `device-` and the end of its MAC address, such as `device-ddee01`. A name another device already has gets `-2` added.
 3. Fill in the fields described below, then click **Adopt**.
-4. Press **Save & apply**.
+4. Choose **Save and apply** from the **Save** menu.
 
-To change a registered device, click **Edit**, change the fields, click **Update**, then **Save & apply**.
+To change a registered device, click **Edit**, change the fields, click **Update**, then choose **Save and apply** from the **Save** menu.
 
 A device that isn't online yet can't be adopted from the table. Add it to the settings file instead; see [In the settings file](#in-the-settings-file).
 
@@ -114,7 +114,7 @@ A host group is a named set of devices, such as "Kiosks" or "Staff laptops". Its
 - **Rename** a group, and its member devices follow.
 - **Delete** a group, and its members are left without one. The confirmation says how many devices lose it.
 
-Press **Save & apply** afterwards.
+Choose **Save and apply** from the **Save** menu afterwards.
 
 :::doc-warning
 Renaming or deleting a group does not update the access policies that name it. The next build then fails with `router.accessPolicies: policy 'Kiosk' references undefined host group(s): Kiosks`. Change the policy's assignment on **Access Policies** first, or in the same save.

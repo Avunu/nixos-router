@@ -18,7 +18,17 @@ import {
   Split,
   SplitItem,
 } from "@patternfly/react-core";
-import { useSettings, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
+import {
+  useSettings,
+  usePageSettings,
+  useTabRoute,
+  SettingsProvider,
+  Loading,
+  SubNav,
+  hint,
+  TabbedPage,
+} from "./settings";
+import { SaveActions } from "./save-actions";
 
 const _ = cockpit.gettext;
 
@@ -73,12 +83,6 @@ const UpnpSettings = () => {
               aria-label={_("Extra miniupnpd.conf")}
             />
           </FormGroup>
-          <SaveBar
-            saving={s.saving}
-            status={s.status}
-            onSave={s.save}
-            onSaveApply={s.saveAndApply}
-          />
         </Form>
       </StackItem>
     </Stack>
@@ -149,36 +153,42 @@ const ActiveRules = () => {
   );
 };
 
+const TABS = ["upnp", "rules"];
+
 export const Firewall = () => {
-  const [tab, setTab] = useState("upnp");
+  const s = usePageSettings();
+  const [tab, setTab] = useTabRoute(TABS);
   return (
-    <TabbedPage
-      header={
-        <Alert
-          variant="info"
-          isInline
-          isPlain
-          title={_("Port forwards have moved to the Ingress page.")}
-          actionLinks={
-            <AlertActionLink onClick={() => cockpit.jump("/router/ingress")}>
-              {_("Go to Ingress")}
-            </AlertActionLink>
-          }
-        />
-      }
-      subnav={
-        <SubNav
-          active={tab}
-          onSelect={setTab}
-          items={[
-            { id: "upnp", label: _("UPnP") },
-            { id: "rules", label: _("Active rules") },
-          ]}
-        />
-      }
-    >
-      {tab === "upnp" && <UpnpSettings />}
-      {tab === "rules" && <ActiveRules />}
-    </TabbedPage>
+    <SettingsProvider value={s}>
+      <TabbedPage
+        header={
+          <Alert
+            variant="info"
+            isInline
+            isPlain
+            title={_("Port forwards have moved to the Ingress page.")}
+            actionLinks={
+              <AlertActionLink onClick={() => cockpit.jump("/router/ingress")}>
+                {_("Go to Ingress")}
+              </AlertActionLink>
+            }
+          />
+        }
+        subnav={
+          <SubNav
+            active={tab}
+            onSelect={setTab}
+            items={[
+              { id: "upnp", label: _("UPnP") },
+              { id: "rules", label: _("Active rules") },
+            ]}
+          />
+        }
+        footer={s.ready && (tab === "upnp" || s.dirty) ? <SaveActions s={s} /> : null}
+      >
+        {tab === "upnp" && <UpnpSettings />}
+        {tab === "rules" && <ActiveRules />}
+      </TabbedPage>
+    </SettingsProvider>
   );
 };

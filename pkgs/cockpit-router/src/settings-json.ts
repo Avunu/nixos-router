@@ -17,7 +17,9 @@ const isObject = (v: Json | undefined): v is JsonObject =>
 export interface SettingsState {
   desired: Json; // Editable JSON on disk (the saved state)
   effective: Json; // Applied effective values (module-emitted)
-  applied: Json; // Snapshot written by the UI after the last apply
+  // The settings the running generation was built from
+  // (/etc/router/applied-settings.json); {} when that is unknown.
+  applied: Json;
 }
 
 export function getPath(obj: Json, path: string): Json | undefined {
@@ -103,9 +105,9 @@ export function dropRetiredKeys(obj: Json): Json {
 // values the admin set, in the order they were last set; it is updated in
 // place: an edit the file already carries has been saved (by this form, or by
 // a direct write of the working copy) and is dropped, so it is never
-// re-applied over a later change such as the changes tray's Revert. The rest
-// are re-applied in order, which lets a later edit of a parent path win over
-// an earlier edit inside it.
+// re-applied over a later change such as a Discard of the saved changes. The
+// rest are re-applied in order, which lets a later edit of a parent path win
+// over an earlier edit inside it.
 export function rebaseEdits(disk: Json, pending: Map<string, Json>): Json {
   let next = disk;
   for (const [path, val] of pending) {
@@ -161,37 +163,87 @@ function subsumes(effective: Json | undefined, applied: Json | undefined): boole
   return false;
 }
 
-// Which baseline should isLocked and the changes tray compare against?
-//
-// /var/lib/cockpit-router/applied.json is written only when a rebuild is
-// applied FROM THE UI. A `nixos-rebuild switch` at the shell, the
-// `system-upgrade` script and the nightly nixos-upgrade unit all leave it
-// behind — and so does a UI apply whose rebuild exits non-zero, since the
-// snapshot is written in the success branch. Once it lags, every path the JSON
-// has changed since reads as "the effective config disagrees with what we
-// asked for": isLocked reports a Nix override that does not exist (the whole
-// interface-assignment table greys out with "locked in the Nix configuration")
-// and the tray offers to apply changes that are already running.
-//
-// The settings file's own mtime settles it. When the running generation was
-// activated no earlier than the last write to the JSON, that JSON *is* what the
-// running system was built from, so it is the honest baseline — better than the
-// snapshot, because it is never behind. A JSON newer than the generation means
-// genuinely pending edits, and only there does the snapshot still carry
-// information the JSON does not.
-export function appliedBaseline(
-  desired: Json,
-  snapshot: Json,
-  settingsMtime: number | null,
-  systemMtime: number | null,
-): { applied: Json; stale: boolean } {
-  if (settingsMtime === null || systemMtime === null || settingsMtime > systemMtime) {
-    return { applied: snapshot, stale: false };
+// Apply `fn` to the settings on disk and to every unsaved edit alike, for a
+// write made outside a form's working copy while the form may hold edits of
+// the same section: an exception approved from Access Policies, a rule added
+// from a Threat Protection event. Writing `fn(disk)` alone would leave a
+// pending whole-section edit that, re-applied over the file (rebaseEdits),
+// hides the change and saves it away on the next Save. `fn` sees the file
+// with each edit in turn, so it must tolerate its change already being there.
+export function patchWithEdits(
+  disk: Json,
+  pending: ReadonlyMap<string, Json>,
+  fn: (settings: Json) => Json,
+): { disk: Json; pending: Map<string, Json> } {
+  const next = new Map<string, Json>();
+  for (const [path, val] of pending) {
+    const patched = fn(setPath(disk, path, val));
+    next.set(path, getPath(patched, path) ?? null);
   }
-  return { applied: desired, stale: !deepEqual(snapshot, desired) };
+  return { disk: fn(disk), pending: next };
 }
 
-// Top-level keys that differ between the saved JSON and the last applied snapshot.
+// ── Leaf-level diff ─────────────────────────────────────────────────────────
+// One step into the settings: an object key, a list position, or a list entry
+// named by its `name` (hosts, groups, policies…), which is how an admin knows
+// it and survives reordering.
+export type PathSegment = string | number | { name: string };
+
+export interface LeafChange {
+  path: PathSegment[];
+  before: Json | undefined; // undefined: absent before (added)
+  after: Json | undefined; // undefined: absent after (removed)
+}
+
+// A list whose entries are objects with distinct string names.
+function namesOf(list: Json[]): string[] | null {
+  const names: string[] = [];
+  for (const item of list) {
+    const name = isObject(item) ? item["name"] : undefined;
+    if (typeof name !== "string" || names.includes(name)) {
+      return null;
+    }
+    names.push(name);
+  }
+  return names;
+}
+
+// What changed between two settings trees, down to the smallest part that
+// still reads on its own: objects by key, named lists by entry name,
+// same-length lists by position. Any other list is one change as a whole.
+export function diffLeaves(
+  before: Json | undefined,
+  after: Json | undefined,
+  path: PathSegment[] = [],
+): LeafChange[] {
+  if (deepEqual(before, after)) {
+    return [];
+  }
+  if (isObject(before) && isObject(after)) {
+    const keys = [...Object.keys(after), ...Object.keys(before).filter((k) => !(k in after))];
+    return keys.flatMap((k) => diffLeaves(before[k], after[k], [...path, k]));
+  }
+  if (Array.isArray(before) && Array.isArray(after)) {
+    const beforeNames = namesOf(before);
+    const afterNames = namesOf(after);
+    if (beforeNames && afterNames) {
+      const byName = (list: Json[], names: string[], name: string) => list[names.indexOf(name)];
+      const names = [...afterNames, ...beforeNames.filter((n) => !afterNames.includes(n))];
+      return names.flatMap((name) =>
+        diffLeaves(byName(before, beforeNames, name), byName(after, afterNames, name), [
+          ...path,
+          { name },
+        ]),
+      );
+    }
+    if (before.length === after.length) {
+      return after.flatMap((item, i) => diffLeaves(before[i], item, [...path, i]));
+    }
+  }
+  return [{ path, before, after }];
+}
+
+// Top-level keys that differ between the saved JSON and the running generation's.
 export function changedTopKeys(desired: Json, applied: Json): string[] {
   const d = isObject(desired) ? desired : {};
   const a = isObject(applied) ? applied : {};
@@ -199,9 +251,10 @@ export function changedTopKeys(desired: Json, applied: Json): string[] {
   return [...keys].filter((k) => !deepEqual(d[k], a[k]));
 }
 
-// Can the changes tray's Revert copy `applied` over the settings file? Not when
-// it is empty: then there is no snapshot to go back to (none yet, or one this
-// session cannot read), and the copy would replace every setting with {}.
+// Can "Discard saved changes" copy the running generation's settings over the
+// file? Not when they are empty: then there is nothing to go back to (the
+// generation predates applied-settings.json, or this session cannot read it),
+// and the copy would replace every setting with {}.
 export function canRevertTo(applied: Json): boolean {
   return isObject(applied) && Object.keys(applied).length > 0;
 }

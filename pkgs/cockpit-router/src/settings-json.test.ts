@@ -13,13 +13,14 @@ import assert from "node:assert/strict";
 
 import type { Json, SettingsState } from "./settings-json.ts";
 import {
-  appliedBaseline,
   canRevertTo,
   changedTopKeys,
   deepEqual,
+  diffLeaves,
   dropRetiredKeys,
   getPath,
   isLocked,
+  patchWithEdits,
   rebaseEdits,
   setPath,
 } from "./settings-json.ts";
@@ -151,79 +152,12 @@ void test("isLocked: leaf paths behave the same as before", () => {
   );
 });
 
-// appliedBaseline exists because the snapshot it guards is written by exactly
-// one code path (a successful apply from the changes tray) and is read as
-// gospel by isLocked. Every rebuild that skips the tray desynchronises it, and
-// a desynchronised baseline is indistinguishable from a Nix override.
-const NEW_INTERFACES: Json = { lan: { interfaces: ["enp1s0", "enp2s0"] } };
-const OLD_INTERFACES: Json = { lan: { interfaces: ["enp1s0"] } };
-
-void test("appliedBaseline: a snapshot older than the running system is replaced", () => {
-  // Rebuilt at 2000 from a JSON last written at 1000: the JSON is what runs.
-  const { applied, stale } = appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 1000, 2000);
-  assert.deepEqual(applied, NEW_INTERFACES);
-  assert.equal(stale, true);
-  // …so the interface list no longer reads as a Nix override.
-  assert.equal(
-    isLocked({ desired: NEW_INTERFACES, effective: NEW_INTERFACES, applied }, "lan"),
-    false,
-  );
-});
-
-void test("appliedBaseline: unapplied edits keep the snapshot", () => {
-  // JSON written at 3000, system last activated at 2000 — the edits are pending.
-  const { applied, stale } = appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 3000, 2000);
-  assert.deepEqual(applied, OLD_INTERFACES);
-  assert.equal(stale, false);
-});
-
-void test("appliedBaseline: an in-sync snapshot needs no rewrite", () => {
-  const { applied, stale } = appliedBaseline(
-    NEW_INTERFACES,
-    structuredClone(NEW_INTERFACES),
-    1000,
-    2000,
-  );
-  assert.deepEqual(applied, NEW_INTERFACES);
-  assert.equal(stale, false);
-});
-
-void test("appliedBaseline: unreadable timestamps fall back to the snapshot", () => {
-  assert.deepEqual(
-    appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, null, 2000).applied,
-    OLD_INTERFACES,
-  );
-  assert.deepEqual(
-    appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 1000, null).applied,
-    OLD_INTERFACES,
-  );
-});
-
-void test("appliedBaseline: a real Nix override still locks", () => {
-  // The JSON asks for two ports, the evaluated config carries one: Nix won.
-  const { applied } = appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 1000, 2000);
-  assert.equal(
-    isLocked({ desired: NEW_INTERFACES, effective: OLD_INTERFACES, applied }, "lan.interfaces"),
-    true,
-  );
-});
-
-void test("appliedBaseline: Update system clears the tray only when it switched", () => {
-  // system-upgrade exits 0 either way, so the System page writes the snapshot
-  // only when `stale` says a generation landed after the JSON was saved.
-  // Edits saved at 3000; the running system dates from 2000 when the lock was
-  // unchanged and the rebuild skipped…
-  assert.equal(appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 3000, 2000).stale, false);
-  // …and from 4000 when it switched, building the saved JSON with it.
-  assert.equal(appliedBaseline(NEW_INTERFACES, OLD_INTERFACES, 3000, 4000).stale, true);
-});
-
 void test("getPath / setPath round-trip through nested objects", () => {
   const obj: Json = { a: { b: { c: 1 } } };
   assert.equal(getPath(obj, "a.b.c"), 1);
   assert.ok(getPath(obj, "a.b.missing") === undefined);
   assert.equal(getPath(setPath(obj, "a.b.c", 2), "a.b.c"), 2);
-  // setPath must not mutate its input — the changes tray diffs against it.
+  // setPath must not mutate its input — the changes panel diffs against it.
   assert.equal(getPath(obj, "a.b.c"), 1);
 });
 
@@ -242,8 +176,8 @@ void test("changedTopKeys reports only sections that differ", () => {
 });
 
 // rebaseEdits keeps an open form in step with the file: without it, a page
-// left open across the changes tray's Revert wrote its stale copy straight
-// back, undoing the revert on the next save.
+// left open across a revert of the saved changes wrote its stale copy
+// straight back, undoing the revert on the next save.
 void test("rebaseEdits: an untouched form takes the file as it now is", () => {
   const pending = new Map<string, Json>();
   const disk: Json = { upnp: { enable: false }, hostName: "r1" };
@@ -313,22 +247,108 @@ void test("dropRetiredKeys: settings without the key come back as they are", () 
   }
 });
 
-// loadState drops the key from the file and the applied snapshot alike: after
-// the first save the file no longer holds it, but a snapshot from an earlier
-// apply still does, and the tray must not offer that as a change.
-void test("dropRetiredKeys: a key only the snapshot still carries is not a change", () => {
+// The store drops the key from the file as it reads it, and the running
+// generation's settings never carry it (the loader's migration dropped it):
+// a key only one side still holds must not be offered as a change.
+void test("dropRetiredKeys: a key only one side still carries is not a change", () => {
   const saved: Json = { dns: { technitium: { enable: true } } };
   const snapshot: Json = { dns: { technitium: { enable: true, listenPort: 53 } } };
   assert.deepEqual(changedTopKeys(saved, snapshot), ["dns"], "compared as read");
   assert.deepEqual(changedTopKeys(dropRetiredKeys(saved), dropRetiredKeys(snapshot)), []);
 });
 
-// The tray's Revert copies the baseline over the settings file. With no
-// snapshot, or one the session cannot read (/var/lib/cockpit-router is 0700),
-// that baseline is {}, and offering Revert would offer to wipe every setting.
+// "Discard saved changes" copies the running generation's settings over the
+// file. Without them (a generation that predates applied-settings.json, or a
+// session that cannot read it) that baseline is {}, and offering the discard
+// would offer to wipe every setting.
 void test("canRevertTo: never to an empty baseline", () => {
   assert.equal(canRevertTo({}), false);
   assert.equal(canRevertTo(null), false);
   assert.equal(canRevertTo([]), false);
   assert.equal(canRevertTo({ hostName: "r1" }), true);
+});
+
+// patchWithEdits exists for the two writes made beside a form: approving an
+// exception and adding a rule from an event. Written to the file alone, the
+// change was hidden by the form's own pending edit of the same section and
+// then saved away with it.
+const addDomain = (settings: Json): Json => {
+  const list = getPath(settings, "accessPolicies.allow");
+  const allow = Array.isArray(list) ? list : [];
+  return allow.includes("example.org")
+    ? settings
+    : setPath(settings, "accessPolicies.allow", [...allow, "example.org"]);
+};
+
+void test("patchWithEdits: the change reaches the file and the pending edit", () => {
+  const disk: Json = { accessPolicies: { allow: ["a.test"], mode: "strict" } };
+  const pending = new Map<string, Json>([["accessPolicies", { allow: ["a.test"], mode: "open" }]]);
+  const patched = patchWithEdits(disk, pending, addDomain);
+  assert.deepEqual(patched.disk, {
+    accessPolicies: { allow: ["a.test", "example.org"], mode: "strict" },
+  });
+  // Saving the form later keeps both its own edit and the approval.
+  assert.deepEqual(rebaseEdits(patched.disk, patched.pending), {
+    accessPolicies: { allow: ["a.test", "example.org"], mode: "open" },
+  });
+});
+
+void test("patchWithEdits: unrelated edits are left alone", () => {
+  const disk: Json = { accessPolicies: { allow: [] }, hostName: "r1" };
+  const pending = new Map<string, Json>([["hostName", "r2"]]);
+  const patched = patchWithEdits(disk, pending, addDomain);
+  assert.deepEqual([...patched.pending], [["hostName", "r2"]]);
+  assert.deepEqual(getPath(patched.disk, "accessPolicies.allow"), ["example.org"]);
+});
+
+void test("diffLeaves: objects by key, down to the changed leaf", () => {
+  assert.deepEqual(diffLeaves({ a: { b: 1, c: 2 } }, { a: { b: 1, c: 3 } }), [
+    { path: ["a", "c"], before: 2, after: 3 },
+  ]);
+  assert.deepEqual(diffLeaves({ a: 1 }, { a: 1, b: true }), [
+    { path: ["b"], before: undefined, after: true },
+  ]);
+  assert.deepEqual(diffLeaves({ a: 1, b: 2 }, { a: 1 }), [
+    { path: ["b"], before: 2, after: undefined },
+  ]);
+  assert.deepEqual(diffLeaves({ a: [1] }, { a: [1] }), []);
+});
+
+void test("diffLeaves: named entries by name, whatever their order", () => {
+  const nas = { name: "nas", ip: "10.0.0.2" };
+  const tv = { name: "tv", ip: "10.0.0.3" };
+  assert.deepEqual(
+    diffLeaves(
+      { hosts: [nas, tv] },
+      { hosts: [{ ...tv, ip: "10.0.0.9" }, nas, { name: "cam", ip: "10.0.0.4" }] },
+    ),
+    [
+      { path: ["hosts", { name: "tv" }, "ip"], before: "10.0.0.3", after: "10.0.0.9" },
+      {
+        path: ["hosts", { name: "cam" }],
+        before: undefined,
+        after: { name: "cam", ip: "10.0.0.4" },
+      },
+    ],
+  );
+  assert.deepEqual(diffLeaves({ hosts: [nas, tv] }, { hosts: [nas] }), [
+    { path: ["hosts", { name: "tv" }], before: tv, after: undefined },
+  ]);
+});
+
+void test("diffLeaves: other lists by position when the length holds, else whole", () => {
+  assert.deepEqual(diffLeaves({ dns: ["1.1.1.1", "9.9.9.9"] }, { dns: ["1.1.1.1", "8.8.8.8"] }), [
+    { path: ["dns", 1], before: "9.9.9.9", after: "8.8.8.8" },
+  ]);
+  assert.deepEqual(diffLeaves({ dns: ["1.1.1.1"] }, { dns: ["1.1.1.1", "8.8.8.8"] }), [
+    { path: ["dns"], before: ["1.1.1.1"], after: ["1.1.1.1", "8.8.8.8"] },
+  ]);
+  // Duplicate names are not names.
+  const dup = [
+    { name: "x", v: 1 },
+    { name: "x", v: 2 },
+  ];
+  assert.deepEqual(diffLeaves({ l: dup }, { l: [dup[0]!, { name: "x", v: 3 }] }), [
+    { path: ["l", 1, "v"], before: 2, after: 3 },
+  ]);
 });

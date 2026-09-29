@@ -30,7 +30,17 @@ import {
 } from "@patternfly/react-core";
 import { ExpandableRowContent, Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { errMsg } from "./nix";
-import { ListEditor, Loading, SaveBar, SubNav, TabbedPage, hint, useSettings } from "./settings";
+import {
+  ListEditor,
+  Loading,
+  SubNav,
+  TabbedPage,
+  hint,
+  usePageSettings,
+  useTabRoute,
+} from "./settings";
+import type { Settings as PageSettings } from "./settings";
+import { SaveActions } from "./save-actions";
 import { loadDirectory, loadDirectoryStatus, syncNow } from "./directory";
 import { resolvePolicy } from "./policy-resolver";
 import type { NetworkCidrs } from "./policy-resolver";
@@ -45,7 +55,7 @@ import type {
 
 const _ = cockpit.gettext;
 
-type Settings = ReturnType<typeof useSettings>;
+type Settings = PageSettings;
 
 const delay = (ms: number) =>
   new Promise<void>((resolve) => {
@@ -616,13 +626,6 @@ const DirectorySettingsTab = ({ s }: { s: Settings }) => {
               </FormSection>
             </>
           )}
-
-          <SaveBar
-            saving={s.saving}
-            status={s.status}
-            onSave={s.save}
-            onSaveApply={s.saveAndApply}
-          />
         </Form>
       </StackItem>
     </Stack>
@@ -630,9 +633,11 @@ const DirectorySettingsTab = ({ s }: { s: Settings }) => {
 };
 
 // ── Page ─────────────────────────────────────────────────────────────────────
+const TABS = ["users", "groups", "settings"];
+
 export const Users = () => {
-  const [tab, setTab] = useState("users");
-  const s = useSettings();
+  const [tab, setTab] = useTabRoute(TABS);
+  const s = usePageSettings();
   const [directory, setDirectory] = useState<DirectoryState | null>(null);
   const [status, setStatus] = useState<DirectoryStatus | null>(null);
   const [dirLoading, setDirLoading] = useState(true);
@@ -748,6 +753,7 @@ export const Users = () => {
           ]}
         />
       }
+      footer={s.ready && (tab === "settings" || s.dirty) ? <SaveActions s={s} /> : null}
     >
       {tab === "users" ? (
         <UsersTab

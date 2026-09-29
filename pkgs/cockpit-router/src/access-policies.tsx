@@ -3,12 +3,14 @@
 // Four sub-tabs:
 //   • Policies           — named policies (filters + assignments), master-detail
 //   • Preview            — resolve which policy a device / IP / user would get
-//   • DNS settings       — upstreams, ports, SafeSearch, DoH blocking, block page
+//   • Block page         — the page blocked clients see, and its request form
 //   • Exception requests — approve/deny requests from the block page portal
 //
-// Policies/DNS settings edit the accessPolicies / dns sections of the settings
-// JSON through the shared store (nix.ts); the backend policy compiler turns
-// them into the DNS engine config on the next rebuild (changes tray).
+// Policies and Block page edit the accessPolicies section of the settings JSON
+// through the page's settings (usePageSettings); the backend policy compiler
+// turns it into the DNS engine config on the next rebuild. The resolver
+// settings filtering relies on (upstreams, SafeSearch, DoH blocking) are on
+// DNS → Resolver, their one editor.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -46,8 +48,19 @@ import {
   Tooltip,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { useSettings, ListEditor, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
-import { errMsg, setPath } from "./nix";
+import {
+  useSettings,
+  usePageSettings,
+  useTabRoute,
+  SettingsProvider,
+  ListEditor,
+  Loading,
+  SubNav,
+  hint,
+  TabbedPage,
+} from "./settings";
+import { SaveActions } from "./save-actions";
+import { errMsg, getPath, setPath } from "./nix";
 import { loadDirectoryAll } from "./directory";
 import type { Json } from "./nix";
 import { exceptionRequests, setExceptionStatus } from "./logd";
@@ -918,9 +931,6 @@ const PoliciesTab = () => {
           )}
         </Stack>
       </StackItem>
-      <StackItem>
-        <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
-      </StackItem>
     </Stack>
   );
 };
@@ -1115,8 +1125,8 @@ const PreviewTab = () => {
   );
 };
 
-// ── DNS settings tab ─────────────────────────────────────────────────────────
-const DnsSettingsTab = () => {
+// ── Block page tab ───────────────────────────────────────────────────────────
+const BlockPageTab = () => {
   const s = useSettings();
 
   if (!s.ready && !s.error) {
@@ -1130,153 +1140,64 @@ const DnsSettingsTab = () => {
     );
   }
 
-  const portInput = (path: string, fallback: number, ariaLabel: string) => {
-    const value = s.valueOf<number>(path, fallback);
-    const set = (raw: number) => {
-      const clamped = Math.min(65_535, Math.max(0, Math.trunc(raw)));
-      s.setLeaf(path, clamped);
-    };
-    return (
-      <NumberInput
-        value={value}
-        min={0}
-        max={65_535}
-        isDisabled={s.lockedOf(path)}
-        widthChars={6}
-        onMinus={() => set(value - 1)}
-        onPlus={() => set(value + 1)}
-        onChange={(e) => {
-          const n = Number((e.target as HTMLInputElement).value);
-          if (Number.isFinite(n)) {
-            set(n);
-          }
-        }}
-        inputAriaLabel={ariaLabel}
-      />
-    );
-  };
-
   return (
     <Stack hasGutter className="ct-router-stack">
       <StackItem isFilled style={{ overflowY: "auto" }}>
         <Form isHorizontal onSubmit={(e) => e.preventDefault()}>
-          <FormSection title={_("Upstream DNS")} titleElement="h2">
-            <FormGroup label={_("Upstream servers")} fieldId="dns-upstream">
-              <ListEditor
-                value={s.valueOf("dns.technitium.upstreamServers", [])}
-                isDisabled={s.lockedOf("dns.technitium.upstreamServers")}
-                onChange={(v) => s.setLeaf("dns.technitium.upstreamServers", v)}
-                placeholder={_("https://dns.example/dns-query")}
-              />
-            </FormGroup>
-          </FormSection>
-
-          <FormSection title={_("Ports")} titleElement="h2">
-            <FormGroup label={_("Web console port")} fieldId="dns-web">
-              {portInput("dns.technitium.webPort", 5380, _("Web console port"))}
-            </FormGroup>
-          </FormSection>
-
-          <FormSection title={_("Protection")} titleElement="h2">
-            <FormGroup
-              label={_("Enforce SafeSearch")}
-              fieldId="dns-safesearch"
-              labelHelp={hint(
-                _("Enforced via DNS records for Google, Bing, DuckDuckGo, and YouTube."),
+          <FormGroup
+            label={_("Serve a block page")}
+            fieldId="bp-enable"
+            labelHelp={hint(
+              _("Served on ports 80/443 for blocked domains; includes the exception-request form."),
+            )}
+          >
+            <Switch
+              id="bp-enable"
+              isChecked={Boolean(s.valueOf("accessPolicies.blockPage.enable", false))}
+              isDisabled={s.lockedOf("accessPolicies.blockPage.enable")}
+              onChange={(_e, c) => s.setLeaf("accessPolicies.blockPage.enable", c)}
+              aria-label={_("Serve a block page")}
+            />
+          </FormGroup>
+          <FormGroup label={_("Browser title")} fieldId="bp-title">
+            <TextInput
+              id="bp-title"
+              value={s.valueOf("accessPolicies.blockPage.title", "Website Blocked")}
+              isDisabled={s.lockedOf("accessPolicies.blockPage.title")}
+              onChange={(_e, v) => s.setLeaf("accessPolicies.blockPage.title", v)}
+            />
+          </FormGroup>
+          <FormGroup label={_("Heading")} fieldId="bp-heading">
+            <TextInput
+              id="bp-heading"
+              value={s.valueOf("accessPolicies.blockPage.heading", "Website Blocked")}
+              isDisabled={s.lockedOf("accessPolicies.blockPage.heading")}
+              onChange={(_e, v) => s.setLeaf("accessPolicies.blockPage.heading", v)}
+            />
+          </FormGroup>
+          <FormGroup label={_("Message")} fieldId="bp-message">
+            <TextArea
+              id="bp-message"
+              value={s.valueOf(
+                "accessPolicies.blockPage.message",
+                "This website has been blocked by your network administrator.",
               )}
-            >
-              <Switch
-                id="dns-safesearch"
-                isChecked={Boolean(s.valueOf("dns.technitium.safeSearch", false))}
-                isDisabled={s.lockedOf("dns.technitium.safeSearch")}
-                onChange={(_e, c) => s.setLeaf("dns.technitium.safeSearch", c)}
-                aria-label={_("Enforce SafeSearch")}
-              />
-            </FormGroup>
-            <FormGroup
-              label={_("Block DoH providers")}
-              fieldId="dns-doh"
-              labelHelp={hint(
-                _(
-                  "Block public DNS-over-HTTPS resolver domains in every policy so clients cannot bypass filtering.",
-                ),
-              )}
-            >
-              <Switch
-                id="dns-doh"
-                isChecked={Boolean(s.valueOf("dns.technitium.blockDoHProviders", true))}
-                isDisabled={s.lockedOf("dns.technitium.blockDoHProviders")}
-                onChange={(_e, c) => s.setLeaf("dns.technitium.blockDoHProviders", c)}
-                aria-label={_("Block DoH providers")}
-              />
-            </FormGroup>
-          </FormSection>
-
-          <FormSection title={_("Block page")} titleElement="h2">
-            <FormGroup
-              label={_("Serve a block page")}
-              fieldId="bp-enable"
-              labelHelp={hint(
-                _(
-                  "Served on ports 80/443 for blocked domains; includes the exception-request form.",
-                ),
-              )}
-            >
-              <Switch
-                id="bp-enable"
-                isChecked={Boolean(s.valueOf("accessPolicies.blockPage.enable", false))}
-                isDisabled={s.lockedOf("accessPolicies.blockPage.enable")}
-                onChange={(_e, c) => s.setLeaf("accessPolicies.blockPage.enable", c)}
-                aria-label={_("Serve a block page")}
-              />
-            </FormGroup>
-            <FormGroup label={_("Browser title")} fieldId="bp-title">
-              <TextInput
-                id="bp-title"
-                value={s.valueOf("accessPolicies.blockPage.title", "Website Blocked")}
-                isDisabled={s.lockedOf("accessPolicies.blockPage.title")}
-                onChange={(_e, v) => s.setLeaf("accessPolicies.blockPage.title", v)}
-              />
-            </FormGroup>
-            <FormGroup label={_("Heading")} fieldId="bp-heading">
-              <TextInput
-                id="bp-heading"
-                value={s.valueOf("accessPolicies.blockPage.heading", "Website Blocked")}
-                isDisabled={s.lockedOf("accessPolicies.blockPage.heading")}
-                onChange={(_e, v) => s.setLeaf("accessPolicies.blockPage.heading", v)}
-              />
-            </FormGroup>
-            <FormGroup label={_("Message")} fieldId="bp-message">
-              <TextArea
-                id="bp-message"
-                value={s.valueOf(
-                  "accessPolicies.blockPage.message",
-                  "This website has been blocked by your network administrator.",
-                )}
-                isDisabled={s.lockedOf("accessPolicies.blockPage.message")}
-                onChange={(_e, v) => s.setLeaf("accessPolicies.blockPage.message", v)}
-                rows={4}
-                resizeOrientation="vertical"
-                aria-label={_("Block page message")}
-              />
-            </FormGroup>
-            <FormGroup label={_("Contact email")} fieldId="bp-contact">
-              <TextInput
-                id="bp-contact"
-                type="email"
-                value={s.valueOf("accessPolicies.blockPage.contactEmail", "")}
-                isDisabled={s.lockedOf("accessPolicies.blockPage.contactEmail")}
-                onChange={(_e, v) => s.setLeaf("accessPolicies.blockPage.contactEmail", v)}
-              />
-            </FormGroup>
-          </FormSection>
-
-          <SaveBar
-            saving={s.saving}
-            status={s.status}
-            onSave={s.save}
-            onSaveApply={s.saveAndApply}
-          />
+              isDisabled={s.lockedOf("accessPolicies.blockPage.message")}
+              onChange={(_e, v) => s.setLeaf("accessPolicies.blockPage.message", v)}
+              rows={4}
+              resizeOrientation="vertical"
+              aria-label={_("Block page message")}
+            />
+          </FormGroup>
+          <FormGroup label={_("Contact email")} fieldId="bp-contact">
+            <TextInput
+              id="bp-contact"
+              type="email"
+              value={s.valueOf("accessPolicies.blockPage.contactEmail", "")}
+              isDisabled={s.lockedOf("accessPolicies.blockPage.contactEmail")}
+              onChange={(_e, v) => s.setLeaf("accessPolicies.blockPage.contactEmail", v)}
+            />
+          </FormGroup>
         </Form>
       </StackItem>
     </Stack>
@@ -1327,29 +1248,35 @@ const ExceptionsTab = ({
     const req = approving;
     setBusy(true);
     setActionStatus(null);
-    const next: AccessPoliciesSection = {
-      ...section,
-      policies: policies.map((p) =>
-        p.name === target && !(p.allowDomains ?? []).includes(req.domain)
-          ? { ...p, allowDomains: [...(p.allowDomains ?? []), req.domain] }
-          : p,
-      ),
+    // The domain added to the target policy of whatever section it is given:
+    // saved straight to the file, and carried into this page's unsaved edits
+    // of the policies, if any (patch), which would otherwise hide it and save
+    // it away with the next Save. A file without the section starts from the
+    // one in effect, as the form does.
+    const { effective } = s;
+    const allow = (settings: Json): Json => {
+      const current = (getPath(settings, "accessPolicies") ??
+        getPath(effective, "accessPolicies") ??
+        {}) as unknown as AccessPoliciesSection;
+      const next = structuredClone(current);
+      const policy = next.policies?.find((p) => p.name === target);
+      if (policy && !(policy.allowDomains ?? []).includes(req.domain)) {
+        policy.allowDomains = [...(policy.allowDomains ?? []), req.domain];
+      }
+      return setPath(settings, "accessPolicies", next as unknown as Json);
     };
-    // Persist the settings JSON directly (the working-copy save would race the
-    // state update); the user still applies the change from the tray.
-    s.write(setPath(s.desired, "accessPolicies", next as unknown as Json))
+    s.patch(allow)
       .then(() => setExceptionStatus(req.id, "approved"))
       .then(() => {
         setActionStatus({
           ok: true,
           msg: cockpit.format(
-            _('$0 allowed in policy "$1" — apply the change from the tray to activate it.'),
+            _('$0 allowed in policy "$1" and saved. Apply it to take effect.'),
             req.domain,
             target,
           ),
         });
         setApproving(null);
-        s.reload();
         onReload();
       })
       .catch((e: unknown) => setActionStatus({ ok: false, msg: errMsg(e) }))
@@ -1539,8 +1466,11 @@ const ExceptionsTab = ({
 };
 
 // ── page shell ───────────────────────────────────────────────────────────────
+const TABS = ["policies", "preview", "blockpage", "exceptions"];
+
 export const AccessPolicies = () => {
-  const [tab, setTab] = useState("policies");
+  const s = usePageSettings();
+  const [tab, setTab] = useTabRoute(TABS);
   const [requests, setRequests] = useState<ExceptionRequest[] | null>(null);
   const [requestsError, setRequestsError] = useState("");
 
@@ -1563,27 +1493,32 @@ export const AccessPolicies = () => {
   const exceptionsLabel =
     pending > 0 ? cockpit.format(_("Exception requests ($0)"), pending) : _("Exception requests");
 
+  const edits = tab === "policies" || tab === "blockpage";
+
   return (
-    <TabbedPage
-      subnav={
-        <SubNav
-          active={tab}
-          onSelect={setTab}
-          items={[
-            { id: "policies", label: _("Policies") },
-            { id: "preview", label: _("Preview") },
-            { id: "dns", label: _("DNS settings") },
-            { id: "exceptions", label: exceptionsLabel },
-          ]}
-        />
-      }
-    >
-      {tab === "policies" && <PoliciesTab />}
-      {tab === "preview" && <PreviewTab />}
-      {tab === "dns" && <DnsSettingsTab />}
-      {tab === "exceptions" && (
-        <ExceptionsTab requests={requests} error={requestsError} onReload={loadRequests} />
-      )}
-    </TabbedPage>
+    <SettingsProvider value={s}>
+      <TabbedPage
+        subnav={
+          <SubNav
+            active={tab}
+            onSelect={setTab}
+            items={[
+              { id: "policies", label: _("Policies") },
+              { id: "preview", label: _("Preview") },
+              { id: "blockpage", label: _("Block page") },
+              { id: "exceptions", label: exceptionsLabel },
+            ]}
+          />
+        }
+        footer={s.ready && (edits || s.dirty) ? <SaveActions s={s} /> : null}
+      >
+        {tab === "policies" && <PoliciesTab />}
+        {tab === "preview" && <PreviewTab />}
+        {tab === "blockpage" && <BlockPageTab />}
+        {tab === "exceptions" && (
+          <ExceptionsTab requests={requests} error={requestsError} onReload={loadRequests} />
+        )}
+      </TabbedPage>
+    </SettingsProvider>
   );
 };

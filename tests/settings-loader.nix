@@ -16,6 +16,10 @@
 #   • the activation step really rewrites the file on disk — run here against
 #     a copy — keeps a backup and the file's mode, and never touches a file
 #     edited since the evaluation;
+#   • the generation carries the settings it was built from as
+#     /etc/router/applied-settings.json (Cockpit's baseline for unapplied
+#     changes), equal to the file activation leaves on disk, and a router
+#     that bypasses the loader has none rather than a wrong one;
 #   • the module plus the settings file alone — what an installer-image
 #     router's /etc/nixos flake imports — keeps Cockpit, and keeps the
 #     settings file root-only.
@@ -139,6 +143,10 @@ let
     if builtins.isString activationEntry then activationEntry else activationEntry.text or null;
   expectedFile = pkgs.writeText "expected.json" (builtins.toJSON migrated);
 
+  # Cockpit's baseline: what this generation was built from.
+  appliedEntry = sys.environment.etc."router/applied-settings.json" or null;
+  appliedFile = pkgs.writeText "applied-settings.json" appliedEntry.text;
+
   checks = [
     {
       name = "legacy-forward-upgraded";
@@ -244,6 +252,23 @@ let
       detail = "listenPort = 5353 moved Technitium to ${endpointsOf preLoaderMoved}";
     }
     {
+      name = "applied-settings-is-migrated";
+      ok =
+        appliedEntry != null
+        && builtins.fromJSON appliedEntry.text == migrated
+        && appliedEntry.mode == "0600";
+      detail =
+        if appliedEntry == null then
+          "no /etc/router/applied-settings.json although the settings came through the loader"
+        else
+          "mode ${appliedEntry.mode}, content ${appliedEntry.text}";
+    }
+    {
+      name = "pre-loader-has-no-applied-settings";
+      ok = !(preLoaderSeeded.environment.etc ? "router/applied-settings.json");
+      detail = "a router that bypasses the loader got a baseline it cannot know";
+    }
+    {
       name = "installed-router-keeps-cockpit";
       ok = sys.services.cockpit.enable;
       detail = "Cockpit is off in a router built from the module and its settings file alone";
@@ -287,6 +312,8 @@ pkgs.runCommand "router-settings-loader" { nativeBuildInputs = [ pkgs.jq ]; } (
       activate
       same router-settings.json ${expectedFile} \
         || { echo "FAIL the file was not rewritten to the upgraded settings" >&2; exit 1; }
+      same router-settings.json ${appliedFile} \
+        || { echo "FAIL the rewritten file differs from /etc/router/applied-settings.json" >&2; exit 1; }
       cmp -s router-settings.json.pre-migration ${legacyFile} \
         || { echo "FAIL no faithful router-settings.json.pre-migration backup" >&2; exit 1; }
       [ "$(stat -c %a router-settings.json)" = 640 ] \

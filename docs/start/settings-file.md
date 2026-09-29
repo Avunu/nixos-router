@@ -43,7 +43,7 @@ The file is a single JSON object. Each top-level key is one of the router module
 
 A key you leave out takes the option's default. Unknown keys are rejected: the web UI refuses to save a file with a key the schema doesn't know, and the build fails on an option that doesn't exist.
 
-Cockpit writes the file with two-space indentation. You can edit it by hand as root; the changes tray then lists what you changed, and **Apply** checks the file against the schema before it builds.
+Cockpit writes the file with two-space indentation. You can edit it by hand as root; the changes panel on **System → Operations** then lists what you changed, and applying checks the file against the schema before it builds.
 
 Every save replaces the whole file, so the web UI only saves on top of a file it has read. A missing or empty file counts as an empty object. A file it can't read is an error on the page, never an empty form: the page shows why and offers no **Save** until it can read the file again. That happens when only root can read the file and Cockpit has Limited access (see [The web UI](/docs/start/cockpit/#sign-in)), or when a hand edit left it invalid JSON, which the page reports as "/etc/nixos/router-settings.json is not valid JSON".
 
@@ -120,7 +120,7 @@ After each build, a router with Cockpit enabled writes `/etc/router/effective.js
 sudo jq .lan /etc/router/effective.json
 ```
 
-The UI also keeps its own record of the last settings it applied, `/var/lib/cockpit-router/applied.json`, which drives the changes tray.
+Each generation also carries the settings it was built from, `/etc/router/applied-settings.json`. The changes panel compares the file with it to list what is saved but not applied.
 
 ## Automatic migrations
 
