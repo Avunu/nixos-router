@@ -26,7 +26,7 @@ The router has three networks: the **WAN** towards your internet provider, the *
 | **Diagnostics** | `ping`, `traceroute`, `dig` and `mtr`, run from the router. |
 
 :::doc-warning
-Reassigning interfaces or changing the LAN address can cut off the computer you manage the router from. Use **Save** to stage the changes, then apply them from the changes tray when you're ready. If the router becomes unreachable, see [Recover from the boot menu](/docs/start/upgrades/#recover-from-the-boot-menu).
+Reassigning interfaces or changing the LAN address can cut off the computer you manage the router from. Use **Save** to stage the changes, then apply them when you're ready: choose **Apply saved changes** from the **Save** menu, or **Apply changes** on **System → Operations**. If the router becomes unreachable, see [Recover from the boot menu](/docs/start/upgrades/#recover-from-the-boot-menu).
 :::
 
 ## WAN
@@ -131,11 +131,11 @@ A single-port router needs a VLAN-capable switch that delivers every network to 
 }
 ```
 
-The build accepts this layout, but the Network page doesn't yet: it reports "Assign at least one physical interface to a network." and keeps **Save & apply** disabled. Click **Save**, then **Apply** in the changes tray.
+The build accepts this layout, but the Network page doesn't yet: it reports "Assign at least one physical interface to a network." and keeps **Save and apply** disabled. Click **Save**, then **Apply changes** on **System → Operations**.
 
 ### Rules the router checks
 
-The Network page lists broken rules under "Network configuration is invalid" and disables **Save & apply** until they are fixed. The build checks the same rules, apart from the single-port case above, and fails with these messages:
+The Network page lists broken rules under "Network configuration is invalid" and disables **Save and apply** until they are fixed. The build checks the same rules, apart from the single-port case above, and fails with these messages:
 
 | Message | Fix |
 | --- | --- |

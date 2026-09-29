@@ -76,7 +76,7 @@ On the router, open **Network → WireGuard** and set up the tunnel as in [Set u
    - **Endpoint (optional):** empty, since the gateway dials in.
    - **Allowed IPs:** `10.100.2.2/32` and `192.168.3.0/24`.
    - **Persistent keepalive (s):** 25.
-4. Click **Save & apply**.
+4. Choose **Save and apply** from the **Save** menu.
 
 In `/etc/nixos/router-settings.json`:
 

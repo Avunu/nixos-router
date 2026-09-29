@@ -38,7 +38,7 @@ A port forward opens one or more WAN ports to a single host on your network. Use
    | **Sources (optional)** | WAN addresses or prefixes the forward is limited to, IPv4 and IPv6 mixed, such as `203.0.113.0/24` or `2001:db8::/48`. Type one and press Enter or click **Add**. Empty allows any source. |
 
 3. Click **Add** (or **Update** when editing). Problems are listed under the form, and the button stays disabled while there is an error.
-4. Click **Save & apply**.
+4. Choose **Save and apply** from the **Save** menu.
 
 The list shows each forward's name, protocol, host (with its addresses), family, ports and sources. A forward whose host no longer exists is marked **unknown host**.
 
@@ -100,7 +100,7 @@ A common setup is a host with a **Public hostname** and a forward for both famil
 
 UPnP-IGD and NAT-PMP let LAN devices, such as game consoles, open inbound ports for themselves. The router runs miniupnpd for this. It is off by default.
 
-To turn it on, open **Firewall → UPnP**, switch on **Enable UPnP / NAT-PMP**, and click **Save & apply**. **Extra miniupnpd.conf** takes extra configuration lines, which are appended after the router's defaults.
+To turn it on, open **Firewall → UPnP**, switch on **Enable UPnP / NAT-PMP**, and choose **Save and apply** from the **Save** menu. **Extra miniupnpd.conf** takes extra configuration lines, which are appended after the router's defaults.
 
 The defaults are strict:
 

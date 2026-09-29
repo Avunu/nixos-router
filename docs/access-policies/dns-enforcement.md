@@ -93,15 +93,15 @@ The DoH rules catch clients that already know a resolver's IP address, for examp
 
 ## Resolver settings
 
-The same settings appear in two places: **Access Policies → DNS settings** and **DNS → Resolver**. Both edit the same keys, so change them in either one and click **Save & apply**.
+These settings are on **DNS → Resolver**. Change them there and choose **Save and apply** from the **Save** menu.
 
-| Setting | On **DNS settings** | On **DNS → Resolver** | JSON key | Default |
-| --- | --- | --- | --- | --- |
-| Upstream DNS-over-HTTPS servers | **Upstream servers** | **Upstream resolvers** | `dns.technitium.upstreamServers` | `https://dns.cloudflare.com/dns-query`, `https://dns.google/dns-query` |
-| SafeSearch | **Enforce SafeSearch** | **Enforce SafeSearch** | `dns.technitium.safeSearch` | off |
-| DoH blocking | **Block DoH providers** | **Block public DoH resolvers** | `dns.technitium.blockDoHProviders` | on |
-| Local names for reserved devices | | **Publish static hosts** | `dns.registerStaticHosts` | on |
-| Technitium console port | **Web console port** | | `dns.technitium.webPort` | 5380 |
+| Setting | On **DNS → Resolver** | JSON key | Default |
+| --- | --- | --- | --- |
+| Upstream DNS-over-HTTPS servers | **Upstream resolvers** | `dns.technitium.upstreamServers` | `https://dns.cloudflare.com/dns-query`, `https://dns.google/dns-query` |
+| SafeSearch | **Enforce SafeSearch** | `dns.technitium.safeSearch` | off |
+| DoH blocking | **Block public DoH resolvers** | `dns.technitium.blockDoHProviders` | on |
+| Local names for reserved devices | **Publish static hosts** | `dns.registerStaticHosts` | on |
+| Technitium console port | **Web console port** | `dns.technitium.webPort` | 5380 |
 
 The router forwards queries it can't answer to the upstream servers over DNS-over-HTTPS, queries them concurrently and validates DNSSEC. It answers recursive queries only from the LAN, guest and WireGuard networks, and the firewall drops port 53 from the WAN.
 
@@ -142,7 +142,7 @@ The resolver can answer some names itself, so internal clients reach a service a
 
 ### Overrides
 
-**DNS → Overrides** holds single records. Click **Add override**, fill in the fields and click **Add**, then **Save & apply**.
+**DNS → Overrides** holds single records. Click **Add override**, fill in the fields and click **Add**, then choose **Save and apply** from the **Save** menu.
 
 - **Name:** the fully qualified name, such as `nas.example.com`. The page lowercases it and removes a trailing dot.
 - **Type:** `A`, `AAAA`, `CNAME`, `ANAME`, `TXT` or `SRV`. A CNAME is illegal at the top of a zone, so an alias that owns its own name must use `ANAME`: the router resolves the target and answers with its addresses.

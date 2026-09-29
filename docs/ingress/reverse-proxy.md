@@ -85,7 +85,7 @@ Create the token under **My Profile → API Tokens** in the Cloudflare dashboard
    | **HSTS** | "Send Strict-Transport-Security, so browsers refuse plain HTTP for these names for a year." Off by default. Turn it on only once the route works. |
 
 3. Click **Add**. Problems are listed under the form, and the button stays disabled while there is an error.
-4. Click **Save & apply**. If the configuration would fail the build, the tab lists the problems under **Fix these before applying** and **Save & apply** stays disabled.
+4. Choose **Save and apply** from the **Save** menu. If the configuration would fail the build, the tab lists the problems under **Fix these before applying** and **Save and apply** stays disabled.
 
 The route list shows each route's name, hostnames, target (`host:port` and scheme), challenge, and certificate status.
 
@@ -287,9 +287,9 @@ These don't stop the build, but print a warning:
 | Symptom | Cause | Fix |
 | --- | --- | --- |
 | Status stays **Pending**, or shows **last renewal failed**, and the browser warns about a self-signed certificate | The first order failed. With the HTTP challenge, the name doesn't resolve to the router yet, or WAN port 80 is blocked. | Check the name with `dig +short nas.example.com`, and look at `journalctl -u acme-order-renew-nas.example.com`. Fix the cause, or switch the route to **Cloudflare DNS**, then click **Renew now**. |
-| The browser doesn't trust a certificate whose issuer mentions staging | **Staging CA** is on. | Turn it off and click **Save & apply**. The router orders a new certificate. |
+| The browser doesn't trust a certificate whose issuer mentions staging | **Staging CA** is on. | Turn it off and choose **Save and apply** from the **Save** menu. The router orders a new certificate. |
 | The TLS handshake fails | No route covers the name, or you connected by IP address. | Use a route hostname. |
 | `404 Not Found` | No route claims the requested name. | Check the route's **Hostnames**. |
 | `502 Bad Gateway` | The proxy can't reach the service on the host. | Check that the host is up, and the route's **Port** and **Scheme**. **Scan ports** shows what the host has open. |
 | The app's links point to `http://` or to its LAN port | The app builds URLs from its own settings. | Set the app's public URL to `https://nas.example.com`, or turn on its reverse-proxy support. The proxy sends `X-Forwarded-Proto` and `X-Forwarded-Host`. |
-| **Save & apply** is disabled | The tab found a problem that would fail the build. | Fix the items under **Fix these before applying**. See [Build checks](#build-checks). |
+| **Save and apply** is disabled | The tab found a problem that would fail the build. | Fix the items under **Fix these before applying**. See [Build checks](#build-checks). |

@@ -6,8 +6,8 @@ code:
   - local/flake.nix
   - pkgs/cockpit-router/src/system.tsx
   - pkgs/cockpit-router/src/changes.tsx
-  - pkgs/cockpit-router/src/nix.ts
-  - pkgs/cockpit-router/src/settings-json.ts
+  - pkgs/cockpit-router/src/rebuild-job.ts
+  - pkgs/cockpit-router/src/rebuild-status.ts
 ---
 
 # Upgrades and rollback
@@ -51,48 +51,54 @@ The schedule and the reboot are NixOS defaults set by the router module, so you 
 From Cockpit, open **System → Operations** and press **Update system**. From a shell, run:
 
 ```bash
-system-upgrade
+router-rebuild update
 ```
 
-Both run the same script. It asks for your password through `sudo` if you aren't root, then:
+(`system-upgrade` is the same command under its older name.) It asks for your password through `sudo` if you aren't root, then:
 
-1. stops any rebuild or upgrade that is stuck from an earlier run;
+1. refuses to start while another rebuild, the nightly upgrade or a configuration switch is running, and names it;
 2. runs `nix flake update` on `/etc/nixos`;
-3. if the lock file didn't change, stops with `:: Flake lock unchanged, skipping rebuild`;
+3. if the lock file didn't change, stops with `:: Flake lock unchanged, skipping rebuild`, which Cockpit shows as "Already up to date";
 4. otherwise runs `nixos-rebuild switch --flake /etc/nixos#<hostName> --impure`.
 
-It never reboots, even for a new kernel; the new kernel runs after the next reboot. To target another flake or configuration, pass them as arguments: `system-upgrade /etc/nixos default`.
+It never reboots, even for a new kernel; the new kernel runs after the next reboot. To target another flake or configuration, pass them as arguments: `router-rebuild update /etc/nixos default`.
+
+Every rebuild you start, from Cockpit or a shell, runs in the background as the `router-rebuild` systemd service, one at a time. From a shell, the command streams the output and waits for the end; pressing Ctrl+C only stops following, and the rebuild carries on. Cockpit follows it either way, on every page (see [Unapplied changes and rebuilds](/docs/start/cockpit/#unapplied-changes-and-rebuilds)). To follow one from a shell, run `journalctl -fu router-rebuild`.
 
 :::doc-note
-`system-upgrade` only rebuilds when there is an update. To apply saved settings, use **Apply** in the changes tray or **Apply configuration**. When **Update system** does rebuild, it builds your saved settings too, and the changes tray clears. When it skips the rebuild, your saved settings stay in the tray, still unapplied.
+**Update system** only rebuilds when there is an update. To apply saved settings, use **Apply changes** in the changes panel, or **Apply configuration**. When **Update system** does rebuild, it builds your saved settings too, and the panel's list of saved changes empties. When it skips the rebuild, your saved settings stay listed, still unapplied.
 :::
 
 ## The Operations tab
 
 **System → Operations** has three cards.
 
-**Configuration** holds the operations. Each one streams its log into a card below, and **Cancel** stops it.
+**Changes** lists the saved settings the running system doesn't have yet, and follows the rebuild that is running or last ran. See [Unapplied changes and rebuilds](/docs/start/cockpit/#unapplied-changes-and-rebuilds).
+
+**Configuration** holds the operations. Each runs in the background, and the **Changes** card follows it; **View log** there opens its output.
 
 | Button | What it runs | Use it to |
 | --- | --- | --- |
-| **Apply configuration** | `nixos-rebuild switch --flake /etc/nixos#<hostName> --impure`, after checking the settings file against the schema | Apply the saved settings, like the changes tray's **Apply**. |
-| **Check flake** | `nixos-rebuild dry-build --flake /etc/nixos#<hostName> --impure` | Evaluate the configuration and list what would be built, without switching. It catches Nix errors before you apply. |
-| **Update system** | `system-upgrade` | Fetch updates and rebuild, as described above. |
+| **Apply configuration** | `router-rebuild apply`: `nixos-rebuild switch --flake /etc/nixos#<hostName> --impure`, after checking the settings file against the schema | Apply the saved settings, whether or not the panel lists changes. |
+| **Check configuration** | `router-rebuild check`: `nixos-rebuild dry-build --flake /etc/nixos#<hostName> --impure` | Evaluate the configuration and list what would be built, without switching. It catches Nix errors before you apply. |
+| **Update system** | `router-rebuild update` | Fetch updates and rebuild, as described above. |
+
+The buttons are disabled while another rebuild or the nightly upgrade runs, and hidden without administrative access.
 
 **Generations** lists every generation still on disk, newest first, with its **Date**, **NixOS version** and **Kernel**; the running one is marked **current**. **Roll back to previous** switches to the generation before the current one.
 
 ## Roll back
 
-**Roll back to previous** runs `nixos-rebuild switch --rollback`. From a shell, the same is:
+**Roll back to previous** runs `router-rebuild rollback`, that is `nixos-rebuild switch --rollback`. From a shell, the same is:
 
 ```bash
-sudo nixos-rebuild switch --rollback
+router-rebuild rollback
 ```
 
 The switch is immediate and needs no reboot, unless you want the older kernel too.
 
 :::doc-warning
-Rolling back changes the running system, not `/etc/nixos`. The settings file and the lock file still hold the change that caused the problem, and the next apply or the nightly upgrade builds it again. Fix or undo the setting, then apply, before `03:00`.
+Rolling back changes the running system, not `/etc/nixos`. The settings file and the lock file still hold the change that caused the problem, and the next apply or the nightly upgrade builds it again. After a rollback, the changes panel lists that change as saved but not applied. Fix or undo it, for example with **Discard saved changes**, before `03:00`.
 :::
 
 ## Recover from the boot menu
@@ -116,10 +122,11 @@ Once a week, the router deletes generations older than 30 days and collects the 
 
 ## Troubleshooting
 
-- **The nightly upgrade failed.** Read `journalctl -u nixos-upgrade.service` for the first `error:` line. The router keeps running the previous generation. Fix the cause, then run **Update system**, or **Apply configuration** if `system-upgrade` reports that the lock is unchanged.
+- **The nightly upgrade failed.** Read `journalctl -u nixos-upgrade.service` for the first `error:` line. The router keeps running the previous generation. Fix the cause, then run **Update system**, or **Apply configuration** if it reports "Already up to date".
+- **The nightly upgrade didn't run.** It skips a night when a rebuild you started is still running at `03:00`: `journalctl -u nixos-upgrade.service` shows its condition failing. It runs again the next night, or run **Update system** now.
 - **Apply fails after you changed the host name.** The configuration is named after `hostName`, and Cockpit still builds the old name until the rename has been applied once, as the warning under **Host name** says. Apply the rename once from a shell with the `default` alias:
   ```bash
-  sudo nixos-rebuild switch --flake /etc/nixos#default --impure
+  router-rebuild apply /etc/nixos default
   ```
 - **An upgrade fails with `The option router.portForwards."[definition 1-entry 1]".destination does not exist`.** The host flake reads the settings without the loader. See [Routers installed before the loader](/docs/start/settings-file/#routers-installed-before-the-loader).
 - **"Could not list generations" on the Operations tab.** The card runs `nixos-rebuild list-generations --json`; the message below it is that command's error. Try the same command in a shell.

@@ -31,7 +31,7 @@ The proxy sends traffic to a registered host with a fixed address.
 1. Open **Hosts → Devices** and find the NAS. Devices that aren't registered yet are listed while **Show unregistered** is on, which is the default.
 2. Click **Adopt** on the NAS's row.
 3. Set **Name** to `nas` and **Static IP** to `192.168.1.20`. **Suggest** proposes a free address if you'd rather let the router choose. Leave **Public hostname** empty: that field points a name at the device itself, and would conflict with the route.
-4. Click **Adopt**, then **Save & apply**.
+4. Click **Adopt**, then choose **Save and apply** from the **Save** menu.
 5. Restart the NAS, or renew its DHCP lease, so it picks up the reserved address.
 
 See [Hosts and host groups](/docs/network/hosts/) for details.
@@ -42,7 +42,7 @@ See [Hosts and host groups](/docs/network/hosts/) for details.
 
 1. Open **Network → Dynamic DNS** and turn on **Enable dynamic DNS**.
 2. Click **Set token…**, paste the Cloudflare token into **API token**, and click **Save token**.
-3. Click **Save & apply**.
+3. Choose **Save and apply** from the **Save** menu.
 
 Don't add `nas.example.com` to **Router names**. The reverse proxy's **Publish hostnames** switch, which is on by default, publishes every route hostname through dynamic DNS once the route exists. Listing it under **Router names** as well fails the build. See [Cloudflare dynamic DNS](/docs/dynamic-dns/).
 
@@ -72,11 +72,11 @@ If your ISP blocks inbound port 80, set **Default challenge** to **Cloudflare DN
    - **HSTS:** leave it off until everything works.
 3. Click **Add**.
 
-## 5. Save & apply
+## 5. Save and apply
 
-Click **Save & apply**. The bar at the top of the page shows **Applying configuration…**, then **Configuration applied.**
+Choose **Save and apply** from the **Save** menu. The line beside the button shows **Applying settings…**, then **Applied**. The rebuild carries on if you leave the page; the **System** entry in Cockpit's menu shows it's running.
 
-If **Save & apply** is disabled, the tab lists what's wrong under **Fix these before applying**. The [troubleshooting table](#troubleshooting) covers the usual causes.
+If **Save and apply** is disabled, the tab lists what's wrong under **Fix these before applying**. The [troubleshooting table](#troubleshooting) covers the usual causes.
 
 ## 6. Watch the certificate
 
@@ -130,7 +130,7 @@ Behind CGNAT, nothing on the internet can connect to the router over IPv4, so IP
 4. Open **Ingress → Tunnel**. Click **Set token…**, paste the token into **API token**, and click **Save token**.
 5. Turn on **Enable Cloudflare Tunnel**.
 6. Click **Add hostname** and fill in **Hostname** `nas.example.com`, **Host** `nas`, **Port** `5000` and **Scheme** **http**. Click **Add**.
-7. Click **Save & apply**.
+7. Choose **Save and apply** from the **Save** menu.
 8. In the **Tunnel status** card, click **Sync now**. **Last sync** shows **ok**, `nas.example.com` shows **ok** under the DNS records, and the tunnel's status turns **healthy** once the connector is connected.
 
 Then open `https://nas.example.com` from outside. It works from inside too: the name resolves to Cloudflare, so LAN clients go out to Cloudflare and come back through the tunnel.

@@ -41,7 +41,7 @@ Don't test from the router itself: its own queries use an unfiltered group, so n
 | Cause | Fix |
 | --- | --- |
 | A category or list includes the domain | Add the domain to **Allow domains** in the policy, or turn off the category or list that the TXT report names. An allow rule beats every block. |
-| The user asked for an exception | Approve it on **Exception requests**, then click **Apply** in the changes tray. See [Handle exception requests](/docs/access-policies/block-page/#handle-exception-requests). |
+| The user asked for an exception | Approve it on **Exception requests**, then choose **Apply saved changes** from the **Save** menu. See [Handle exception requests](/docs/access-policies/block-page/#handle-exception-requests). |
 | The site needs another domain that is blocked, such as a CDN | Find it in the query log with **Blocked only**, and allow it too. |
 | The client gets a stricter policy than you expected | See [A device gets the wrong policy](#a-device-gets-the-wrong-policy). |
 | You allowed the domain but it is still blocked | The change isn't applied yet, or the client cached the answer. Blocked answers expire after 30 seconds; the browser may hold them a little longer. |
@@ -59,7 +59,7 @@ Don't test from the router itself: its own queries use an unfiltered group, so n
 | Two policies tie at the same priority | Give them different priorities. |
 | The directory user or group doesn't resolve | Check **Users** for "Some referenced names could not be resolved". See [Directory groups](/docs/access-policies/directory/#troubleshooting). |
 | The client uses IPv6 or WireGuard | Device tiers are IPv4 only, and WireGuard peers get network or subnet policies only. See [Limits](/docs/access-policies/assignments/#limits). |
-| The Preview disagrees with what the client gets | The Preview reads the saved settings, which may not be applied yet. Click **Apply** in the changes tray. |
+| The Preview disagrees with what the client gets | The Preview reads the saved settings, which may not be applied yet. Choose **Apply saved changes** from the **Save** menu. |
 
 If the result in the Preview is right but the client still behaves differently, check the compiled mapping of addresses to policies on the router:
 

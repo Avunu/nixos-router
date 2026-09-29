@@ -201,9 +201,9 @@ Routers installed before this change have `nixpkgs.url = "github:NixOS/nixpkgs/n
 2. **Open Cockpit** at `https://192.168.1.1:9090`, your `lan.address`, or at `https://router.lan:9090` (`<hostName>.<lan.domain>`). The certificate is self-signed, so your browser warns once; accept it.
 3. **Sign in** as `admin` with the initial password. See [The web UI](/docs/start/cockpit/).
 4. **Change the password** on Cockpit's **Accounts** page, or with `passwd` over SSH. It is also your `sudo` password.
-5. **Clear the initial password.** On **System → Settings**, empty **Initial password**, then press **Save & apply**. The initial password only matters when the account is created, and until you clear it, it sits readable in the settings file and the Nix store.
+5. **Clear the initial password.** On **System → Settings**, empty **Initial password**, then choose **Save and apply** from the **Save** menu. The initial password only matters when the account is created, and until you clear it, it sits readable in the settings file and the Nix store.
 6. **Check the WAN.** On **Network → Diagnostics**, pick **ping** as the **Tool**, enter `1.1.1.1` as the **Target** and press **Run**. Then try **dig** with `example.com`.
-7. **Check the changes tray.** Above every router page, a yellow **Unapplied changes** bar means the settings file differs from the running system. After a fresh install there should be none.
+7. **Check for unapplied changes.** A warning icon on the **System** entry in Cockpit's menu means the settings file differs from the running system; **System → Operations** lists the differences. After a fresh install there should be none.
 8. **Register your devices** on the **Hosts** page, and give servers a static IP. Most features build on that; see [Hosts and host groups](/docs/network/hosts/).
 
 ## Troubleshooting

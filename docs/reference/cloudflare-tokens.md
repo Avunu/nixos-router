@@ -84,7 +84,7 @@ sudo install -d -m 700 /etc/router/secrets
 sudo sh -c 'umask 077 && cat > /etc/router/secrets/cloudflare-email.token'
 ```
 
-Then enter `/etc/router/secrets/cloudflare-email.token` in **API token file** and click **Save & apply**.
+Then enter `/etc/router/secrets/cloudflare-email.token` in **API token file** and choose **Save and apply** from the **Save** menu.
 
 ## Share one token between features
 
@@ -110,7 +110,7 @@ Cloudflare's dashboard changes over time, so these steps name the permissions ra
 5. Limit the resources. For zone permissions, include only the specific zones that hold your names, such as `example.com`. For the tunnel's account permission, include the account that owns those zones.
 6. Leave client IP address filtering off for dynamic DNS. The router's public address is exactly what changes, and a token tied to the old one stops working. If you give the token an expiry date, plan to rotate it before then.
 7. Create the token and copy its value. Cloudflare shows it only once.
-8. On the router, open the feature's page, click **Set token…**, paste the token into **API token** and click **Save token**. If the path field was empty, click **Save & apply** too, so the settings file records the path.
+8. On the router, open the feature's page, click **Set token…**, paste the token into **API token** and click **Save token**. If the path field was empty, choose **Save and apply** from the **Save** menu too, so the settings file records the path.
 
 ## How the router stores tokens
 
@@ -169,16 +169,16 @@ Dynamic DNS and the tunnel clean up after themselves when you turn them off, and
 
 For either feature:
 
-1. Turn it off (**Enable dynamic DNS** or **Enable Cloudflare Tunnel**) and click **Save & apply**.
+1. Turn it off (**Enable dynamic DNS** or **Enable Cloudflare Tunnel**) and choose **Save and apply** from the **Save** menu.
 2. Wait until the status card shows a successful run (**Last run** on **Last update**, or **Last sync** on **Tunnel status**), or click **Update now** or **Sync now**. If a row says a record is waiting until the tunnel or dynamic DNS releases the name, the other feature still holds a name you moved to it; keep the token until a later run puts that record back (see [Names moved to or from the tunnel](/docs/dynamic-dns/#names-moved-to-or-from-the-tunnel)).
-3. Clear **Cloudflare API token file**, click **Save & apply**, delete the file, and revoke the token in Cloudflare.
+3. Clear **Cloudflare API token file**, choose **Save and apply** from the **Save** menu, delete the file, and revoke the token in Cloudflare.
 
 If you remove the token first, the records (and the tunnel) stay in your Cloudflare account, and you have to fix them in the dashboard.
 
 ## Remove a token
 
 1. Turn off the feature, or make sure it no longer needs the token. Dynamic DNS and the tunnel refuse to build without a token while they're enabled, and so does a route using the Cloudflare DNS challenge. After turning off dynamic DNS or the tunnel, wait for its cleanup run first (see the previous section).
-2. Clear the token file field and click **Save & apply**.
+2. Clear the token file field and choose **Save and apply** from the **Save** menu.
 3. Make sure no other feature still points at the same file, then delete it:
 
    ```bash

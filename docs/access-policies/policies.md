@@ -25,7 +25,7 @@ A policy is a named set of DNS filters. This page walks through the policy edito
 1. Open **Access Policies → Policies**. The table lists your policies with the highest priority first. The **Filters** column counts each policy's categories, filters, lists and rules, and the **Assignments** column shows what it is assigned to.
 2. Click **Add policy** to start an empty policy named "New policy", or click **Duplicate** on an existing one to copy it as "*name* copy". Click **Edit** to change a policy.
 3. Work through the editor card, **Edit policy:** *name*. Its sections are described below.
-4. Click **Save & apply**. The changes tray at the top of the page shows progress.
+4. Choose **Save and apply** from the **Save** menu. The line beside the button, and the **System** entry in Cockpit's menu, show the progress.
 
 To remove a policy, click **Delete**. The default policy can't be deleted: make another policy the default first.
 
@@ -141,7 +141,7 @@ A school has a LAN on `192.168.1.0/24`, an Active Directory with `Students` and 
 4. Under **Domains & regex**, add `khanacademy.org` to **Allow domains** so no category can block it.
 5. Under **Assignments**, select `Library kiosks` in **Host groups** and type `Students` in **Directory groups**.
 6. Add a second policy named `Staff` with **Priority** `10`. Turn on **AdGuard Malware**, **AdGuard Phishing URL Blocklist** and **Phishing Army (PhishTank + OpenPhish)**, and the `porn` and `mixed_adult` categories. Under **Directory groups**, type `Staff`.
-7. Click **Save & apply**, then check a few devices on the **Preview** tab.
+7. Choose **Save and apply** from the **Save** menu, then check a few devices on the **Preview** tab.
 
 A teaching assistant who belongs to both `Students` and `Staff` gets **Staff**: both groups match at the directory tier, and Staff has the higher priority.
 

@@ -91,7 +91,7 @@ The file holds only the password; a trailing newline is removed. Before SSSD sta
    - **CA certificate file:** the PEM bundle that validates the servers' certificates.
    - **Client certificate file** and **Client key file:** only for mutual TLS, such as Google Workspace Secure LDAP.
 5. Leave **Admin group** under **Router login** empty unless you want directory users to administer the router. See [Let directory users log in](#let-directory-users-log-in).
-6. Click **Save & apply**.
+6. Choose **Save and apply** from the **Save** menu.
 7. Verify on the router, replacing `jdoe` with a real login:
 
    ```bash
