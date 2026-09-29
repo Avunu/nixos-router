@@ -34,7 +34,7 @@ import {
   TextInput,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { useSettings, Loading, SaveBar, hint } from "./settings";
+import { useSettings, Loading, hint } from "./settings";
 import { getPath, errMsg } from "./nix";
 import type { Json } from "./nix";
 import { checkIngress, checkPage, normalizeIngress } from "./ingress";
@@ -589,16 +589,6 @@ export const Tunnel = () => {
 
           <StackItem>
             <StatusCard canSync={canSync} />
-          </StackItem>
-
-          <StackItem>
-            <SaveBar
-              saving={s.saving}
-              status={s.status}
-              onSave={s.save}
-              onSaveApply={s.saveAndApply}
-              applyDisabled={hasErrors(pageIssues)}
-            />
           </StackItem>
         </Stack>
       </StackItem>

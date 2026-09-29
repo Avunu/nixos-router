@@ -1,6 +1,6 @@
 ---
 title: The web UI
-description: Sign in to Cockpit, find your way around the router pages, and save, apply or revert changes with the changes tray.
+description: Sign in to Cockpit, find your way around the router pages, save and apply changes, and follow rebuilds.
 code:
   - modules/system.nix
   - modules/firewall.nix
@@ -9,6 +9,11 @@ code:
   - pkgs/cockpit-router/src/app.tsx
   - pkgs/cockpit-router/src/settings.tsx
   - pkgs/cockpit-router/src/changes.tsx
+  - pkgs/cockpit-router/src/save-actions.tsx
+  - pkgs/cockpit-router/src/router-state.ts
+  - pkgs/cockpit-router/src/rebuild-job.ts
+  - pkgs/cockpit-router/src/rebuild-status.ts
+  - pkgs/cockpit-router/src/sections.ts
   - pkgs/cockpit-router/src/nix.ts
   - pkgs/cockpit-router/src/schema.ts
   - pkgs/cockpit-router/src/settings-json.ts
@@ -39,7 +44,7 @@ Sign in with the admin account (`adminUser.name`, `admin` by default) and its pa
 - **Slow retries.** Each failed password costs a short delay, so the login can't be guessed at network speed.
 
 :::doc-note
-The router pages need administrative access. If Cockpit's top bar shows **Limited access**, click it and enter your password. Without it, saving and applying fail. If only root can read the settings file, as after a network install (`local/deploy.sh`), the pages can't even load it: each settings form is replaced by "Administrative access is needed to read and change the router settings.", and **Apply configuration** on the **System** page is disabled. Once you switch, the pages load the settings again on their own, with no need to reload the page.
+The router pages need administrative access. If Cockpit's top bar shows **Limited access**, click it and enter your password. Without it, saving and applying fail. If only root can read the settings file, as after a network install (`local/deploy.sh`), the pages can't even load it: each settings form is replaced by "Administrative access is needed to read and change the router settings.", and the **System** page offers no rebuilds. A rebuild that is already running still shows. Once you switch, the pages load the settings again on their own, with no need to reload the page.
 :::
 
 ## The router pages
@@ -49,7 +54,7 @@ The router adds these entries to Cockpit's menu, next to Cockpit's own pages suc
 | Menu entry | What it's for |
 | --- | --- |
 | **Reports** | DNS query overview, the query log, and scheduled PDF reports. |
-| **Access Policies** | DNS filtering policies, who they apply to, a preview, DNS settings, and exception requests from the block page. See [Access policies](/docs/access-policies/). |
+| **Access Policies** | DNS filtering policies, who they apply to, a preview, the block page, and exception requests from it. See [Access policies](/docs/access-policies/). |
 | **Hosts** | The device registry and device groups. See [Hosts and host groups](/docs/network/hosts/). |
 | **DNS** | Local DNS overrides, forward zones, and resolver settings. |
 | **Users** | Directory users and groups (LDAP or Active Directory) and the directory connection. |
@@ -62,54 +67,62 @@ The router adds these entries to Cockpit's menu, next to Cockpit's own pages suc
 
 ## Save and apply
 
-Every settings form ends with two buttons:
+Every page that edits settings has a **Save** button pinned below its content, with a menu on the arrow beside it:
 
-- **Save** writes your edits to `/etc/nixos/router-settings.json` and shows "Saved. Apply to take effect." The running router doesn't change.
-- **Save & apply** writes the file, then applies it straight away, as the changes tray's **Apply** does.
+- **Save** writes your edits to `/etc/nixos/router-settings.json`. The running router doesn't change. The button is available only while the page has unsaved edits.
+- **Save and apply** saves, then applies every saved change straight away. When nothing on the page is unsaved, the item reads **Apply saved changes** instead.
+- **Discard unsaved changes** puts the page back to the saved settings.
+- **Review saved changes…** opens the changes panel on the **System** page.
 
-Both buttons save the form in front of you. On the **Network** and **Hosts** pages, that covers the edits on every tab of the page. On the other pages, each tab is a form of its own, and edits you haven't saved are lost when you switch tabs, so save first.
+A page's tabs share one set of edits: switching tabs keeps what you haven't saved, and **Save** saves all of it. While a page holds unsaved edits, its entry in Cockpit's menu shows an information icon, and closing or reloading the web console asks first. Beside the button, one line says how things stand, such as "Saved, not applied yet.", "Applying settings…" or "Applied".
 
-Use **Save** to stage several related edits, for example reassigning interfaces, and apply them together.
+Use **Save** to stage several related edits, even across pages, for example reassigning interfaces, and apply them together.
 
 :::doc-warning
 Saved changes don't wait for you forever. The nightly upgrade at `03:00` rebuilds from the settings file, so it applies anything you saved and left unapplied.
 :::
 
-## The changes tray
+## Unapplied changes and rebuilds
 
-Whenever the saved settings file differs from what the router last applied, a yellow bar appears above every router page:
+The **System** entry in Cockpit's menu shows the state of the whole router, whichever page you are on:
 
-> **Unapplied changes: lan, hosts**
+- a warning icon while saved changes aren't applied yet, with a tooltip naming them, such as "Saved changes not applied: Hosts, LAN";
+- an information icon while a rebuild runs;
+- an error icon when a rebuild failed, until someone dismisses it.
 
-It lists the top-level settings that differ and offers two actions:
+The **Changes** panel at the top of **System → Operations** has the details:
 
-- **Apply** checks the saved file against the settings schema, then runs, as root:
-  ```bash
-  nixos-rebuild switch --flake /etc/nixos#<hostName> --impure
-  ```
-  The build log streams into the tray while "Applying configuration…" is shown, and **Cancel** stops it. It ends with "Configuration applied." or "Apply failed."; **Dismiss** hides the result. If the build fails, the running system stays as it was.
-- **Revert** writes the last-applied settings back to the file and discards everything saved since. It only appears when the UI has a copy of the last-applied settings to go back to.
+- **Saved changes.** Everything saved that the running system doesn't have yet, by section. Expand a section to see each changed setting, before and after; **Edit** opens the page and tab that edit it.
+- **Apply changes** checks the saved file against the settings schema, then rebuilds with `router-rebuild apply`, which runs `nixos-rebuild switch --flake /etc/nixos#<hostName> --impure`.
+- **Discard saved changes** puts back the settings the running system was built from, after asking. Everything saved since is lost. Unsaved edits open on other pages are kept.
+- **The rebuild.** While one runs: what it is doing (evaluating, building with a count of what is left, activating), how long it has run, **View log**, and **Cancel** until the new configuration starts activating. Otherwise, how the last one ended.
 
-The tray compares the settings file with a snapshot the UI writes after each successful apply, `/var/lib/cockpit-router/applied.json`. When the running system was built after the file's last change, for example by the nightly upgrade or a rebuild from the shell, the tray treats the file itself as applied. While the settings file can't be read, the tray stays hidden.
+Rebuilds run in the background, as the `router-rebuild` systemd service, whichever page, browser or shell started them. You can move to other pages, keep editing and saving, or close the browser: the rebuild carries on, and every page follows it. Only one runs at a time; the nightly upgrade waits for it, and it waits for the nightly upgrade. The build output never fills a page: **View log** opens the rebuild in Cockpit's **Logs** page, following new lines as they come.
+
+When a rebuild fails, the running system stays as it was. The error stays on the **System** entry and in the panel, with **View log**, **Try again** and **Dismiss**, until someone dismisses it.
+
+Each generation carries a copy of the settings it was built from, `/etc/router/applied-settings.json`, and the panel compares the settings file with it. So it stays right however the router was rebuilt: from the web UI, a shell, the nightly upgrade or a rollback. A router whose flake doesn't load its settings through `nixos-router.lib.settingsModule` has no such copy. The panel then says it can't list saved changes, and **Apply changes** stays available.
+
+Every page follows the settings file as it changes, so a save on one page, in another browser or at a shell shows everywhere at once, and your unsaved edits are kept on top of it. A save built on settings that changed in the meantime is refused rather than overwriting them; the page tries once more on the new version, then asks you to review and save again.
 
 ## Validation
 
 Changes are checked at three points:
 
-1. **In the form.** Pages check what they can as you type. For example, the Hosts editor refuses a static IP outside the network's subnet, and the Network page disables **Save & apply** and lists the problems under "Network configuration is invalid".
+1. **In the form.** Pages check what they can as you type. For example, the Hosts editor refuses a static IP outside the network's subnet, and the Network page disables **Save and apply** and lists the problems under "Network configuration is invalid".
 2. **Before writing.** The whole settings file is validated against `router-settings.schema.json`, which is generated from the router's options. An invalid file is never written; the page shows "Could not save settings" with one line per problem, such as:
    ```text
    Configuration does not match the schema:
    /lan/prefixLength: must be integer
    ```
-   **Apply** repeats this check on the file on disk, which catches hand edits.
-3. **During the build.** Checks that span several settings, such as a port forward naming a host that doesn't exist, run in Nix. They fail the build with a message naming the problem, which appears in the tray's log, for example `router.hosts: duplicate MAC address(es): aa:bb:cc:dd:ee:01`.
+   Applying repeats this check on the file on disk, which catches hand edits.
+3. **During the build.** Checks that span several settings, such as a port forward naming a host that doesn't exist, run in Nix. They fail the build with a message naming the problem, which appears in the rebuild's log, for example `router.hosts: duplicate MAC address(es): aa:bb:cc:dd:ee:01`.
 
 ## Fields locked in Nix
 
 A setting made in Nix, in `/etc/nixos/flake.nix` or, on a router installed from the installer image, `/etc/nixos/local.nix`, overrides the same setting in the file; see [The settings file](/docs/start/settings-file/#nix-overrides-the-file). The UI shows such a field disabled, and some pages add a banner, such as "Interface assignment is locked in the Nix configuration."
 
-The UI finds locked fields by comparing the last-applied file with the values the running system actually uses, in `/etc/router/effective.json`. So a field shows as locked only once the file holds a value that Nix overrides. A locked field displays the file's value; the value in effect is the one in `/etc/router/effective.json`.
+The UI finds locked fields by comparing the settings the running system was built from, `/etc/router/applied-settings.json`, with the values it actually uses, in `/etc/router/effective.json`. So a field shows as locked only once an applied value is one that Nix overrides. A locked field displays the file's value; the value in effect is the one in `/etc/router/effective.json`.
 
 ## Troubleshooting
 
@@ -117,4 +130,6 @@ The UI finds locked fields by comparing the last-applied file with the values th
 - **Cockpit won't sign in or connect under one name but works under another.** The failing name isn't one of the allowed origins, for example the router's public name. Use one of the addresses under [Sign in](#sign-in), or add the name to `router.cockpit.allowedOrigins` in the host flake.
 - **A page says "Administrative access is needed to read and change the router settings."** The session has Limited access, and the page either can't read the settings file or tried to save it. Click **Limited access** in the top bar and enter your password. The page loads the settings again by itself. The UI never saves on top of settings it couldn't read, so nothing was lost.
 - **Save fails with "Configuration does not match the schema".** The line after it names the setting and the problem. Fix that field; if the path points at a value you didn't touch, the file was edited by hand.
-- **Apply fails.** Scroll the tray's log to the first `error:` line. An assertion message names the setting to fix. A build that fails changes nothing on the running system, so fix the setting, save and apply again, or use **Revert**.
+- **A rebuild fails.** Click **View log** in the changes panel and find the first `error:` line. An assertion message names the setting to fix. A build that fails changes nothing on the running system, so fix the setting and apply again, or use **Discard saved changes**.
+- **Applying is greyed out with "A rebuild is already running" or "The nightly upgrade is running".** Only one rebuild runs at a time. Wait for it, or follow it with **View log**. From a shell, `journalctl -fu router-rebuild` follows a rebuild and `systemctl status router-rebuild` shows its state.
+- **Save says the settings were changed elsewhere.** Someone saved the same file while you were saving, and the retry met another change. Your edits are still on the page, on top of the new settings; review them and save again.

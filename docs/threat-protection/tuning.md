@@ -51,7 +51,7 @@ For **Suppress for a host**, two more fields appear:
 - **Host IP / subnet**: filled in with the event's source address. Change it to the host or subnet to exempt, for example `192.168.1.5` or `192.168.1.0/24`. It must be one IPv4 or IPv6 address or prefix; until it is, the field is marked and **Save policy** stays unavailable.
 - **Track by**: which side of the connection that address must be on. **Source** if the host started the flagged traffic, **Destination** if it received it, **Either** for both.
 
-Add a **Comment** so you remember why, then click **Save policy**. The message "Added. Review under Policies, then apply from the changes tray." confirms it's in the settings file. It isn't active until you apply: click **Apply** in the **Unapplied changes** bar, or **Save & apply** on the **Policies** tab.
+Add a **Comment** so you remember why, then click **Save policy**. The message "Added and saved. Review it under Policies, then apply it." confirms it's in the settings file; unsaved edits on the **Policies** tab are kept and include it too. It isn't active until you apply: choose **Apply saved changes** (or **Save and apply**, with other edits) from the **Save** menu.
 
 Each save adds a new entry, even when the SID already has one. Check the **Policies** tab for duplicates.
 
@@ -59,7 +59,7 @@ If the event has no signature ID, the form is replaced by "This event has no sig
 
 ## The Policies tab
 
-**Threat Protection → Policies** has three sections. Changes there take effect when you click **Save & apply** (or **Save**, then **Apply**).
+**Threat Protection → Policies** has three sections. Changes there take effect when you choose **Save and apply** from the **Save** menu (or click **Save**, and apply later).
 
 ### Rule categories
 
@@ -116,7 +116,7 @@ To add your own Suricata rules:
 
 1. Open **Threat Protection → Settings**.
 2. Type or paste the rules into **Extra local rules**, one per line.
-3. Click **Save & apply**.
+3. Choose **Save and apply** from the **Save** menu.
 
 For example, this rule alerts when a device on your network opens a Remote Desktop connection to a host on the internet:
 

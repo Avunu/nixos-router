@@ -76,7 +76,7 @@ You don't list the other site's LAN under **Routes**. Each router adds a route i
 
 ### 5. Apply on both routers
 
-Click **Save & apply** on each router. The order doesn't matter. The branch starts the handshake as soon as its configuration is applied, and retries until HQ answers.
+Choose **Save and apply** from the **Save** menu on each router. The order doesn't matter. The branch starts the handshake as soon as its configuration is applied, and retries until HQ answers.
 
 ## The resulting settings
 
@@ -158,7 +158,7 @@ Run the first three steps in a shell on a router, over SSH or from the Terminal 
 Host names don't cross the tunnel on their own. Each router answers only for its own **Local domain** (`lan` by default), so HQ has no idea what `nas.lan` means at the branch. To fix that, give each site its own domain and have each router forward the other site's domain to the other router.
 
 1. On HQ, set **Network → LAN → Local domain** to `hq.lan`. On the branch, set it to `branch.lan`. They must differ: a router refuses to forward its own LAN domain elsewhere, with "`router.dns.forwardZones: 'lan' is the LAN domain — router.hosts entries (static via registerStaticHosts, dynamic via the Router Live DNS app) publish records into it, so forwarding the whole zone elsewhere would shadow them. Forward a narrower zone instead.`"
-2. On HQ, open **DNS → Forward zones** and click **Add forward zone**. Set **Zone** to `branch.lan`, add `192.168.2.1` under **Forwarders**, leave **Protocol** at **Udp**, and click **Add**. Then click **Save & apply**.
+2. On HQ, open **DNS → Forward zones** and click **Add forward zone**. Set **Zone** to `branch.lan`, add `192.168.2.1` under **Forwarders**, leave **Protocol** at **Udp**, and click **Add**. Then choose **Save and apply** from the **Save** menu.
 3. On the branch, add a forward zone for `hq.lan` with the forwarder `192.168.1.1`, and apply.
 
 Now a device at HQ can reach `nas.branch.lan`, and the branch can reach `printer.hq.lan`. Only names the other router knows resolve: the devices registered on its **Hosts** page ([Hosts and host groups](/docs/network/hosts/)). The other router answers these queries because they arrive from your tunnel address, which is in its peer's Allowed IPs.

@@ -9,9 +9,9 @@
 //
 // Events/Overview/Statistics read security events from the systemd journal
 // (see suricata-events.ts). Policies/Settings edit router.suricata.* through the
-// shared settings store (nix.ts), applied on the next rebuild via the changes tray.
+// page's settings (usePageSettings), applied on the next rebuild.
 import { useEffect, useState, useCallback, useMemo } from "react";
-import { loadEffective, loadState, writeDesired, getPath, setPath, errMsg } from "./nix";
+import { loadEffective, getPath, setPath, errMsg } from "./nix";
 import type { Json } from "./nix";
 import { resolveNames } from "./hosts-live";
 import { isPrefix } from "./ip-math";
@@ -77,7 +77,17 @@ import {
   OuterScrollContainer,
   InnerScrollContainer,
 } from "@patternfly/react-table";
-import { useSettings, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
+import {
+  useSettings,
+  usePageSettings,
+  useTabRoute,
+  SettingsProvider,
+  Loading,
+  SubNav,
+  hint,
+  TabbedPage,
+} from "./settings";
+import { SaveActions } from "./save-actions";
 import { RankCard } from "./widgets";
 
 const _ = cockpit.gettext;
@@ -415,16 +425,19 @@ const SuricataOverview = () => {
 const PRELOAD = 500;
 const MAX_ROWS = 2000;
 
-// Append one item to an array setting on disk (load → append → validate → write).
-// Used by "Add policy" so it works without sharing state across tabs.
-function appendSetting(path: string, item: Json): Promise<void> {
-  return loadState().then((st) => {
-    const arr = (getPath(st.desired, path) as Json[] | undefined) ?? [];
-    return writeDesired(setPath(st.desired, path, [...arr, item]), st).then(() => {});
-  });
-}
+// Append one item to an array setting. "Add policy" saves it straight away,
+// through the page's patch(): into the file, and into the Policies tab's
+// unsaved edits of the same list if there are any, which would otherwise hide
+// it and save it away with the next Save.
+const appendTo =
+  (path: string, item: Json) =>
+  (settings: Json): Json => {
+    const arr = getPath(settings, path);
+    return setPath(settings, path, [...(Array.isArray(arr) ? arr : []), item]);
+  };
 
 const EventDetail = ({ event, onClose }: { event: Ev; onClose: () => void }) => {
+  const s = useSettings();
   const sid = event.alert?.signature_id;
   const [action, setAction] = useState("disable");
   const [ip, setIp] = useState(event.src_ip ?? "");
@@ -440,19 +453,20 @@ const EventDetail = ({ event, onClose }: { event: Ev; onClose: () => void }) => 
     }
     setSaving(true);
     setDone(null);
-    const p =
+    const p = s.patch(
       action === "suppress"
-        ? appendSetting("suricata.suppressions", {
+        ? appendTo("suricata.suppressions", {
             sid,
             ip: ip.trim(),
             track,
             ...(comment ? { comment } : {}),
           })
-        : appendSetting("suricata.policies", { sid, action, ...(comment ? { comment } : {}) });
+        : appendTo("suricata.policies", { sid, action, ...(comment ? { comment } : {}) }),
+    );
     p.then(() =>
       setDone({
         ok: true,
-        msg: _("Added. Review under Policies, then apply from the changes tray."),
+        msg: _("Added and saved. Review it under Policies, then apply it."),
       }),
     )
       .catch((e: unknown) => setDone({ ok: false, msg: errMsg(e) }))
@@ -1206,13 +1220,6 @@ const SuricataPolicies = () => {
               onChange={(v) => s.setLeaf("suricata.suppressions", v as unknown as Json)}
             />
           </FormSection>
-
-          <SaveBar
-            saving={s.saving}
-            status={s.status}
-            onSave={s.save}
-            onSaveApply={s.saveAndApply}
-          />
         </Form>
       </StackItem>
     </Stack>
@@ -1307,12 +1314,6 @@ const SuricataSettings = () => {
               </FormHelperText>
             )}
           </FormGroup>
-          <SaveBar
-            saving={s.saving}
-            status={s.status}
-            onSave={s.save}
-            onSaveApply={s.saveAndApply}
-          />
         </Form>
       </StackItem>
     </Stack>
@@ -1320,29 +1321,36 @@ const SuricataSettings = () => {
 };
 
 // ── page shell ──────────────────────────────────────────────────────────────
+const TABS = ["overview", "events", "policies", "statistics", "settings"];
+
 export const Suricata = () => {
-  const [tab, setTab] = useState("overview");
+  const s = usePageSettings();
+  const [tab, setTab] = useTabRoute(TABS);
+  const edits = tab === "policies" || tab === "settings";
   return (
-    <TabbedPage
-      subnav={
-        <SubNav
-          active={tab}
-          onSelect={setTab}
-          items={[
-            { id: "overview", label: _("Overview") },
-            { id: "events", label: _("Events") },
-            { id: "policies", label: _("Policies") },
-            { id: "statistics", label: _("Statistics") },
-            { id: "settings", label: _("Settings") },
-          ]}
-        />
-      }
-    >
-      {tab === "overview" && <SuricataOverview />}
-      {tab === "events" && <SuricataEvents />}
-      {tab === "policies" && <SuricataPolicies />}
-      {tab === "statistics" && <SuricataStatistics />}
-      {tab === "settings" && <SuricataSettings />}
-    </TabbedPage>
+    <SettingsProvider value={s}>
+      <TabbedPage
+        subnav={
+          <SubNav
+            active={tab}
+            onSelect={setTab}
+            items={[
+              { id: "overview", label: _("Overview") },
+              { id: "events", label: _("Events") },
+              { id: "policies", label: _("Policies") },
+              { id: "statistics", label: _("Statistics") },
+              { id: "settings", label: _("Settings") },
+            ]}
+          />
+        }
+        footer={s.ready && (edits || s.dirty) ? <SaveActions s={s} /> : null}
+      >
+        {tab === "overview" && <SuricataOverview />}
+        {tab === "events" && <SuricataEvents />}
+        {tab === "policies" && <SuricataPolicies />}
+        {tab === "statistics" && <SuricataStatistics />}
+        {tab === "settings" && <SuricataSettings />}
+      </TabbedPage>
+    </SettingsProvider>
   );
 };

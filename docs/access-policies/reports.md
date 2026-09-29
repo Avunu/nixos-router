@@ -75,7 +75,7 @@ To email reports, you need a Cloudflare account set up to send email for the dom
    - **Cloudflare account id:** the account that sends the email.
    - **API token file:** `/etc/router/secrets/cloudflare-email.token`. The help text reads "Path to a root-owned file on the router — never the secret itself."
    - **From address:** the sender, such as `reports@example.org`.
-3. Click **Save & apply**.
+3. Choose **Save and apply** from the **Save** menu.
 
 ### Create a schedule
 
@@ -88,9 +88,9 @@ To email reports, you need a Cloudflare account set up to send email for the dom
    - **Recipients:** email addresses. The help text reads "Empty = generate the PDF only, no delivery."
    - **Sections:** any of **Overview**, **Top domains**, **Top blocked**, **Per group**, **Per device** and **Per user**.
    - **Host groups:** "Restrict group breakdowns to these host groups; none = all."
-3. Click **Save & apply**.
+3. Choose **Save and apply** from the **Save** menu.
 
-The card checks **Name** and **Time** as you type. While either one shows an error, **Save & apply** stays greyed out.
+The card checks **Name** and **Time** as you type. While either one shows an error, **Save and apply** stays greyed out.
 
 What each section contains:
 

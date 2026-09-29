@@ -38,7 +38,17 @@ import {
 import { Table, Tbody, Td, Th, Thead, Tr } from "@patternfly/react-table";
 import { REPORTS_DIR, errMsg } from "./nix";
 import type { Json } from "./nix";
-import { ListEditor, Loading, SaveBar, SubNav, TabbedPage, hint, useSettings } from "./settings";
+import {
+  ListEditor,
+  Loading,
+  SubNav,
+  TabbedPage,
+  hint,
+  usePageSettings,
+  useTabRoute,
+} from "./settings";
+import type { Settings as PageSettings } from "./settings";
+import { SaveActions } from "./save-actions";
 import { statsGet, statsGetTop } from "./technitium";
 import { logsCsv, logsQuery, statsTop } from "./logd";
 import type { LogFilters } from "./logd";
@@ -58,7 +68,7 @@ import type {
 
 const _ = cockpit.gettext;
 
-type Settings = ReturnType<typeof useSettings>;
+type Settings = PageSettings;
 
 const REFRESH_MS = 10_000;
 const PAGE_SIZE = 50;
@@ -886,7 +896,7 @@ const ScheduledReports = ({ s }: { s: Settings }) => {
     s.setLeaf("reporting.schedules", list as unknown as Json);
 
   // reporting.nix's name and time patterns, checked here because the schema
-  // that Save checks does not carry them. Any error holds back the apply.
+  // that Save checks does not carry them (see schedulesInvalid).
   const messages = schedules.map((sc, index) => ({
     name: nameErrorText(
       scheduleNameError(
@@ -896,7 +906,6 @@ const ScheduledReports = ({ s }: { s: Settings }) => {
     ),
     time: timeError(sc.time) ? _("Use 24-hour time, HH:MM, such as 07:30.") : "",
   }));
-  const hasErrors = messages.some((m) => m.name !== "" || m.time !== "");
 
   const addSchedule = () =>
     setSchedules([
@@ -977,14 +986,6 @@ const ScheduledReports = ({ s }: { s: Settings }) => {
               </Button>
             </div>
           </FormSection>
-
-          <SaveBar
-            saving={s.saving}
-            status={s.status}
-            onSave={s.save}
-            onSaveApply={s.saveAndApply}
-            applyDisabled={hasErrors}
-          />
         </Form>
 
         <div style={{ marginBlockStart: "1.5rem" }}>
@@ -996,11 +997,25 @@ const ScheduledReports = ({ s }: { s: Settings }) => {
 };
 
 // ── Page ─────────────────────────────────────────────────────────────────────
+const TABS = ["overview", "log", "schedules"];
+
+// reporting.nix's name and time patterns, which the schema that Save checks
+// does not carry: any error holds back the apply (the tab says which).
+const schedulesInvalid = (schedules: ReportSchedule[]) =>
+  schedules.some(
+    (sc, index) =>
+      scheduleNameError(
+        sc.name,
+        schedules.filter((_x, i) => i !== index).map((x) => x.name),
+      ) !== null || timeError(sc.time) !== null,
+  );
+
 export const Reports = () => {
-  const [tab, setTab] = useState("overview");
-  const s = useSettings();
+  const [tab, setTab] = useTabRoute(TABS);
+  const s = usePageSettings();
   const hosts = s.valueOf<RouterHost[]>("hosts", []);
   const hostGroups = s.valueOf<HostGroup[]>("hostGroups", []);
+  const invalid = schedulesInvalid(s.valueOf<ReportSchedule[]>("reporting.schedules", []));
 
   return (
     <TabbedPage
@@ -1014,6 +1029,11 @@ export const Reports = () => {
             { id: "schedules", label: _("Scheduled reports") },
           ]}
         />
+      }
+      footer={
+        s.ready && (tab === "schedules" || s.dirty) ? (
+          <SaveActions s={s} issues={invalid ? _("Fix the scheduled reports first") : undefined} />
+        ) : null
       }
     >
       {tab === "overview" ? (

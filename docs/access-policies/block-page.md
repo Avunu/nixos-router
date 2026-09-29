@@ -23,14 +23,14 @@ The block page tells users that a site was blocked on purpose, instead of leavin
 
 ## Turn on the block page
 
-1. Open **Access Policies → DNS settings**.
-2. Under **Block page**, turn on **Serve a block page**. The help text reads "Served on ports 80/443 for blocked domains; includes the exception-request form."
+1. Open **Access Policies → Block page**.
+2. Turn on **Serve a block page**. The help text reads "Served on ports 80/443 for blocked domains; includes the exception-request form."
 3. Set the text:
    - **Browser title:** the page title in the browser tab. Default "Website Blocked".
    - **Heading:** the large heading. Default "Website Blocked".
    - **Message:** the paragraph under the heading. Default "This website has been blocked by your network administrator."
    - **Contact email:** optional. When set, the page shows "Questions? Contact" followed by a mail link.
-4. Click **Save & apply**.
+4. Choose **Save and apply** from the **Save** menu.
 
 Changing the page's text restarts the DNS server when you apply, so DNS pauses for a few seconds.
 
@@ -92,8 +92,8 @@ To approve a request:
 
 1. Click **Approve** on its row. The **Approve exception for** *domain* card opens.
 2. Under **Add allow rule to policy**, choose the policy to change. It starts on the policy that blocked the request, when that policy still exists. The help text reads "The domain is appended to the policy's allow-domains list."
-3. Click **Approve**. The page confirms "*domain* allowed in policy "*name*" — apply the change from the tray to activate it."
-4. In the changes tray at the top of the page, click **Apply**.
+3. Click **Approve**. The page confirms "*domain* allowed in policy "*name*" and saved. Apply it to take effect." Unsaved edits of the policies on the page are kept, and include the domain too.
+4. Choose **Apply saved changes** from the **Save** menu, or **Apply changes** on **System → Operations**.
 
 To refuse a request, click **Deny**. That only marks it denied; nothing changes in your policies.
 

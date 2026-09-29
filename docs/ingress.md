@@ -75,7 +75,7 @@ All three are managed in Cockpit on the **Ingress** page, which has three tabs:
 | **Reverse proxy** | The proxy switch, **Publish hostnames**, the **Certificates** card for Let's Encrypt, and the routes with their certificate status. | [Reverse proxy](/docs/ingress/reverse-proxy/) |
 | **Tunnel** | The tunnel switch, its API token, the tunnel hostnames, and the **Tunnel status** card. | [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/) |
 
-Each tab has its own **Save** and **Save & apply** buttons. **Save** writes the settings file; **Save & apply** also applies it. The Reverse proxy and Tunnel tabs check the whole configuration as you edit. When something would fail the build, they list it under **Fix these before applying** and disable **Save & apply** until you fix it.
+The tabs share one **Save** button, pinned below them, whose menu offers **Save and apply**. **Save** writes the settings file; **Save and apply** also applies it. The Reverse proxy and Tunnel tabs check the whole configuration as you edit. When something would fail the build, they list it under **Fix these before applying**, and **Save and apply** stays disabled until you fix it.
 
 Port forwards used to live on the **Firewall** page, which now links here. UPnP and NAT-PMP stay on **Firewall → UPnP**; see [UPnP and NAT-PMP](/docs/ingress/port-forwards/#upnp-and-nat-pmp).
 

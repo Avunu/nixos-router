@@ -53,6 +53,238 @@ let
     settingsFile = cfg.cockpit.settingsFile;
   };
 
+  # router-rebuild: every rebuild the admin asks for (see its systemPackages
+  # entry). The environment is nixos-upgrade.service's, since a unit inherits
+  # nothing from whoever started it.
+  rebuildEnv = config.nix.envVars // config.networking.proxy.envVars // { HOME = "/root"; };
+  routerRebuild = pkgs.writeShellApplication {
+    name = "router-rebuild";
+    # The single-quoted `$name`s are jq's variables, not the shell's.
+    excludeShellChecks = [ "SC2016" ];
+    runtimeInputs = with pkgs; [
+      config.nix.package
+      config.system.build.nixos-rebuild
+      coreutils
+      gitMinimal
+      jq
+      openssh
+      systemd
+    ];
+    text = ''
+      ${concatStringsSep "\n" (
+        mapAttrsToList (k: v: "export ${k}=${escapeShellArg (toString v)}") rebuildEnv
+      )}
+
+      UNIT=router-rebuild.service
+      STATUS_DIR=/run/cockpit-router
+      STATUS=$STATUS_DIR/rebuild.json
+      SELF=$(readlink -f "$0")
+
+      usage() {
+        cat >&2 <<'EOF'
+      usage: router-rebuild [--no-block] apply|check|update [FLAKE [HOST]]
+             router-rebuild [--no-block] rollback
+
+        apply     build the saved settings and switch to them
+        check     build them without switching (nixos-rebuild dry-build)
+        update    update the flake inputs, then rebuild if any changed
+        rollback  switch back to the previous generation
+
+      Every run happens in router-rebuild.service, one at a time, and the web
+      UI follows it. The output streams here; interrupting only stops that,
+      not the rebuild. --no-block starts the run and returns at once.
+      EOF
+        exit 2
+      }
+
+      # The run's record for the web UI, which watches this file. Readable by
+      # everyone, like the unit's state on D-Bus: it holds no secrets.
+      status_write() {
+        install -d -m 0755 "$STATUS_DIR"
+        tmp=$(mktemp "$STATUS.XXXXXX")
+        jq "$@" >"$tmp"
+        chmod 0644 "$tmp"
+        mv -f "$tmp" "$STATUS"
+      }
+
+      # ExecStopPost: how the run ended, including when it was cancelled or
+      # never got as far as writing its start.
+      finish() {
+        base='{}'
+        if [ -f "$STATUS" ] &&
+          [ "$(jq -r '.invocation // empty' "$STATUS" 2>/dev/null || true)" = "''${INVOCATION_ID:-}" ]; then
+          base=$(cat "$STATUS")
+        fi
+        status_write -n \
+          --argjson base "$base" \
+          --arg op "''${ROUTER_OP:-}" \
+          --arg inv "''${INVOCATION_ID:-}" \
+          --argjson at "$(date +%s)" \
+          --arg result "''${SERVICE_RESULT:-}" \
+          --arg code "''${EXIT_CODE:-}" \
+          --arg status "''${EXIT_STATUS:-}" \
+          --arg after "$(readlink -f /run/current-system)" \
+          '{op: $op, invocation: $inv} + $base
+            + {finishedAt: $at, result: $result, exitCode: $code, exitStatus: $status, systemAfter: $after}'
+      }
+
+      describe() {
+        case $1 in
+          apply) echo "Apply router settings" ;;
+          check) echo "Check router configuration" ;;
+          update) echo "Update router system" ;;
+          rollback) echo "Roll back router system" ;;
+        esac
+      }
+
+      # Something else already rebuilding: this unit, the nightly upgrade (and
+      # the flake update it runs first), or an activation from anywhere.
+      busy() {
+        for unit in "$UNIT" nixos-upgrade.service flake-update.service \
+          nixos-rebuild-switch-to-configuration.service; do
+          case $(systemctl show -P ActiveState "$unit") in
+            activating | active | deactivating | reloading)
+              echo "$unit"
+              return 0
+              ;;
+          esac
+        done
+        return 1
+      }
+
+      argv=("$@")
+      block=1
+      if [ "''${1:-}" = --no-block ]; then
+        block=0
+        shift
+      fi
+      op=''${1:-}
+      case $op in
+        apply | check | update | rollback | finish) shift ;;
+        *) usage ;;
+      esac
+      FLAKE=''${1:-${cfg.cockpit.flakePath}}
+      HOST=''${2:-${cfg.hostName}}
+
+      # One password prompt for the whole run. By absolute path: the setuid
+      # wrapper is the only sudo that works, and it is not on the PATH set
+      # above. Cockpit and the unit already run this as root.
+      if [ "$(id -u)" -ne 0 ]; then
+        exec /run/wrappers/bin/sudo "$0" "''${argv[@]}"
+      fi
+
+      if [ "$op" = finish ]; then
+        finish
+        exit 0
+      fi
+
+      # ── Inside the unit: do the work ──────────────────────────────────
+      if [ "''${ROUTER_REBUILD_UNIT:-}" = 1 ]; then
+        status_write -n \
+          --arg op "$op" \
+          --arg inv "''${INVOCATION_ID:-}" \
+          --argjson at "$(date +%s)" \
+          --arg before "$(readlink -f /run/current-system)" \
+          '{op: $op, invocation: $inv, startedAt: $at, systemBefore: $before}'
+        # exec: nixos-rebuild is the unit's main process, so a cancel's
+        # SIGTERM reaches it rather than this shell.
+        case $op in
+          apply)
+            exec nixos-rebuild switch --flake "$FLAKE#$HOST" --impure
+            ;;
+          check)
+            exec nixos-rebuild dry-build --flake "$FLAKE#$HOST" --impure
+            ;;
+          rollback)
+            exec nixos-rebuild switch --rollback
+            ;;
+          update)
+            # Compare the lock around the update: with nothing to switch to, a
+            # rebuild is minutes of eval for a generation identical to the
+            # running one. Only inputs count here — saved settings are applied
+            # by `router-rebuild apply` (Cockpit's Apply).
+            echo ":: Updating flake inputs in $FLAKE"
+            before=$(sha256sum "$FLAKE/flake.lock" 2>/dev/null || true)
+            nix flake update --flake "$FLAKE"
+            after=$(sha256sum "$FLAKE/flake.lock" 2>/dev/null || true)
+            if [ "$before" = "$after" ]; then
+              echo ":: Flake lock unchanged, skipping rebuild"
+              status_write '. + {note: "unchanged"}' "$STATUS"
+              exit 0
+            fi
+            echo ":: Rebuilding and switching to $FLAKE#$HOST"
+            nixos-rebuild switch --flake "$FLAKE#$HOST" --impure
+            ;;
+        esac
+        exit 0
+      fi
+
+      # ── Outside: start the unit ───────────────────────────────────────
+      # Never stop a rebuild that is running: stopping a switch half-way is
+      # how routers used to end up half-activated. A failed one only holds
+      # the unit name, so it is cleared.
+      if running=$(busy); then
+        echo "router-rebuild: $running is still running; wait for it (journalctl -fu $running)" >&2
+        exit 75
+      fi
+      for unit in "$UNIT" nixos-rebuild-switch-to-configuration.service; do
+        if [ "$(systemctl show -P ActiveState "$unit")" = failed ]; then
+          systemctl reset-failed "$unit"
+        fi
+      done
+
+      # KillMode=mixed: cancelling SIGTERMs nixos-rebuild alone and SIGKILLs
+      # the rest, so nothing gets to react by stopping an activation already
+      # under way (that runs in its own nixos-rebuild-switch-to-configuration
+      # unit). No --collect: a failed run stays until someone dismisses it.
+      systemd-run \
+        --unit="$UNIT" \
+        --service-type=oneshot \
+        --description="$(describe "$op")" \
+        --setenv=ROUTER_REBUILD_UNIT=1 \
+        --setenv=ROUTER_OP="$op" \
+        --property=KillMode=mixed \
+        --property=LogRateLimitIntervalSec=0 \
+        --property=ExecStopPost="$SELF finish" \
+        --no-block \
+        --quiet \
+        -- "$SELF" "$op" "$FLAKE" "$HOST"
+      if [ "$block" = 0 ]; then
+        exit 0
+      fi
+
+      # Follow this run until it ends. The invocation ID appears once the
+      # queued start actually runs.
+      inv=
+      for _ in $(seq 100); do
+        inv=$(systemctl show -P InvocationID "$UNIT")
+        [ -n "$inv" ] && break
+        sleep 0.1
+      done
+      journalctl --follow --lines=all --output=cat "_SYSTEMD_INVOCATION_ID=$inv" &
+      follower=$!
+      trap 'kill "$follower" 2>/dev/null; echo "router-rebuild: still running in $UNIT (journalctl -fu $UNIT)" >&2; exit 130' INT
+      while case $(systemctl show -P ActiveState "$UNIT") in activating | deactivating) true ;; *) false ;; esac; do
+        sleep 1
+      done
+      sleep 1
+      kill "$follower" 2>/dev/null || true
+      wait "$follower" 2>/dev/null || true
+      result=$(jq -r --arg inv "$inv" 'select(.invocation == $inv) | .result // empty' "$STATUS" 2>/dev/null || true)
+      if [ "$result" = success ]; then
+        exit 0
+      fi
+      echo "router-rebuild: $op failed (''${result:-no result}); full log: journalctl _SYSTEMD_INVOCATION_ID=$inv" >&2
+      exit 1
+    '';
+  };
+
+  # Exits non-zero while router-rebuild runs, so the nightly upgrade (an
+  # ExecCondition) waits for the next night instead of racing it.
+  routerRebuildIdle = pkgs.writeShellScript "router-rebuild-idle" ''
+    [ "$(${pkgs.systemd}/bin/systemctl show -P ActiveState router-rebuild.service)" != activating ]
+  '';
+
   # Keys of the cockpit-managed router config exposed to the web UI as
   # /etc/router/effective.json. Everything serializable; package-typed
   # options (extraPackages, cockpit.package/plugins) are intentionally
@@ -227,9 +459,9 @@ in
         default = "/etc/nixos";
         visible = false;
         description = ''
-          Path to the host flake on the deployed router. The Cockpit
-          router plugin runs `nixos-rebuild --flake <flakePath>#<hostName>`
-          from the System page (and the changes tray's Apply).
+          Path to the host flake on the deployed router. `router-rebuild`
+          (and so Cockpit's Apply and System page) builds
+          `<flakePath>#<hostName>`.
         '';
       };
 
@@ -555,12 +787,11 @@ in
     # nothing in it is secret by virtue of the mode: real secrets are paths
     # to root-owned files (*TokenFile, bindPasswordFile, privateKeyFile), and
     # adminUser.initialPassword is a bootstrap value to clear after install
-    # (see the warning below). The plugin also writes an "applied" snapshot
-    # to /var/lib/cockpit-router for the changes tray.
-    # Persist a settings migration (see `_settingsFile`). Activation runs
-    # before /run/current-system is re-linked, so the rewritten file is not
-    # newer than the running system and the changes tray takes it as applied.
-    # The previous contents are kept beside it as *.pre-migration.
+    # (see the warning below).
+    # Persist a settings migration (see `_settingsFile`). The rewritten file
+    # is exactly /etc/router/applied-settings.json below, so Cockpit shows no
+    # pending change for it. The previous contents are kept beside it as
+    # *.pre-migration.
     system.activationScripts.routerSettingsMigrate =
       mkIf (cfg._settingsFile != null && (cfg._settingsFile.migrated or null) != null)
         (
@@ -588,6 +819,22 @@ in
       text = builtins.toJSON (genAttrs effectiveKeys (k: cfg.${k}));
     };
 
+    # The settings file as this generation was built from it (migrated, so in
+    # the shape activation leaves on disk). Cockpit diffs the editable file
+    # against it: whatever differs is saved but not applied, and a field the
+    # two agree on that effective.json does not is locked in Nix. Being part
+    # of the generation, it is right however the system was rebuilt — from
+    # the web UI, a shell, the nightly upgrade or a rollback — and never
+    # races an edit saved while a rebuild ran. Absent when the host flake
+    # does not load its settings through lib.settingsModule; Cockpit then
+    # has no baseline and says so. Same exposure as effective.json above.
+    environment.etc."router/applied-settings.json" =
+      mkIf (cfg.cockpit.enable && cfg._settingsFile != null)
+        {
+          mode = "0600";
+          text = builtins.toJSON cfg._settingsFile.settings;
+        };
+
     systemd.services.flake-update = {
       unitConfig = {
         Description = "Update flake inputs";
@@ -600,6 +847,8 @@ in
         RestartSec = "30";
         Type = "oneshot"; # Ensure that it finishes before starting nixos-upgrade
         User = "root";
+        # Skipped (not failed) while router-rebuild runs; so is nixos-upgrade.
+        ExecCondition = "${routerRebuildIdle}";
       };
       after = [ "network-online.target" ];
       before = [ "nixos-upgrade.service" ];
@@ -611,6 +860,12 @@ in
         pkgs.host
       ];
     };
+
+    # Two rebuilds must never overlap: a rebuild the admin started (router-
+    # rebuild, which in turn refuses to start while this one runs) makes the
+    # nightly upgrade skip that night.
+    systemd.services.nixos-upgrade.serviceConfig.ExecCondition =
+      mkIf config.system.autoUpgrade.enable "${routerRebuildIdle}";
 
     # ── 7. Web UI — Cockpit ─────────────────────────────
     # Cockpit provides a browser-based admin interface for system
@@ -684,13 +939,20 @@ in
     ];
 
     systemd.tmpfiles.rules =
-      # State dir for the cockpit-router plugin's "applied config" snapshot
-      # (written by the web UI after a successful rebuild; drives the
-      # unapplied-changes tray). Root-only — may mirror secrets.
-      optional cfg.cockpit.enable "d /var/lib/cockpit-router 0700 root root -"
+      optionals cfg.cockpit.enable [
+        # State dir for the cockpit-router plugin (the Technitium API token,
+        # see dns-technitium.nix). Root-only. applied.json is the snapshot
+        # older versions of the plugin wrote after each apply, replaced by
+        # /etc/router/applied-settings.json.
+        "d /var/lib/cockpit-router 0700 root root -"
+        "r /var/lib/cockpit-router/applied.json - - - -"
+        # router-rebuild's status file (see routerRebuild), world-readable so
+        # the web UI follows a rebuild even with Limited access.
+        "d /run/cockpit-router 0755 root root -"
+      ]
       # The settings file carries adminUser.initialPassword. Installers
       # before nixos-install-helper's 0600 fix seeded it 0644, and so did
-      # Cockpit saves before nix.ts set the mode; `z` corrects an existing
+      # Cockpit saves before the plugin set the mode; `z` corrects an existing
       # file on every boot and switch. Only an absolute path is a real file
       # on the router (a test may point it at a relative one).
       ++ optional (hasPrefix "/" cfg.cockpit.settingsFile) "z ${cfg.cockpit.settingsFile} 0600 root root -";
@@ -718,11 +980,12 @@ in
         tcpdump
       ]
       ++ [
-        # Update flake inputs and rebuild. Clears any hung rebuild/upgrade
-        # units first (a stuck switch-to-configuration leaves the next
-        # rebuild blocked). Targets the router's configured flake path and
-        # host by default; override as `system-upgrade [FLAKE] [HOST]`.
-        # Also invoked by the Cockpit System page ("Update system").
+        # router-rebuild apply|check|update|rollback: the one way the router
+        # rebuilds on request — from a shell, and from Cockpit's System page
+        # and Apply. Each run happens in the transient router-rebuild.service,
+        # so it outlives the SSH session or browser tab that started it, two
+        # never overlap, and the web UI follows any of them (its status file
+        # and journal). Targets the router's configured flake path and host.
         #
         # writeShellApplication, not writeShellScriptBin: it pins PATH to
         # runtimeInputs instead of inheriting whatever the caller's shell
@@ -733,53 +996,13 @@ in
         # directory` *after* it had already rewritten the lock. The same
         # reason flake-update.service carries git on its own `path`.
         # writeShellApplication also runs shellcheck at build time.
+        routerRebuild
+        # The name the docs and existing routers know for `router-rebuild
+        # update`; `system-upgrade [FLAKE] [HOST]` still targets another flake.
         (writeShellApplication {
           name = "system-upgrade";
-          runtimeInputs = [
-            coreutils
-            gitMinimal
-            nix
-            nixos-rebuild
-            systemd
-          ];
           text = ''
-            # One password prompt for the whole run rather than one per
-            # privileged step. By absolute path: the setuid wrapper is the
-            # only sudo that works, and it is not on the PATH set above.
-            # Cockpit's "Update system" already runs as root and skips this.
-            if [ "$(id -u)" -ne 0 ]; then
-              exec /run/wrappers/bin/sudo "$0" "$@"
-            fi
-
-            FLAKE="''${1:-${cfg.cockpit.flakePath}}"
-            HOST="''${2:-${cfg.hostName}}"
-
-            echo ":: Clearing any hung rebuild/upgrade units"
-            for unit in nixos-rebuild-switch-to-configuration.service nixos-upgrade.service; do
-              systemctl stop "$unit" 2>/dev/null || true
-              systemctl reset-failed "$unit" 2>/dev/null || true
-            done
-            systemctl daemon-reload
-
-            # Compare the lock around the update: with nothing to switch to,
-            # a rebuild is minutes of eval for a generation identical to the
-            # running one. Only inputs count here — a settings-only edit is
-            # applied by Cockpit's "Apply configuration" (or `nixos-rebuild
-            # switch` by hand), not by this command.
-            echo ":: Updating flake inputs in $FLAKE"
-            BEFORE=$(sha256sum "$FLAKE/flake.lock" 2>/dev/null || echo "")
-            nix flake update --flake "$FLAKE"
-            AFTER=$(sha256sum "$FLAKE/flake.lock" 2>/dev/null || echo "")
-
-            if [ "$BEFORE" = "$AFTER" ]; then
-              echo ":: Flake lock unchanged, skipping rebuild"
-              exit 0
-            fi
-
-            echo ":: Rebuilding and switching to $FLAKE#$HOST"
-            nixos-rebuild switch --flake "$FLAKE#$HOST" --impure
-
-            echo ":: system-upgrade complete"
+            exec ${routerRebuild}/bin/router-rebuild update "$@"
           '';
         })
       ]

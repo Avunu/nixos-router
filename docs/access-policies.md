@@ -46,7 +46,7 @@ Policies are a filter, not access control. The router identifies a device by its
 
 1. [Build a policy](/docs/access-policies/policies/) for each group of clients that needs different rules, and pick the default.
 2. [Assign the policies](/docs/access-policies/assignments/) to networks, subnets, host groups or directory groups, then check the result on the **Preview** tab.
-3. Click **Save & apply**.
+3. Choose **Save and apply** from the **Save** menu.
 4. Optionally, turn on the [block page](/docs/access-policies/block-page/) so users see why a site is blocked and can ask for an exception.
 5. Review [DNS enforcement](/docs/access-policies/dns-enforcement/) to understand which clients can and can't bypass the filter.
 

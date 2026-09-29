@@ -81,10 +81,10 @@ The steps are the same for every kind of peer. [Site-to-site VPN](/docs/wireguar
    - **Persistent keepalive (s):** seconds between keepalives. The default is 25, and 0 turns them off. The side behind NAT needs them.
 
    **Remove peer** deletes that peer.
-6. Click **Save & apply**.
+6. Choose **Save and apply** from the **Save** menu.
 
 :::doc-warning
-Click **Generate keypair** before **Save & apply**. If the private key file doesn't exist when the configuration is applied, systemd-networkd, the service that manages every network interface on the router, can't start. The apply fails, and among other things the LAN's DHCP server stops. To recover, click **Generate keypair** and then run `sudo systemctl restart systemd-networkd` on the router, or delete the tunnel and apply again.
+Click **Generate keypair** before **Save and apply**. If the private key file doesn't exist when the configuration is applied, systemd-networkd, the service that manages every network interface on the router, can't start. The apply fails, and among other things the LAN's DHCP server stops. To recover, click **Generate keypair** and then run `sudo systemctl restart systemd-networkd` on the router, or delete the tunnel and apply again.
 :::
 
 **Delete tunnel** removes the selected tunnel and its peers when you save and apply. The key file stays on the router. So does the interface, without its address or firewall rules, until the next reboot; `sudo ip link delete wg0` removes it at once.

@@ -1,10 +1,18 @@
 // Reusable building blocks for the Settings tabs and config pages: the native
-// Cockpit sub-nav, a string-list editor, save-status, and the `useSettings` hook
-// that loads the JSON config and tracks a working copy for the forms.
-import { useState, useEffect, useCallback, useRef } from "react";
+// Cockpit sub-nav (with the tab in the page's URL), the page layout with its
+// pinned save footer, a string-list editor, and the `usePageSettings` hook
+// that tracks a page's working copy of the JSON config.
+import {
+  createContext,
+  useState,
+  useEffect,
+  useCallback,
+  useContext,
+  useMemo,
+  useRef,
+} from "react";
 import type { ReactNode } from "react";
 import {
-  Alert,
   Button,
   TextInput,
   Label,
@@ -12,6 +20,8 @@ import {
   Spinner,
   Split,
   SplitItem,
+  Stack,
+  StackItem,
   Nav,
   NavList,
   NavItem,
@@ -19,17 +29,19 @@ import {
   PageSection,
 } from "@patternfly/react-core";
 import { HelpIcon } from "@patternfly/react-icons";
+import { getPath, setPath, isLocked, errMsg, rebaseEdits, deepEqual } from "./nix";
+import type { Json } from "./nix";
+import { patchWithEdits } from "./settings-json";
+import { NOT_LOADED } from "./settings-read";
 import {
-  loadState,
-  writeDesired,
-  getPath,
-  setPath,
-  isLocked,
-  errMsg,
-  rebaseEdits,
-  onAdminChange,
-} from "./nix";
-import type { SettingsState, Json } from "./nix";
+  SettingsConflictError,
+  getRouterState,
+  settingsChanged,
+  subscribeRouterState,
+  writeSettings,
+} from "./router-state";
+import type { LoadedSettings } from "./router-state";
+import { usePageStatus } from "./page-status";
 
 const _ = cockpit.gettext;
 
@@ -73,14 +85,48 @@ export const SubNav = ({
   </Nav>
 );
 
+// The page's tab, kept in its URL (`#/?tab=<id>`) the way Cockpit's Services
+// page keeps its own (pkg/systemd/services.jsx), so a link can open a tab —
+// the changes panel links each saved change to the tab that edits it — and
+// Back returns to the previous one. `tabs` are the valid ids (best declared
+// once, outside the component), the first being the default.
+function tabOf(tabs: readonly string[]): string {
+  const { tab } = cockpit.location.options;
+  if (typeof tab === "string" && tabs.includes(tab)) {
+    return tab;
+  }
+  return tabs[0] ?? "";
+}
+
+export function useTabRoute(tabs: readonly string[]): [string, (tab: string) => void] {
+  const [tab, setTab] = useState(() => tabOf(tabs));
+  useEffect(() => {
+    const onLocation = () => setTab(tabOf(tabs));
+    cockpit.addEventListener("locationchanged", onLocation);
+    return () => cockpit.removeEventListener("locationchanged", onLocation);
+  }, [tabs]);
+  const select = useCallback((next: string) => {
+    const { path, options } = cockpit.location;
+    const kept = Object.fromEntries(
+      Object.entries(options).filter((e): e is [string, string] => typeof e[1] === "string"),
+    );
+    cockpit.location.go(path, { ...kept, tab: next });
+    setTab(next);
+  }, []);
+  return [tab, select];
+}
+
 // Page layout mirroring Cockpit's native subnav pattern (see pkgs/systemd/
 // services.jsx): the SubNav sits in its own hasBodyWrapper={false} section
 // (minimal space above the tabs), and the content sits in a separate filled
 // section below — the gap between tabs and content is that section's padding.
+// A `footer` (the page's SaveActions) is pinned below the content, which
+// scrolls above it, so saving never means scrolling to the end of a form.
 export const TabbedPage = ({
   header,
   subnav,
   fills = true,
+  footer,
   children,
 }: {
   // Content shown ABOVE the tabs, in its own section. It needs one: PatternFly's
@@ -90,6 +136,7 @@ export const TabbedPage = ({
   header?: ReactNode;
   subnav?: ReactNode;
   fills?: boolean;
+  footer?: ReactNode;
   children: ReactNode;
 }) => (
   <>
@@ -100,71 +147,71 @@ export const TabbedPage = ({
       </PageSection>
     ) : null}
     <PageSection isFilled={fills} className={fills ? "ct-router-body" : undefined}>
-      {children}
+      {footer ? (
+        <Stack hasGutter className="ct-router-stack">
+          <StackItem isFilled className="ct-router-tab">
+            {children}
+          </StackItem>
+          <StackItem>{footer}</StackItem>
+        </Stack>
+      ) : (
+        children
+      )}
     </PageSection>
   </>
 );
 
 export const Loading = () => <Spinner />;
 
-export const SaverStatus = ({ status }: { status: { ok: boolean; msg: string } | null }) =>
-  status ? (
-    <Alert
-      variant={status.ok ? "success" : "danger"}
-      isInline
-      title={status.ok ? _("Settings saved") : _("Could not save settings")}
-    >
-      {status.msg}
-    </Alert>
-  ) : null;
+export interface SaveStatus {
+  ok: boolean;
+  msg: string;
+}
 
-// Loads the JSON config + effective/applied companions and exposes a working
-// copy of `desired` that forms edit by leaf path. `save()` writes the JSON;
-// `saveAndApply()` writes it then asks the changes tray to rebuild.
+// A page's working copy of the JSON config, which its forms edit by leaf
+// path, over the settings as the store (router-state.ts) last read them.
 //
-// The working copy follows the file. Every write of the settings file
-// (writeDesired) and every apply announces itself with "router:changed", and
-// the hook then rebuilds its copy from disk rather than keeping the one it
-// loaded — otherwise a page left open across the changes tray's Revert, or
-// another form's save, would write its stale copy straight back over them.
-// Edits the admin has not saved yet survive the rebuild (see rebaseEdits).
+// One per page, shared by its tabs through SettingsProvider/useSettings, so
+// edits survive switching tabs and "unsaved" means the whole page. The
+// working copy follows the file: whenever the file changes — a save here or
+// on another page, in another browser, a Discard of the saved changes — it is
+// rebuilt from disk rather than kept, or a page left open would write its
+// stale copy straight back over the change. Edits not saved yet survive the
+// rebuild (see rebaseEdits). While a page holds unsaved edits, its sidebar
+// entry says so, and leaving the web console asks first.
 //
 // A settings file that cannot be read (root-only, in a session with Limited
 // access) is an `error`, never an empty form: `ready` stays false, so pages
-// show the message instead of a form and a Save button, and writeDesired
-// refuses anyway without a loaded state. Switching administrative access on or
-// off reloads, since it changes what can be read.
-export function useSettings() {
-  const [state, setState] = useState<SettingsState | null>(null);
+// show the message instead of a form, and writeSettings refuses anyway
+// without a successful read.
+export function usePageSettings({ publishStatus = true }: { publishStatus?: boolean } = {}) {
+  const [state, setState] = useState<LoadedSettings | null>(null);
   const [desired, setDesired] = useState<Json>({});
   const [error, setError] = useState("");
+  const [baselineKnown, setBaselineKnown] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [status, setStatus] = useState<{ ok: boolean; msg: string } | null>(null);
+  const [status, setStatus] = useState<SaveStatus | null>(null);
   // Unsaved edits, leaf path → value, in the order they were last made.
   const pending = useRef(new Map<string, Json>());
+  const seen = useRef<LoadedSettings | null>(null);
 
-  const reload = useCallback(() => {
-    loadState()
-      .then((s) => {
-        setState(s);
-        setError("");
-        setDesired(rebaseEdits(s.desired, pending.current));
-      })
-      .catch((e: unknown) => {
-        // Drop a copy loaded earlier too, so no form outlives a failed read.
-        setState(null);
-        setError(errMsg(e));
-      });
-  }, []);
   useEffect(() => {
-    reload();
-    window.addEventListener("router:changed", reload);
-    const offAdmin = onAdminChange(reload);
-    return () => {
-      window.removeEventListener("router:changed", reload);
-      offAdmin();
+    const sync = () => {
+      const st = getRouterState();
+      setError(st.error);
+      setBaselineKnown(st.baselineKnown);
+      if (st.settings === seen.current) {
+        return;
+      }
+      seen.current = st.settings;
+      setState(st.settings);
+      if (st.settings) {
+        setDesired(rebaseEdits(st.settings.desired, pending.current));
+      }
     };
-  }, [reload]);
+    sync();
+    return subscribeRouterState(sync);
+  }, []);
 
   const setLeaf = useCallback((path: string, val: Json) => {
     // Delete first so a repeated edit moves to the end: re-applying in order
@@ -172,6 +219,7 @@ export function useSettings() {
     pending.current.delete(path);
     pending.current.set(path, val);
     setDesired((d) => setPath(d, path, val));
+    setStatus(null);
   }, []);
 
   // Form value: the working desired value, falling back to the effective value
@@ -191,78 +239,137 @@ export function useSettings() {
 
   const lockedOf = useCallback((path: string) => (state ? isLocked(state, path) : false), [state]);
 
-  const persist = useCallback(
-    (apply: boolean) => {
-      setSaving(true);
-      setStatus(null);
-      return writeDesired(desired, state)
-        .then(() => {
-          setStatus({
-            ok: true,
-            msg: apply ? _("Saved — applying…") : _("Saved. Apply to take effect."),
-          });
-          if (apply) {
-            window.dispatchEvent(new Event("router:apply"));
-          }
-        })
-        .catch((e: unknown) => setStatus({ ok: false, msg: errMsg(e) }))
-        .finally(() => setSaving(false));
-    },
+  // Whether saving would change the file: an edit set back to the saved value
+  // is no edit.
+  const dirty = useMemo(
+    () => state !== null && !deepEqual(desired, state.desired),
     [desired, state],
   );
 
-  // Replace the whole settings file with `obj`, built from `desired`, for a
-  // page that writes outside the working copy. Refused like `save` when the
-  // settings were not read.
-  const write = useCallback((obj: Json) => writeDesired(obj, state), [state]);
+  // Write what `build` makes of the settings as last read. When they changed
+  // on disk in between, the store's watch delivers the new version; build on
+  // that once more before giving up.
+  const commit = useCallback(async (build: (disk: Json) => Json, after?: () => void) => {
+    for (let attempt = 0; ; attempt++) {
+      const base = getRouterState().settings;
+      if (!base) {
+        throw new Error(getRouterState().error || NOT_LOADED);
+      }
+      try {
+        await writeSettings(build(base.desired), base);
+        after?.();
+        return;
+      } catch (e) {
+        if (!(e instanceof SettingsConflictError) || attempt > 0) {
+          throw e;
+        }
+        await settingsChanged();
+      }
+    }
+  }, []);
+
+  // Save the working copy; resolves whether it was saved (errors go to
+  // `status`).
+  const save = useCallback(async (): Promise<boolean> => {
+    setSaving(true);
+    setStatus(null);
+    const saved = await commit((disk) => rebaseEdits(disk, pending.current)).then(
+      () => ({ ok: true, msg: "" }),
+      (e: unknown) => ({ ok: false, msg: errMsg(e) }),
+    );
+    setStatus(saved);
+    setSaving(false);
+    return saved.ok;
+  }, [commit]);
+
+  // Save a change made outside the working copy (an approved exception, a
+  // rule added from an event) straight to the file, carrying it into any
+  // unsaved edit of the same section too (see patchWithEdits). The rest of
+  // the page's unsaved edits stay unsaved. Rejects with the reason.
+  const patch = useCallback(
+    async (fn: (settings: Json) => Json) => {
+      let next = pending.current;
+      await commit(
+        (disk) => {
+          const patched = patchWithEdits(disk, pending.current, fn);
+          next = patched.pending;
+          return patched.disk;
+        },
+        () => {
+          // The store delivered the new file (and this page rebased on it)
+          // before the write resolved, still with the old edits: rebase on the
+          // patched ones.
+          pending.current = next;
+          const base = getRouterState().settings;
+          if (base) {
+            setDesired(rebaseEdits(base.desired, pending.current));
+          }
+        },
+      );
+    },
+    [commit],
+  );
+
+  const discard = useCallback(() => {
+    pending.current.clear();
+    const base = getRouterState().settings;
+    if (base) {
+      setDesired(base.desired);
+    }
+    setStatus(null);
+  }, []);
+
+  const unsaved = useMemo(
+    () => (dirty ? { type: "info" as const, title: _("Unsaved changes") } : null),
+    [dirty],
+  );
+  usePageStatus(publishStatus ? unsaved : undefined);
+
+  useEffect(() => {
+    if (!dirty) {
+      return;
+    }
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
   return {
     ready: Boolean(state),
     error,
     desired,
     effective: state?.effective ?? {},
+    // Whether the running generation's settings are known (see RouterState).
+    baselineKnown,
     setLeaf,
     valueOf,
     lockedOf,
-    save: () => persist(false),
-    saveAndApply: () => persist(true),
-    write,
+    dirty,
+    save,
+    patch,
+    discard,
     saving,
     status,
-    reload,
   };
 }
 
-// Save / Save & Apply buttons + status, shared by every settings form.
-export const SaveBar = ({
-  saving,
-  status,
-  onSave,
-  onSaveApply,
-  applyDisabled,
-}: {
-  saving: boolean;
-  status: { ok: boolean; msg: string } | null;
-  onSave: () => void;
-  onSaveApply: () => void;
-  applyDisabled?: boolean;
-}) => (
-  <>
-    <SaverStatus status={status} />
-    <Split hasGutter>
-      <SplitItem>
-        <Button variant="secondary" onClick={onSave} isLoading={saving} isDisabled={saving}>
-          {_("Save")}
-        </Button>
-      </SplitItem>
-      <SplitItem>
-        <Button variant="primary" onClick={onSaveApply} isDisabled={saving || applyDisabled}>
-          {_("Save & apply")}
-        </Button>
-      </SplitItem>
-    </Split>
-  </>
+export type Settings = ReturnType<typeof usePageSettings>;
+
+const SettingsContext = createContext<Settings | null>(null);
+
+// Share a page's usePageSettings with its tabs.
+export const SettingsProvider = ({ value, children }: { value: Settings; children: ReactNode }) => (
+  <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>
 );
+
+// The page's settings, inside a SettingsProvider.
+export function useSettings(): Settings {
+  const s = useContext(SettingsContext);
+  if (!s) {
+    throw new Error("useSettings() needs a SettingsProvider (see usePageSettings)");
+  }
+  return s;
+}
 
 // Edit a list of strings (allow/block lists, DNS upstreams, UT Capitole
 // categories, …) as removable chips plus an add field.

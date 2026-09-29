@@ -34,7 +34,17 @@ import {
   TextInput,
 } from "@patternfly/react-core";
 import { ExternalLinkAltIcon } from "@patternfly/react-icons";
-import { useSettings, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
+import {
+  useSettings,
+  Loading,
+  SubNav,
+  hint,
+  TabbedPage,
+  usePageSettings,
+  useTabRoute,
+  SettingsProvider,
+} from "./settings";
+import { SaveActions } from "./save-actions";
 import { errMsg } from "./nix";
 
 const _ = cockpit.gettext;
@@ -303,10 +313,6 @@ const Unifi = () => {
           </StackItem>
         </>
       ) : null}
-
-      <StackItem>
-        <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
-      </StackItem>
     </Stack>
   );
 };
@@ -469,31 +475,33 @@ const OpenWisp = () => {
           </StackItem>
         </>
       ) : null}
-
-      <StackItem>
-        <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
-      </StackItem>
     </Stack>
   );
 };
 
+const TABS = ["unifi", "openwisp"];
+
 export const Wireless = () => {
-  const [tab, setTab] = useState("unifi");
+  const s = usePageSettings();
+  const [tab, setTab] = useTabRoute(TABS);
 
   return (
-    <TabbedPage
-      subnav={
-        <SubNav
-          items={[
-            { id: "unifi", label: _("UniFi") },
-            { id: "openwisp", label: _("OpenWISP") },
-          ]}
-          active={tab}
-          onSelect={setTab}
-        />
-      }
-    >
-      {tab === "unifi" ? <Unifi /> : <OpenWisp />}
-    </TabbedPage>
+    <SettingsProvider value={s}>
+      <TabbedPage
+        subnav={
+          <SubNav
+            items={[
+              { id: "unifi", label: _("UniFi") },
+              { id: "openwisp", label: _("OpenWISP") },
+            ]}
+            active={tab}
+            onSelect={setTab}
+          />
+        }
+        footer={s.ready ? <SaveActions s={s} /> : null}
+      >
+        {tab === "unifi" ? <Unifi /> : <OpenWisp />}
+      </TabbedPage>
+    </SettingsProvider>
   );
 };

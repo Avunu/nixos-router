@@ -4,8 +4,8 @@
 // nix.ts used to turn every read failure into {}. The settings file is
 // root-only (0600) on a router installed with local/deploy.sh, so a Cockpit
 // session in Limited access loaded it as {}. Once the owner switched to
-// administrative access, the next Save built on that {} and, because
-// writeDesired replaces the whole file, kept only the edited fields: lan, wan,
+// administrative access, the next Save built on that {} and, because a save
+// replaces the whole file, kept only the edited fields: lan, wan,
 // hosts and the rest were gone. A missing or empty file is still a legitimate
 // {} (cockpit.file().read() resolves null for a missing file); anything else
 // is an error for the page to show.
@@ -67,8 +67,8 @@ export function readStrict(path: string, read: () => Promise<string | null>): Pr
   );
 }
 
-// Settings states that came from a successful read; loadState marks each one.
-// writeDesired takes the state its object was built on and writes nothing
+// Settings states that came from a successful read; the store (router-state.ts)
+// marks each one. writeSettings takes the state its object was built on and writes nothing
 // unless it is in here, so a page whose read failed cannot save even if a form
 // was left usable. Membership is by identity: a copy is not a read.
 const loaded = new WeakSet<object>();

@@ -38,7 +38,7 @@ This page uses the tunnel `wg1` with the address `10.100.1.1/24` on UDP port 518
 2. Set **Address (CIDR)** to `10.100.1.1/24`.
 3. Set **Listen port** to 51821.
 4. Click **Generate keypair** and copy the key under **Public key (share with peers)**. Every device needs it.
-5. Click **Save & apply**. A tunnel with no peers yet is fine.
+5. Choose **Save and apply** from the **Save** menu. A tunnel with no peers yet is fine.
 
 [Set up a tunnel](/docs/wireguard/#set-up-a-tunnel) describes every field.
 
@@ -53,7 +53,7 @@ Give each device the next free address in the tunnel subnet: `10.100.1.2`, `10.1
    - **Endpoint (optional):** empty. Devices always connect to the router.
    - **Allowed IPs:** the device's address as a `/32`, such as `10.100.1.2/32`, and nothing else.
    - **Persistent keepalive (s):** 0. The router has no reason to hold a path open to a roaming device, and keepalives sent to a phone cost it battery.
-4. Click **Save & apply**.
+4. Choose **Save and apply** from the **Save** menu.
 5. Turn the tunnel on in the app. On the router, `sudo wg show wg1` should show a `latest handshake` for the device's key.
 
 In `/etc/nixos/router-settings.json`, a tunnel with a laptop and a phone looks like this:
@@ -139,7 +139,7 @@ SSH answers on the LAN and tunnel addresses alike.
 
 ## Revoke a device
 
-On **Network → WireGuard**, select the tunnel, click **Remove peer** on the device's card, and click **Save & apply**. The router drops the peer as the change is applied, and the device's key no longer gets in.
+On **Network → WireGuard**, select the tunnel, click **Remove peer** on the device's card, and choose **Save and apply** from the **Save** menu. The router drops the peer as the change is applied, and the device's key no longer gets in.
 
 Nothing else needs to change. A device holds only its own private key and the router's public key, so losing one exposes neither the router's key nor any other device.
 

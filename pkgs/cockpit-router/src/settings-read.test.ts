@@ -99,7 +99,7 @@ void test("isDenied: only the bridge's permission problems", () => {
   assert.ok(!isDenied(null));
 });
 
-void test("isLoaded: only a state loadState marked can be saved over", () => {
+void test("isLoaded: only a state the store marked can be saved over", () => {
   const state = { desired: { hostName: "r1" }, effective: {}, applied: {} };
   assert.ok(!isLoaded(state), "not marked yet");
   assert.ok(!isLoaded(null), "a failed read leaves no state");
