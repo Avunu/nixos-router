@@ -201,6 +201,12 @@ pkgs.testers.runNixOSTest {
         router.succeed(f"ip -n {ns} link set lo up")
         router.succeed(f"ip -n {ns} addr add {v4}/24 dev {ns}-c")
         router.succeed(f"ip -n {ns} addr add {v6}/64 dev {ns}-c nodad")
+        # br-lan sends RAs unconditionally (IPv6SendRA); left alone, the kernel
+        # races this function's own default route below and sometimes wins,
+        # installing one via the router's link-local address first — so the
+        # explicit `route add` a few lines down fails with "File exists". These
+        # hosts are meant to be statically addressed, so opt out of SLAAC.
+        router.succeed(f"ip netns exec {ns} sh -c 'echo 0 > /proc/sys/net/ipv6/conf/{ns}-c/accept_ra'")
         router.succeed(f"ip -n {ns} link set {ns}-c up")
         router.succeed(f"ip -n {ns} route add default via 10.48.4.1")
         router.succeed(f"ip -n {ns} -6 route add default via 2001:db8:4::1")
