@@ -170,8 +170,10 @@ export function writeDesired(obj: Json, base: SettingsState | null | undefined):
       new Error(`Configuration does not match the schema:\n${errors.join("\n")}`),
     );
   }
+  // Root-only: the file carries adminUser.initialPassword, and an untagged
+  // replace would otherwise leave it world-readable.
   return cockpit
-    .file(SETTINGS_FILE, { superuser: "require" })
+    .file(SETTINGS_FILE, { superuser: "require", attrs: { mode: 0o600 } })
     .replace(`${JSON.stringify(obj, null, 2)}\n`)
     .then(
       (r: unknown) => {

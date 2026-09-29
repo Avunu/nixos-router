@@ -24,6 +24,9 @@ interface CockpitProcess extends Promise<string> {
 interface CockpitFileOptions {
   superuser?: "require" | "try";
   binary?: boolean;
+  // Passed to the fsreplace1 channel: the mode replace() gives the file.
+  // Without it (and without a tag) the bridge uses 0666 & ~umask.
+  attrs?: { mode?: number };
 }
 
 interface CockpitFile {

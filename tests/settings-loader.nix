@@ -15,7 +15,10 @@
 #     with, which stays ignored and warns unless it is 53;
 #   • the activation step really rewrites the file on disk — run here against
 #     a copy — keeps a backup and the file's mode, and never touches a file
-#     edited since the evaluation.
+#     edited since the evaluation;
+#   • the module plus the settings file alone — what an installer-image
+#     router's /etc/nixos flake imports — keeps Cockpit, and keeps the
+#     settings file root-only.
 {
   pkgs,
   routerModule,
@@ -103,6 +106,8 @@ let
     (settingsModule legacyFile)
     { router.cockpit.settingsFile = "router-settings.json"; }
   ];
+  # The same router with the settings file where a real one keeps it.
+  sysInstalled = evalRouter [ (settingsModule legacyFile) ];
 
   failedAssertions = failedAssertionsOf sys;
 
@@ -237,6 +242,21 @@ let
       name = "pre-loader-listen-port-inert";
       ok = endpointsOf preLoaderMoved == "0.0.0.0:53,[::]:53";
       detail = "listenPort = 5353 moved Technitium to ${endpointsOf preLoaderMoved}";
+    }
+    {
+      name = "installed-router-keeps-cockpit";
+      ok = sys.services.cockpit.enable;
+      detail = "Cockpit is off in a router built from the module and its settings file alone";
+    }
+    {
+      name = "settings-file-kept-root-only";
+      ok = lib.elem "z /etc/nixos/router-settings.json 0600 root root -" sysInstalled.systemd.tmpfiles.rules;
+      detail = "no tmpfiles rule resets the settings file to 0600";
+    }
+    {
+      name = "relative-settings-path-no-tmpfiles";
+      ok = !lib.any (lib.hasInfix "router-settings.json") sys.systemd.tmpfiles.rules;
+      detail = "a tmpfiles rule names the relative settings path";
     }
     {
       name = "activation-rewrites-file";
