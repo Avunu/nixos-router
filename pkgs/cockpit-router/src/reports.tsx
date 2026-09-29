@@ -49,6 +49,7 @@ import {
 } from "./settings";
 import type { Settings as PageSettings } from "./settings";
 import { SaveActions } from "./save-actions";
+import { TokenFileField } from "./ingress-widgets";
 import { statsGet, statsGetTop } from "./technitium";
 import { logsCsv, logsQuery, statsTop } from "./logd";
 import type { LogFilters } from "./logd";
@@ -69,6 +70,12 @@ import type {
 const _ = cockpit.gettext;
 
 type Settings = PageSettings;
+
+// Where "Set token…" writes the report-email token when the field is empty.
+const DEFAULT_EMAIL_TOKEN_FILE = "/etc/router/secrets/cloudflare-email.token";
+const EMAIL_TOKEN_SCOPES = _(
+  "Create a token in the Cloudflare dashboard (My Profile → API Tokens) with Email Routing: Edit on the account that sends the reports. It needs its own token: the other features' tokens lack this permission.",
+);
 
 const REFRESH_MS = 10_000;
 const PAGE_SIZE = 50;
@@ -923,8 +930,6 @@ const ScheduledReports = ({ s }: { s: Settings }) => {
       },
     ]);
 
-  const pathHint = hint(_("Path to a root-owned file on the router — never the secret itself."));
-
   return (
     <Stack hasGutter className="ct-router-stack">
       <StackItem isFilled style={{ overflowY: "auto" }}>
@@ -949,14 +954,14 @@ const ScheduledReports = ({ s }: { s: Settings }) => {
                 onChange={(_e, v) => s.setLeaf("reporting.email.accountId", v)}
               />
             </FormGroup>
-            <FormGroup label={_("API token file")} fieldId="rep-token" labelHelp={pathHint}>
-              <TextInput
-                id="rep-token"
-                value={s.valueOf<string | null>("reporting.email.apiTokenFile", "") ?? ""}
-                isDisabled={s.lockedOf("reporting.email.apiTokenFile")}
-                onChange={(_e, v) => s.setLeaf("reporting.email.apiTokenFile", v)}
-              />
-            </FormGroup>
+            <TokenFileField
+              s={s}
+              leaf="reporting.email.apiTokenFile"
+              fieldId="rep-token"
+              label={_("API token file")}
+              defaultFile={DEFAULT_EMAIL_TOKEN_FILE}
+              scopes={EMAIL_TOKEN_SCOPES}
+            />
             <FormGroup label={_("From address")} fieldId="rep-from">
               <TextInput
                 id="rep-from"

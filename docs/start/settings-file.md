@@ -97,7 +97,7 @@ The settings file, like every value that goes into a NixOS build, ends up readab
 | `acme.cloudflare.apiTokenFile` | `/etc/router/secrets/cloudflare-acme.token` | **Set token…** on **Ingress → Reverse proxy** |
 | `cloudflareTunnel.apiTokenFile` | `/etc/router/secrets/cloudflare-tunnel.token` | **Set token…** on **Ingress → Tunnel** |
 | `wireguard.<name>.privateKeyFile` | `/etc/wireguard/<name>.key` | **Generate keypair** on **Network → WireGuard** |
-| `reporting.email.apiTokenFile` | none | You, as root |
+| `reporting.email.apiTokenFile` | `/etc/router/secrets/cloudflare-email.token` | **Set token…** on **Reports → Scheduled reports** |
 | `directory.sssd.bindPasswordFile` | none | You, as root |
 
 **Set token…** opens a form, "Set Cloudflare API token". The token you paste travels to the router over standard input, never on a command line, and is written to the path with mode 0600 in a directory with mode 0700. Only the path is saved in the settings file.
@@ -105,7 +105,7 @@ The settings file, like every value that goes into a NixOS build, ends up readab
 For the files you create yourself, keep the same convention. This is what **Set token…** runs, with the token on standard input:
 
 ```bash
-sudo sh -c 'umask 077 && install -d -m 700 /etc/router/secrets && cat > /etc/router/secrets/cloudflare-email.token'
+sudo sh -c 'umask 077 && install -d -m 700 /etc/router/secrets && cat > /etc/router/secrets/ldap-bind.password'
 ```
 
 Paste the token, press Enter, then Ctrl+D. Then enter the path in the matching field.
