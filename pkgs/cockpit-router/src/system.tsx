@@ -460,7 +460,9 @@ const SystemSettings = () => {
                 type="password"
                 value={s.valueOf("adminUser.initialPassword", "") ?? ""}
                 isDisabled={s.lockedOf("adminUser.initialPassword")}
-                onChange={(_e, v) => s.setLeaf("adminUser.initialPassword", v)}
+                // Emptied is null, the "no initial password" the warning
+                // below asks for; "" would be an empty password.
+                onChange={(_e, v) => s.setLeaf("adminUser.initialPassword", v || null)}
               />
               <Alert
                 variant="warning"

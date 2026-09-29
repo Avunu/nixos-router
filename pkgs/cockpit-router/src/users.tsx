@@ -55,6 +55,16 @@ import type {
 
 const _ = cockpit.gettext;
 
+// The directory's file paths are `string | null`: an emptied field is null,
+// "no file". The module would take "" for a path (lib/settings.nix
+// clearedValuesToNull upgrades what older pages stored).
+const OPTIONAL_PATHS = new Set([
+  "directory.sssd.bindPasswordFile",
+  "directory.sssd.tlsCaCertFile",
+  "directory.sssd.tlsClientCertFile",
+  "directory.sssd.tlsClientKeyFile",
+]);
+
 type Settings = PageSettings;
 
 const delay = (ms: number) =>
@@ -443,7 +453,7 @@ const DirectorySettingsTab = ({ s }: { s: Settings }) => {
         id={id}
         value={s.valueOf<string | null>(path, "") ?? ""}
         isDisabled={s.lockedOf(path)}
-        onChange={(_e, v) => s.setLeaf(path, v)}
+        onChange={(_e, v) => s.setLeaf(path, OPTIONAL_PATHS.has(path) ? v || null : v)}
       />
     </FormGroup>
   );

@@ -214,6 +214,66 @@ let
       detail = "settings without dns.technitium.listenPort were changed";
     }
     {
+      # Older pages stored "" for an emptied optional field; it is null now,
+      # and a second pass changes nothing.
+      name = "cleared-values-become-null";
+      ok =
+        let
+          once = migrateSettings {
+            reporting.email = {
+              accountId = "0123";
+              apiTokenFile = "";
+            };
+            directory.sssd = {
+              bindDn = "";
+              bindPasswordFile = "";
+              tlsCaCertFile = "";
+              tlsClientCertFile = "";
+              tlsClientKeyFile = "";
+            };
+            adminUser = {
+              name = "admin";
+              initialPassword = "";
+            };
+          };
+        in
+        once == {
+          reporting.email = {
+            accountId = "0123";
+            apiTokenFile = null;
+          };
+          directory.sssd = {
+            bindDn = "";
+            bindPasswordFile = null;
+            tlsCaCertFile = null;
+            tlsClientCertFile = null;
+            tlsClientKeyFile = null;
+          };
+          adminUser = {
+            name = "admin";
+            initialPassword = null;
+          };
+        }
+        && migrateSettings once == once;
+      detail = "emptied optional values were not nulled, other keys changed, or a second pass differed";
+    }
+    {
+      # A set path, an absent key and "" anywhere else are values of their own.
+      name = "set-and-absent-values-stay";
+      ok =
+        let
+          set = {
+            reporting.email.apiTokenFile = "/etc/router/secrets/cloudflare-email.token";
+            directory.sssd.domain = "";
+          };
+        in
+        migrateSettings set == set
+        && migrateSettings { hostName = "router"; } == {
+          hostName = "router";
+        };
+      detail = "a set path, an absent key or an unrelated empty string was changed";
+    }
+    {
       name = "unresolvable-forward-stops-evaluation";
       ok = !(builtins.tryEval (builtins.deepSeq unresolvable unresolvable)).success;
       detail = "a forward to an address no host reserves evaluated anyway";
