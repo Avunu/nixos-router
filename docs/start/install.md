@@ -135,25 +135,6 @@ The finished image is under `result/iso/`. When the target boots from it:
 
 The installed router's `/etc/nixos` holds a generated `flake.nix`, a `local.nix` for your own additions, and `router-settings.json`. The generated flake imports `local.nix`, so that file is where this router's Nix settings go.
 
-### Turn Cockpit on after an installer-image install
-
-The generated host flake does not turn Cockpit on. The system the image installs has Cockpit, but the first rebuild from `/etc/nixos` removes it, and the nightly upgrade at `03:00` is such a rebuild. Before then, sign in over SSH and add one line to `/etc/nixos/local.nix`, inside its attribute set:
-
-```nix
-{ config, lib, pkgs, inputs, ... }:
-{
-  router.cockpit.enable = true;
-
-  environment.systemPackages = with pkgs; [ ];
-}
-```
-
-Then rebuild:
-
-```bash
-sudo nixos-rebuild switch --flake /etc/nixos#default --impure
-```
-
 ## The host flake
 
 `local/flake.nix` is the template for the `/etc/nixos/flake.nix` of a router installed over the network. It is short:
@@ -211,5 +192,4 @@ Routers installed before this change have `nixpkgs.url = "github:NixOS/nixpkgs/n
 - **The script stops with `error: set adminUser.initialPassword ...`.** The settings file has no initial password, or a well-known one. Set a password of your own and run the script again.
 - **The script stops with `error: <dir>/flake.nix is missing`.** Run it from a full checkout; it looks for `flake.nix` and `router-settings.json` beside itself.
 - **You can sign in over SSH but `sudo` asks for a password you never set.** The settings had no `adminUser.initialPassword`, so the account has no password. Reinstall with one.
-- **Cockpit is gone the morning after an installer-image install.** The generated host flake does not enable it. Add `router.cockpit.enable = true;` to `/etc/nixos/local.nix`, as described in [Turn Cockpit on after an installer-image install](#turn-cockpit-on-after-an-installer-image-install).
 - **The build fails with `router: at least one physical interface must be assigned (no port exists to carry traffic).`** The settings assign no port to any network. Set `wan.interface` and `lan.interfaces`.

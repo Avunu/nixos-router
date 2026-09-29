@@ -32,7 +32,7 @@
       router = nixpkgs.lib.nixosSystem {
         inherit system;
         modules = [
-          { nix.nixPath = [ "nixpkgs=${self.inputs.nixpkgs}" ]; }
+          { nix.settings.nix-path = [ "nixpkgs=${self.inputs.nixpkgs}" ]; }
           nixos-router.nixosModules.router
 
           # The cockpit-managed router config. The web UI reads and writes this
