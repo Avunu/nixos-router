@@ -126,11 +126,11 @@ const IntInput = ({
 const Stat = ({ label, value, sub }: { label: string; value: string | number; sub?: string }) => (
   <div>
     <div style={{ fontSize: "1.6rem", fontWeight: 700, lineHeight: 1.1 }}>{value}</div>
-    <div className="pf-v6-u-color-200" style={{ fontSize: "0.85rem" }}>
+    <div className="pf-v6-u-text-color-subtle" style={{ fontSize: "0.85rem" }}>
       {label}
     </div>
     {sub ? (
-      <div className="pf-v6-u-color-200" style={{ fontSize: "0.8rem" }}>
+      <div className="pf-v6-u-text-color-subtle" style={{ fontSize: "0.8rem" }}>
         {sub}
       </div>
     ) : null}
@@ -516,7 +516,9 @@ const QueryLog = ({ hostGroups }: { hostGroups: HostGroup[] }) => {
             {entries.length === 0 ? (
               <Tr>
                 <Td colSpan={7}>
-                  <span className="pf-v6-u-color-200">{_("No log entries match the filter.")}</span>
+                  <span className="pf-v6-u-text-color-subtle">
+                    {_("No log entries match the filter.")}
+                  </span>
                 </Td>
               </Tr>
             ) : (
@@ -725,7 +727,7 @@ const ScheduleCard = ({
           labelHelp={hint(_("Restrict group breakdowns to these host groups; none = all."))}
         >
           {hostGroups.length === 0 ? (
-            <span className="pf-v6-u-color-200">
+            <span className="pf-v6-u-text-color-subtle">
               {_("No host groups are defined — all devices are included.")}
             </span>
           ) : (

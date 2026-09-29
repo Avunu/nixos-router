@@ -228,7 +228,7 @@ const UsersTab = ({
               />
             </ToolbarItem>
             <ToolbarItem>
-              <span className="pf-v6-u-color-200">
+              <span className="pf-v6-u-text-color-subtle">
                 {cockpit.format(_("$0 of $1 users"), visible.length, directory.users.length)}
               </span>
             </ToolbarItem>
@@ -265,7 +265,11 @@ const UsersTab = ({
                   <Td dataLabel={_("Login")}>
                     {u.id}
                     {u.email && (
-                      <Label isCompact color="grey" className="pf-v6-u-ml-sm">
+                      <Label
+                        isCompact
+                        color="grey"
+                        style={{ marginInlineStart: "var(--pf-t--global--spacer--sm)" }}
+                      >
                         {cockpit.format(_("alias: $0"), u.email)}
                       </Label>
                     )}
@@ -291,7 +295,7 @@ const UsersTab = ({
                   <Td dataLabel={_("Devices")} colSpan={5}>
                     <ExpandableRowContent>
                       {devices.length === 0 ? (
-                        <span className="pf-v6-u-color-200">
+                        <span className="pf-v6-u-text-color-subtle">
                           {_("No devices are assigned to this user in the device registry.")}
                         </span>
                       ) : (
@@ -677,7 +681,7 @@ export const Users = () => {
             </Label>
           </SplitItem>
           <SplitItem>
-            <span className="pf-v6-u-color-200">
+            <span className="pf-v6-u-text-color-subtle">
               {status?.lastSync
                 ? cockpit.format(_("Last sync: $0"), new Date(status.lastSync).toLocaleString())
                 : _("Never synced")}
@@ -721,7 +725,7 @@ export const Users = () => {
                 </Label>
               ))}
             </LabelGroup>
-            <div className="pf-v6-u-mt-sm">
+            <div style={{ marginBlockStart: "var(--pf-t--global--spacer--sm)" }}>
               {_(
                 "Fix them under Hosts (device → user) or Access policies (directory groups). Everything else resolved normally.",
               )}

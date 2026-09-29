@@ -97,7 +97,7 @@ const NicCheckboxes = ({
   idPrefix: string;
 }) =>
   nics.length === 0 ? (
-    <span className="pf-v6-u-color-200">{_("No interfaces detected.")}</span>
+    <span className="pf-v6-u-text-color-subtle">{_("No interfaces detected.")}</span>
   ) : (
     <Split hasGutter>
       {nics.map((n) => (

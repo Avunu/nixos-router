@@ -79,6 +79,11 @@ import type {
 
 const _ = cockpit.gettext;
 
+// The winning step's row: a faint tint of the theme's success colour, so the
+// row's text keeps its contrast in both light and dark mode.
+const WINNER_TINT =
+  "color-mix(in srgb, var(--pf-t--global--color--status--success--default) 12%, transparent)";
+
 type PolicyNetwork = "lan" | "guest" | "wireguard";
 
 // ── shared helpers ───────────────────────────────────────────────────────────
@@ -209,7 +214,7 @@ const AssignmentsSummary = ({ assignments }: { assignments?: PolicyAssignments }
   const hostGroups = assignments?.hostGroups ?? [];
   const directoryGroups = assignments?.directoryGroups ?? [];
   if (networks.length + subnets.length + hostGroups.length + directoryGroups.length === 0) {
-    return <span className="pf-v6-u-color-200">{_("None")}</span>;
+    return <span className="pf-v6-u-text-color-subtle">{_("None")}</span>;
   }
   return (
     <LabelGroup numLabels={8}>
@@ -816,7 +821,7 @@ const PoliciesTab = () => {
       <StackItem>
         <Split hasGutter>
           <SplitItem isFilled>
-            <div className="pf-v6-u-color-200">
+            <div className="pf-v6-u-text-color-subtle">
               {_(
                 "One policy wins per client: host group, then directory group, then subnet/network, then the default policy; within a tier the highest priority wins.",
               )}
@@ -1051,7 +1056,7 @@ const PreviewTab = () => {
                   (n) => n.toLowerCase() === userRef.trim().toLowerCase(),
                 ) && (
                   <div
-                    className="pf-v6-u-color-200"
+                    className="pf-v6-u-text-color-subtle"
                     style={{ fontSize: "0.85rem", marginBlockStart: "0.25rem" }}
                   >
                     {_(
@@ -1079,10 +1084,7 @@ const PreviewTab = () => {
                 </Thead>
                 <Tbody>
                   {result.chain.map((step, i) => (
-                    <Tr
-                      key={i}
-                      style={step.won ? { background: "rgba(62, 134, 53, 0.12)" } : undefined}
-                    >
+                    <Tr key={i} style={step.won ? { background: WINNER_TINT } : undefined}>
                       <Td>{i + 1}</Td>
                       <Td>
                         {_(TIER_LABELS[step.tier])}{" "}
@@ -1299,7 +1301,7 @@ const ExceptionsTab = ({
       <StackItem>
         <Split hasGutter>
           <SplitItem isFilled>
-            <div className="pf-v6-u-color-200">
+            <div className="pf-v6-u-text-color-subtle">
               {_("Requests submitted through the block page's exception-request form.")}
             </div>
           </SplitItem>
@@ -1409,7 +1411,7 @@ const ExceptionsTab = ({
                   <Td>
                     {requesterOf(r)}
                     {(r.device !== null || r.user !== null) && (
-                      <div className="pf-v6-u-color-200" style={{ fontSize: "0.8rem" }}>
+                      <div className="pf-v6-u-text-color-subtle" style={{ fontSize: "0.8rem" }}>
                         {r.device && r.user ? `${r.user} · ${r.client_ip}` : r.client_ip}
                       </div>
                     )}
