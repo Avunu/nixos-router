@@ -788,6 +788,14 @@
       },
       "type": "object"
     },
+    "fqdn": {
+      "default": null,
+      "description": "The router's own domain name. Cockpit then serves a Let's Encrypt\ncertificate for it at https://<fqdn>:9090, and the router's DNS answers\nit with the LAN address. The certificate is issued through the Cloudflare\nDNS challenge (router.acme and its cloudflare.apiTokenFile), so the name\nmust be in a Cloudflare zone but needs no public record. Like every\ncertificate, it is listed in public Certificate Transparency logs.\n",
+      "type": [
+        "string",
+        "null"
+      ]
+    },
     "guest": {
       "additionalProperties": false,
       "properties": {

@@ -3,7 +3,7 @@
 // Let's Encrypt certificates are ordered with). One certificate per route,
 // named after its first hostname (ingress.ts certName); its state comes from
 // the cert.pem on disk and the acme-order-renew-<cert> unit.
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ActionGroup,
   Alert,
@@ -38,19 +38,20 @@ import type { EffectiveChallenge } from "./ingress";
 import {
   DEFAULT_ACME_TOKEN_FILE,
   PROXY_UNIT,
-  loadCert,
   renewUnit,
   startUnit,
   unitState,
 } from "./ingress-runtime";
-import type { CertInfo, UnitState } from "./ingress-runtime";
+import type { UnitState } from "./ingress-runtime";
 import {
+  CertStatus,
   hasErrors,
   hostDetail,
   IssueList,
   ingressContext,
   TokenFileField,
   UnitLabel,
+  useCertStates,
 } from "./ingress-widgets";
 import { scanOpenPorts } from "./hosts-live";
 import type { AcmeChallenge, ProxyRoute, RouterHost } from "./types";
@@ -96,96 +97,6 @@ const challengeLabel = (c: EffectiveChallenge) =>
 const TOKEN_SCOPES = _(
   "Create a token in the Cloudflare dashboard (My Profile → API Tokens) with Zone → Zone → Read and Zone → DNS → Edit on the zones of the certificates' names — the dynamic DNS token has exactly these.",
 );
-
-// ── Certificate state ───────────────────────────────────────────────────────
-interface CertState {
-  cert: CertInfo;
-  unit: UnitState;
-  // Days until notAfter, taken when the state was loaded.
-  daysLeft: number;
-}
-
-const DAY = 86_400_000;
-
-const CertStatus = ({ st }: { st: CertState | undefined }) => {
-  if (!st) {
-    return "—";
-  }
-  let label;
-  if (st.unit.activeState === "activating") {
-    label = (
-      <Label color="blue" isCompact>
-        {_("Renewing…")}
-      </Label>
-    );
-  } else if (st.cert.state === "missing") {
-    label = (
-      <Label color="grey" isCompact>
-        {_("No certificate")}
-      </Label>
-    );
-  } else if (st.cert.state === "pending") {
-    label = (
-      <Label color="orange" isCompact>
-        {_("Pending")}
-      </Label>
-    );
-  } else {
-    const end = st.cert.notAfter;
-    const left = st.daysLeft;
-    label = (
-      <Label color={left <= 0 ? "red" : left < 14 ? "orange" : "green"} isCompact>
-        {!end
-          ? _("Issued")
-          : left <= 0
-            ? _("Expired")
-            : cockpit.format(_("Valid until $0"), end.toLocaleDateString())}
-      </Label>
-    );
-  }
-  const failed =
-    st.unit.activeState === "failed" || (st.unit.result && st.unit.result !== "success");
-  return (
-    <>
-      <div>{label}</div>
-      {failed && (
-        <small>
-          <Label color="red" isCompact>
-            {_("last renewal failed")}
-          </Label>
-        </small>
-      )}
-      {!failed && st.unit.exitedAt && (
-        <small>{cockpit.format(_("last run $0"), st.unit.exitedAt)}</small>
-      )}
-    </>
-  );
-};
-
-// Certificate + renewal-unit state of every cert, refreshed on demand.
-function useCertStates(certs: string[], active: boolean) {
-  const [states, setStates] = useState<Record<string, CertState>>({});
-  const key = certs.join(" ");
-  const refresh = useCallback(() => {
-    if (!active) {
-      return;
-    }
-    const names = key.split(" ").filter(Boolean);
-    void Promise.all(
-      names.map((c) =>
-        Promise.all([loadCert(c), unitState(renewUnit(c))]).then(([cert, unit]) => {
-          const end = cert.notAfter;
-          const daysLeft = end ? (end.getTime() - Date.now()) / DAY : 0;
-          return [c, { cert, unit, daysLeft }] as const;
-        }),
-      ),
-    ).then((entries) => setStates(Object.fromEntries(entries)));
-  }, [key, active]);
-  useEffect(() => {
-    refresh();
-  }, [refresh]);
-  return { states: active ? states : {}, refresh };
-}
 
 // ── Port scan helper ────────────────────────────────────────────────────────
 const PortScan = ({ ip, onPick }: { ip: string; onPick: (port: number) => void }) => {
@@ -413,7 +324,7 @@ export const ReverseProxy = () => {
                   <FormGroup
                     label={_("Contact email")}
                     fieldId="acmeEmail"
-                    isRequired={enabled && rows.length > 0}
+                    isRequired={(enabled && rows.length > 0) || Boolean(ctx.fqdn)}
                     labelHelp={hint(_("Let's Encrypt sends certificate expiry warnings here."))}
                   >
                     <TextInput
@@ -488,10 +399,17 @@ export const ReverseProxy = () => {
                     fieldId="acmeTokenFile"
                     defaultFile={DEFAULT_ACME_TOKEN_FILE}
                     scopes={TOKEN_SCOPES}
-                    isRequired={rows.some(
-                      (r) => effectiveChallenge(r, ctx.acme) === "dns-cloudflare",
-                    )}
-                    helper={_("Needed only for the Cloudflare DNS challenge.")}
+                    isRequired={
+                      Boolean(ctx.fqdn) ||
+                      rows.some((r) => effectiveChallenge(r, ctx.acme) === "dns-cloudflare")
+                    }
+                    helper={
+                      ctx.fqdn
+                        ? _(
+                            "Needed for the Cloudflare DNS challenge, which the certificate for the router's domain name (System → Settings) always uses.",
+                          )
+                        : _("Needed only for the Cloudflare DNS challenge.")
+                    }
                     extra={
                       ddnsToken && ddnsToken !== acmeToken ? (
                         <Button

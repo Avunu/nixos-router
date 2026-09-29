@@ -618,6 +618,8 @@
       #    • ddns.nix              — Cloudflare dynamic DNS for the router and
       #                              for hosts with a public name.
       #    • acme.nix              — ACME account settings (security.acme).
+      #    • cockpit-cert.nix      — the router's own name (router.fqdn) and
+      #                              Cockpit's Let's Encrypt certificate for it.
       #    • reverse-proxy.nix     — hostname-routing HTTP(S) proxy
       #                              (router-proxy) + its certificates.
       #    • cloudflare-tunnel.nix — router-managed Cloudflare Tunnel
@@ -644,6 +646,7 @@
           ./modules/firewall.nix
           ./modules/ddns.nix
           ./modules/acme.nix
+          ./modules/cockpit-cert.nix
           ./modules/reverse-proxy.nix
           ./modules/cloudflare-tunnel.nix
           ./modules/wireless.nix

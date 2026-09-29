@@ -2,8 +2,9 @@
 // normalization, validation, and the host rename/remove cascade.
 //
 // The checks mirror the assertions of modules/reverse-proxy.nix,
-// modules/cloudflare-tunnel.nix and modules/acme.nix, so a rebuild never fails
-// on something the Ingress forms let through. Issues carry a code rather than
+// modules/cloudflare-tunnel.nix, modules/acme.nix and modules/cockpit-cert.nix
+// (the router's own name, set on System → Settings), so a rebuild never fails
+// on something the forms let through. Issues carry a code rather than
 // a sentence, so this module stays free of `cockpit` (node --test runs it);
 // ingress-widgets.tsx turns them into translated text.
 //
@@ -86,7 +87,9 @@ export type IssueCode =
   | "publishWithoutDdns"
   | "forwardOnWeb"
   | "tunnelToken"
-  | "tunnelNoIngress";
+  | "tunnelNoIngress"
+  | "clashRouterName"
+  | "privateRouterName";
 
 export interface IngressIssue {
   level: "error" | "warning";
@@ -106,6 +109,8 @@ export interface IngressContext {
   acme: AcmeSettings;
   proxy: { enable: boolean; publishDns: boolean; routes: ProxyRoute[] };
   tunnel: { enable: boolean; apiTokenFile: string | null; ingress: TunnelIngress[] };
+  // router.fqdn: the router's own name, which Cockpit's certificate is for.
+  fqdn: string | null;
 }
 
 const lower = (xs: string[]) => xs.map((x) => x.toLowerCase());
@@ -187,6 +192,13 @@ export function checkRoute(r: ProxyRoute, ctx: IngressContext, self: number | nu
       issues.push({ level: "error", code: "clashTunnel", names: tun });
     }
   }
+  // cockpit-cert.nix checks the routes only while the proxy is on.
+  if (ctx.proxy.enable && ctx.fqdn) {
+    const own = overlap(names, [ctx.fqdn]);
+    if (own.length > 0) {
+      issues.push({ level: "error", code: "clashRouterName", names: own });
+    }
+  }
   return issues;
 }
 
@@ -224,6 +236,81 @@ export function checkIngress(ing: TunnelIngress, ctx: IngressContext, self: numb
     ) {
       issues.push({ level: "error", code: "clashProxy", names: [name] });
     }
+    if (ctx.fqdn && overlap([name], [ctx.fqdn]).length > 0) {
+      issues.push({ level: "error", code: "clashRouterName", names: [name] });
+    }
+  }
+  return issues;
+}
+
+// ── The router's own name ───────────────────────────────────────────────────
+// Suffixes no public CA issues for; the name would never get its certificate.
+const PRIVATE_SUFFIXES = [
+  "lan",
+  "local",
+  "localdomain",
+  "localhost",
+  "home",
+  "internal",
+  "intranet",
+  "corp",
+  "private",
+  "test",
+  "invalid",
+  "example",
+  "home.arpa",
+];
+
+export const isPrivateName = (name: string) => {
+  const n = name.toLowerCase();
+  return PRIVATE_SUFFIXES.some((sfx) => n === sfx || n.endsWith(`.${sfx}`));
+};
+
+// router.fqdn (System → Settings): cockpit-cert.nix's assertions, plus the
+// ACME account settings its certificate needs (acme.nix's). Empty when no name
+// is set.
+export function checkRouterName(ctx: IngressContext): IngressIssue[] {
+  const raw = ctx.fqdn?.trim() ?? "";
+  if (!raw) {
+    return [];
+  }
+  const name = raw.toLowerCase();
+  if (!isHostname(name)) {
+    return [{ level: "error", code: "badHostname", names: [raw] }];
+  }
+  const issues: IngressIssue[] = [];
+  if (isPrivateName(name)) {
+    issues.push({ level: "warning", code: "privateRouterName", names: [name] });
+  }
+  if (overlap([name], publicHostnames(ctx)).length > 0) {
+    issues.push({ level: "error", code: "clashPublicHost", names: [name] });
+  }
+  if (
+    ctx.proxy.enable &&
+    overlap(
+      [name],
+      ctx.proxy.routes.flatMap((r) => r.hostnames),
+    ).length > 0
+  ) {
+    issues.push({ level: "error", code: "clashProxy", names: [name] });
+  }
+  if (
+    ctx.tunnel.enable &&
+    overlap(
+      [name],
+      ctx.tunnel.ingress.map((i) => i.hostname),
+    ).length > 0
+  ) {
+    issues.push({ level: "error", code: "clashTunnel", names: [name] });
+  }
+  if (!ctx.acme.cloudflare?.apiTokenFile) {
+    issues.push({ level: "error", code: "dnsNeedsToken" });
+  }
+  if (!ctx.acme.acceptTerms) {
+    issues.push({ level: "error", code: "acmeTerms" });
+  }
+  if (!ctx.acme.email?.trim()) {
+    issues.push({ level: "error", code: "acmeEmail" });
   }
   return issues;
 }
@@ -250,16 +337,22 @@ export function checkPage(ctx: IngressContext) {
   const proxy: IngressIssue[] = ctx.proxy.routes.flatMap((r, i) =>
     about(checkRoute(r, ctx, i), routeLabel(r)),
   );
-  if (ctx.proxy.enable && ctx.proxy.routes.length > 0) {
+  // The Certificates card is also the account for the certificate of the
+  // router's own name, which always takes the DNS challenge.
+  const routerCert = Boolean(ctx.fqdn?.trim());
+  if ((ctx.proxy.enable && ctx.proxy.routes.length > 0) || routerCert) {
     if (!ctx.acme.acceptTerms) {
       proxy.push({ level: "error", code: "acmeTerms" });
     }
     if (!ctx.acme.email?.trim()) {
       proxy.push({ level: "error", code: "acmeEmail" });
     }
-    if (ctx.proxy.publishDns && !ctx.ddns.enable) {
-      proxy.push({ level: "warning", code: "publishWithoutDdns" });
-    }
+  }
+  if (routerCert && !ctx.acme.cloudflare?.apiTokenFile) {
+    proxy.push({ level: "error", code: "dnsNeedsToken", subject: ctx.fqdn?.trim() });
+  }
+  if (ctx.proxy.enable && ctx.proxy.routes.length > 0 && ctx.proxy.publishDns && !ctx.ddns.enable) {
+    proxy.push({ level: "warning", code: "publishWithoutDdns" });
   }
   if (ctx.proxy.enable) {
     const web = ctx.portForwards.filter((f) => claimsWebPorts(f));

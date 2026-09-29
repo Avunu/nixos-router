@@ -3,6 +3,7 @@ title: The web UI
 description: Sign in to Cockpit, find your way around the router pages, save and apply changes, and follow rebuilds.
 code:
   - modules/system.nix
+  - modules/cockpit-cert.nix
   - modules/firewall.nix
   - local/flake.nix
   - pkgs/cockpit-router/src/manifest.json
@@ -19,6 +20,7 @@ code:
   - pkgs/cockpit-router/src/settings-json.ts
   - pkgs/cockpit-router/src/settings-read.ts
   - pkgs/cockpit-router/src/network.tsx
+  - pkgs/cockpit-router/src/system.tsx
 ---
 
 # The web UI
@@ -32,20 +34,38 @@ Open Cockpit at `https://<router>:9090` from a computer on the LAN. Any of these
 - the LAN gateway address, such as `https://192.168.1.1:9090`;
 - `https://router.lan:9090`, that is `<hostName>.<lan.domain>`;
 - `https://router.local:9090`, the router's mDNS name, from the LAN only;
-- the router's address on a WireGuard tunnel, such as `https://10.100.0.1:9090` or `https://[fd00:100::1]:9090`, over that tunnel.
+- the router's address on a WireGuard tunnel, such as `https://10.100.0.1:9090` or `https://[fd00:100::1]:9090`, over that tunnel;
+- the router's domain name, such as `https://gw.example.com:9090`, once you set one. See [A trusted certificate](#a-trusted-certificate).
 
 Over WireGuard, the LAN gateway address works too when the client's tunnel sends the LAN subnet to the router, and so does `router.lan` if the client also resolves names through the router. See [WireGuard](/docs/wireguard/) for setting up the tunnel.
 
 Sign in with the admin account (`adminUser.name`, `admin` by default) and its password. After a fresh install, that is the initial password from the settings file; change it on Cockpit's **Accounts** page.
 
-- **HTTPS only.** Cockpit uses a self-signed certificate, so your browser warns the first time. Plain `http://` requests are redirected to HTTPS, so the password never crosses the network in clear text.
+- **HTTPS only.** Cockpit uses a self-signed certificate, so your browser warns the first time, unless you give the router a [domain name](#a-trusted-certificate). Plain `http://` requests are redirected to HTTPS, so the password never crosses the network in clear text.
 - **LAN and WireGuard only.** The firewall accepts connections to port 9090 from the LAN bridge and WireGuard tunnels, and drops them from the guest network and the WAN.
-- **Known names only.** Cockpit accepts only the LAN gateway address, each WireGuard tunnel's address, `<hostName>.local` and `<hostName>.<lan.domain>`, not the router's WAN address or public name. It compares them with the browser's address as written, ignoring only case, so an IPv6 tunnel address works only if **Address (CIDR)** holds it in the compressed form browsers use: `fd00:100::1/64`, not `fd00:0100:0:0::1/64`. To reach it by another name, for example through a reverse proxy, add that origin to `router.cockpit.allowedOrigins` in the host flake. Each entry is a glob, so escape an IPv6 address's brackets: `"https://\\[2001:db8::1\\]:9090"`.
+- **Known names only.** Cockpit accepts only the LAN gateway address, each WireGuard tunnel's address, `<hostName>.local`, `<hostName>.<lan.domain>` and the router's domain name, not the router's WAN address or any other public name. It compares them with the browser's address as written, ignoring only case, so an IPv6 tunnel address works only if **Address (CIDR)** holds it in the compressed form browsers use: `fd00:100::1/64`, not `fd00:0100:0:0::1/64`. To reach it by another name, for example through a reverse proxy, add that origin to `router.cockpit.allowedOrigins` in the host flake. Each entry is a glob, so escape an IPv6 address's brackets: `"https://\\[2001:db8::1\\]:9090"`.
 - **Slow retries.** Each failed password costs a short delay, so the login can't be guessed at network speed.
 
 :::doc-note
 The router pages need administrative access. If Cockpit's top bar shows **Limited access**, click it and enter your password. Without it, saving and applying fail. If only root can read the settings file, as after a network install (`local/deploy.sh`), the pages can't even load it: each settings form is replaced by "Administrative access is needed to read and change the router settings.", and the **System** page offers no rebuilds. A rebuild that is already running still shows. Once you switch, the pages load the settings again on their own, with no need to reload the page.
 :::
+
+## A trusted certificate
+
+Give the router a domain name and Cockpit serves a Let's Encrypt certificate for it, so the browser no longer warns.
+
+1. Choose a name in a zone your Cloudflare account manages, such as `gw.example.com`. It needs no DNS record: the router answers it with its LAN address for LAN and WireGuard clients, and Let's Encrypt checks it through a TXT record the router creates with the Cloudflare API.
+2. On **Ingress → Reverse proxy**, fill in the **Certificates** card: **Contact email**, the terms of service, and **Cloudflare API token file** with a token that has Zone → Zone → Read and Zone → DNS → Edit on that zone. See [Cloudflare API tokens](/docs/reference/cloudflare-tokens/).
+3. On **System → Settings**, enter the name in **Domain name** and choose **Save and apply** from the **Save** menu.
+
+When the certificate is issued, open `https://gw.example.com:9090`. Under **Domain name**, **Certificate** shows the certificate's state, and **Renew now** orders a new one.
+
+- **Cockpit restarts to load a certificate.** It happens when the first certificate arrives and at each renewal, about every 60 days. The restart signs everyone out; a rebuild in progress carries on.
+- **Until then, the self-signed certificate.** Cockpit keeps its own certificate until Let's Encrypt has issued one. If ordering fails, **Certificate** shows **last renewal failed**, and `journalctl -u acme-order-renew-cockpit.service` says why.
+- **The name is public.** Every certificate is listed in public Certificate Transparency logs, so the name can be found there, even though nothing on the internet answers for it.
+- **A name of its own.** The name can't also be a reverse proxy route, a Cloudflare Tunnel hostname or a host's public hostname: on the LAN it resolves to the router, not to them. A name only for this, such as `gw.example.com`, avoids that. Dynamic DNS may still publish it.
+- **Names Let's Encrypt won't sign.** A name under `.lan`, `.local`, `.home.arpa` or another private suffix gets the warning "is not a public domain name, so Let's Encrypt can't issue a certificate for it".
+- **Testing.** Turn on **Staging CA** in the **Certificates** card while you try it out: staging has far higher rate limits, but browsers don't trust its certificates.
 
 ## The router pages
 

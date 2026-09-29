@@ -28,6 +28,7 @@ The file is a single JSON object. Each top-level key is one of the router module
 | Key | What it holds | Guide |
 | --- | --- | --- |
 | `hostName`, `timeZone` | The router's name and time zone. | **System → Settings** |
+| `fqdn` | The router's domain name, for Cockpit's Let's Encrypt certificate. | [The web UI](/docs/start/cockpit/#a-trusted-certificate) |
 | `adminUser` | The admin account: `name`, `sshKeys`, `initialPassword`. | [Install a router](/docs/start/install/) |
 | `stateVersion`, `diskDevice`, `bootMode` | Install-time values. Don't change them on a running router. | [Install a router](/docs/start/install/) |
 | `wan`, `lan`, `guest`, `trunkInterfaces` | Networks, interfaces and VLANs. | [Networks and VLANs](/docs/network/) |

@@ -50,6 +50,14 @@ let
     router.dns.technitium.enable = lib.mkForce true;
     router.dns.technitium.upstreamServers = lib.mkForce [ "https://dns.example.net/dns-query" ];
     router.dns.registerStaticHosts = true;
+    # The router's own name, on a name an override already answers: the
+    # admin's entry wins, and no second A record joins it.
+    router.fqdn = "nas.corp.example.com";
+    router.acme = {
+      email = "admin@example.com";
+      acceptTerms = true;
+      cloudflare.apiTokenFile = "/etc/router/secrets/cloudflare-acme.token";
+    };
     router.dns.overrides = [
       # No declared root covers it: gets its own zone.
       {
@@ -206,6 +214,28 @@ let
       name = "apex-override-warns";
       ok = lib.any (w: lib.hasInfix "override a whole" w) base.warnings;
       detail = "overriding example.com itself passed without a word";
+    }
+    {
+      name = "router-name-yields-to-an-override";
+      ok =
+        map (r: r.value) (lib.filter (r: r.type == "A") (recordsOf (zoneOf "nas.corp.example.com")))
+        == [ "10.48.4.20" ];
+      detail = "records: ${builtins.toJSON (recordsOf (zoneOf "nas.corp.example.com"))}";
+    }
+    {
+      # Unlike an override the router's name is not dead configuration there
+      # (the certificate is still issued), so it warns instead of failing.
+      name = "router-name-in-a-forward-zone-warns";
+      ok = hasMsg {
+        router.dns.forwardZones = [
+          {
+            zone = "ad.example.org";
+            forwarders = [ "10.48.4.5" ];
+          }
+        ];
+        router.fqdn = "gw.ad.example.org";
+      } "router.fqdn: gw.ad.example.org sits inside a router.dns.forwardZones zone";
+      detail = "the router's name inside a forward zone did not warn";
     }
     {
       # A forward zone hands the whole subtree away, so a local override under

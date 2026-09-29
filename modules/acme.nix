@@ -1,9 +1,10 @@
 # ── ACME module ────────────────────────────────────────────────────────────────
 # Account-level settings for the TLS certificates the router obtains from an
 # ACME CA (Let's Encrypt) through NixOS security.acme (lego). The certificates
-# themselves are requested by the modules that need them — today only the
-# reverse proxy (modules/reverse-proxy.nix), one per route — and pick one of
-# two challenge types:
+# themselves are requested by the modules that need them — the reverse proxy
+# (modules/reverse-proxy.nix), one per route, and Cockpit's certificate for
+# the router's own name (modules/cockpit-cert.nix, always dns-cloudflare) —
+# and pick one of two challenge types:
 #
 #   • dns-cloudflare — DNS-01 through the Cloudflare API. Needs no inbound
 #     port, works before the name resolves to the router, and is the only way

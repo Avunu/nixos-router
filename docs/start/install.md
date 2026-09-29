@@ -179,7 +179,7 @@ Routers installed before this change have `nixpkgs.url = "github:NixOS/nixpkgs/n
 ## First-boot checklist
 
 1. **Connect to the LAN.** Plug a computer into a LAN port. It gets an address from the DHCP pool, such as `192.168.1.100`.
-2. **Open Cockpit** at `https://192.168.1.1:9090`, your `lan.address`, or at `https://router.lan:9090` (`<hostName>.<lan.domain>`). The certificate is self-signed, so your browser warns once; accept it.
+2. **Open Cockpit** at `https://192.168.1.1:9090`, your `lan.address`, or at `https://router.lan:9090` (`<hostName>.<lan.domain>`). The certificate is self-signed, so your browser warns once; accept it. To get a trusted certificate later, see [A trusted certificate](/docs/start/cockpit/#a-trusted-certificate).
 3. **Sign in** as `admin` with the initial password. See [The web UI](/docs/start/cockpit/).
 4. **Change the password** on Cockpit's **Accounts** page, or with `passwd` over SSH. It is also your `sudo` password.
 5. **Clear the initial password.** On **System → Settings**, empty **Initial password**, then choose **Save and apply** from the **Save** menu. The initial password only matters when the account is created, and until you clear it, it sits readable in the settings file and the Nix store.

@@ -40,7 +40,7 @@ A service bound to `127.0.0.1` is reachable from the router itself only.
 | 5353/udp | mDNS (Avahi) | LAN | Publishes `<hostName>.local`. Avahi answers on the LAN bridge only, and the firewall drops 5353 from the guest network and the WAN. |
 | 5380/tcp | Technitium web console and API | The router only | Bound to `127.0.0.1`. Cockpit uses it. `dns.technitium.webPort` moves it. |
 | 8067/tcp | `router-logd`: query log and exception requests | LAN, WireGuard; guest when the block page is on | Bound to every address. The exception-request form posts here; the data endpoints need a token. `reporting.logd.port` moves it. |
-| 9090/tcp | Cockpit (HTTPS) | LAN, WireGuard | Set with `router.cockpit.port` in the host flake. Cockpit accepts logins at the LAN gateway address, each tunnel's own address, `<hostName>.local` and `<hostName>.<lan.domain>`. See [The web UI](/docs/start/cockpit/#sign-in). |
+| 9090/tcp | Cockpit (HTTPS) | LAN, WireGuard | Set with `router.cockpit.port` in the host flake. Cockpit accepts logins at the LAN gateway address, each tunnel's own address, `<hostName>.local`, `<hostName>.<lan.domain>` and the router's domain name (`fqdn`). See [The web UI](/docs/start/cockpit/#sign-in). |
 | ICMP, ICMPv6 | Ping and error messages | LAN, WireGuard, WAN | From the WAN, ping is rate-limited to 20 per second, and only the error and neighbor-discovery messages IPv4 and IPv6 need are admitted. From the guest network, only IPv6 neighbor discovery and replies to the router's own traffic. |
 
 Technitium, `router-logd`, Avahi and the block page only run while `dns.technitium.enable` is on, which is the default.

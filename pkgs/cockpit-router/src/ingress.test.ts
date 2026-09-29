@@ -15,9 +15,11 @@ import {
   checkIngress,
   checkRoute,
   checkPage,
+  checkRouterName,
   claimsWebPorts,
   countHostRefs,
   effectiveChallenge,
+  isPrivateName,
   normalizeIngress,
   normalizeRoute,
   removeHostRefs,
@@ -41,6 +43,7 @@ const ctx = (over: Partial<IngressContext> = {}): IngressContext => ({
   acme: { email: "admin@example.com", acceptTerms: true, defaultChallenge: "http" },
   proxy: { enable: true, publishDns: true, routes: [] },
   tunnel: { enable: true, apiTokenFile: "/etc/router/secrets/t", ingress: [] },
+  fqdn: null,
   ...over,
 });
 
@@ -386,4 +389,90 @@ void test("removeHostRefs drops every reference and keeps the rest", () => {
   assert.equal(next.portForwards.length, 1);
   assert.equal(next.routes.length, 1);
   assert.equal(next.ingress.length, 0);
+});
+
+// ── The router's own name (cockpit-cert.nix) ────────────────────────────────
+// Issue codes of the router-name check (kept shallow, as rc/ic are).
+const nc = (c: IngressContext) => codes(checkRouterName(c));
+
+const account = {
+  email: "admin@example.com",
+  acceptTerms: true,
+  cloudflare: { apiTokenFile: "/t" },
+};
+
+void test("checkRouterName: nothing to check without a name", () => {
+  assert.deepEqual(checkRouterName(ctx()), []);
+  assert.deepEqual(checkRouterName(ctx({ fqdn: "  " })), []);
+});
+
+void test("checkRouterName: a valid name with a complete ACME account passes", () => {
+  assert.deepEqual(checkRouterName(ctx({ fqdn: "GW.example.com", acme: account })), []);
+});
+
+void test("checkRouterName: an invalid name reports only that", () => {
+  assert.deepEqual(nc(ctx({ fqdn: "*.example.com" })), ["badHostname"]);
+  assert.deepEqual(nc(ctx({ fqdn: "router" })), ["badHostname"]);
+});
+
+void test("checkRouterName: the DNS challenge needs the ACME token, terms and email", () => {
+  assert.deepEqual(nc(ctx({ fqdn: "gw.example.com", acme: {} })), [
+    "dnsNeedsToken",
+    "acmeTerms",
+    "acmeEmail",
+  ]);
+});
+
+void test("checkRouterName: clashes with public, proxied and tunnelled names", () => {
+  const c = ctx({
+    acme: account,
+    proxy: { enable: true, publishDns: true, routes: [route({ hostnames: ["app.example.com"] })] },
+    tunnel: {
+      enable: true,
+      apiTokenFile: "/t",
+      ingress: [ingress({ hostname: "wiki.example.com" })],
+    },
+  });
+  assert.deepEqual(nc({ ...c, fqdn: "game.example.com" }), ["clashPublicHost"]);
+  assert.deepEqual(nc({ ...c, fqdn: "App.example.com" }), ["clashProxy"]);
+  assert.deepEqual(nc({ ...c, fqdn: "wiki.example.com" }), ["clashTunnel"]);
+  // cockpit-cert.nix only counts the proxy's and the tunnel's names while on.
+  const off = {
+    ...c,
+    proxy: { ...c.proxy, enable: false },
+    tunnel: { ...c.tunnel, enable: false },
+  };
+  assert.deepEqual(checkRouterName({ ...off, fqdn: "app.example.com" }), []);
+  assert.deepEqual(checkRouterName({ ...off, fqdn: "wiki.example.com" }), []);
+});
+
+void test("checkRouterName: a private suffix warns (no public CA issues for it)", () => {
+  assert.deepEqual(nc(ctx({ fqdn: "gw.home.arpa", acme: account })), ["privateRouterName"]);
+  assert.ok(isPrivateName("router.LAN"));
+  assert.ok(!isPrivateName("gw.example.com"));
+  assert.ok(!isPrivateName("gw.planet.com"));
+});
+
+void test("checkRoute / checkIngress: the router's own name is taken", () => {
+  const c = ctx({ fqdn: "GW.example.com" });
+  assert.ok(rc(route({ hostnames: ["gw.example.com"] }), c, null).includes("clashRouterName"));
+  assert.ok(ic(ingress({ hostname: "gw.example.com" }), c, null).includes("clashRouterName"));
+  // Off, neither the proxy nor the tunnel publishes the name.
+  const off = ctx({
+    fqdn: "gw.example.com",
+    proxy: { enable: false, publishDns: true, routes: [] },
+    tunnel: { enable: false, apiTokenFile: null, ingress: [] },
+  });
+  assert.ok(!rc(route({ hostnames: ["gw.example.com"] }), off, null).includes("clashRouterName"));
+  assert.ok(!ic(ingress({ hostname: "gw.example.com" }), off, null).includes("clashRouterName"));
+});
+
+void test("checkPage: the router's name needs the ACME account even without routes", () => {
+  const c = ctx({
+    fqdn: "gw.example.com",
+    acme: {},
+    proxy: { enable: false, publishDns: true, routes: [] },
+  });
+  assert.deepEqual(codes(checkPage(c).proxy), ["acmeTerms", "acmeEmail", "dnsNeedsToken"]);
+  assert.deepEqual(codes(checkPage({ ...c, acme: account }).proxy), []);
 });

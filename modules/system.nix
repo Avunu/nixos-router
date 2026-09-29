@@ -291,6 +291,7 @@ let
   # excluded — those stay in Nix.
   effectiveKeys = [
     "hostName"
+    "fqdn"
     "timeZone"
     "stateVersion"
     "diskDevice"

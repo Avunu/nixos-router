@@ -2,6 +2,7 @@ import { useEffect, useState, useCallback } from "react";
 import {
   Button,
   Alert,
+  AlertActionLink,
   Stack,
   StackItem,
   Card,
@@ -18,11 +19,13 @@ import {
   FormSection,
   FormSelect,
   FormSelectOption,
+  HelperText,
+  HelperTextItem,
   TextInput,
   Content,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { errMsg } from "./nix";
+import { errMsg, getPath } from "./nix";
 import {
   useSettings,
   usePageSettings,
@@ -35,6 +38,11 @@ import {
   TabbedPage,
 } from "./settings";
 import { SaveActions } from "./save-actions";
+import { checkRouterName } from "./ingress";
+import type { IngressIssue } from "./ingress";
+import { renewUnit, startUnit } from "./ingress-runtime";
+import { CertStatus, hasErrors, IssueList, ingressContext, useCertStates } from "./ingress-widgets";
+import { sectionHref, sectionOf } from "./sections";
 import { ChangesPanel, SystemStatus, useAdmin } from "./changes";
 import {
   busyLabel,
@@ -238,6 +246,146 @@ const SystemOps = () => {
   );
 };
 
+// ── Domain name ─────────────────────────────────────────────────────────────
+// router.fqdn: the router's own name, with a Let's Encrypt certificate for
+// Cockpit under it (modules/cockpit-cert.nix, which names the certificate
+// "cockpit"). Issued with the ACME account on Ingress → Reverse proxy.
+const ROUTER_CERT = "cockpit";
+const ACCOUNT_CODES = new Set(["dnsNeedsToken", "acmeTerms", "acmeEmail"]);
+const badName = (issues: IngressIssue[]) => issues.some((it) => it.code === "badHostname");
+
+// Status of the applied name's certificate, with a "Renew now".
+const RouterNameCert = ({ name }: { name: string }) => {
+  const { states, refresh } = useCertStates([ROUTER_CERT], true);
+  const [renewing, setRenewing] = useState(false);
+  const [error, setError] = useState("");
+  const st = states[ROUTER_CERT];
+  // After a name change, until the new order lands.
+  const stale =
+    st?.cert.state === "issued" && st.cert.names.length > 0 && !st.cert.names.includes(name);
+
+  const renew = () => {
+    setRenewing(true);
+    setError("");
+    startUnit(renewUnit(ROUTER_CERT))
+      .catch((e: unknown) => setError(errMsg(e)))
+      .finally(() => {
+        setRenewing(false);
+        refresh();
+      });
+  };
+
+  return (
+    <FormGroup label={_("Certificate")} fieldId="fqdnCert">
+      <Split hasGutter>
+        <SplitItem id="fqdnCert">
+          <CertStatus st={st} />
+        </SplitItem>
+        <SplitItem>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={renew}
+            isLoading={renewing}
+            isDisabled={renewing}
+          >
+            {_("Renew now")}
+          </Button>
+        </SplitItem>
+      </Split>
+      <HelperText>
+        {stale && (
+          <HelperTextItem variant="warning">
+            {cockpit.format(
+              _(
+                "The certificate on the router is still for $0; the one for the new name is on its way.",
+              ),
+              st.cert.names.join(", "),
+            )}
+          </HelperTextItem>
+        )}
+        <HelperTextItem>
+          {_("Cockpit restarts to load a new certificate, which signs everyone out.")}
+        </HelperTextItem>
+      </HelperText>
+      {error && <Alert variant="danger" isInline isPlain title={error} />}
+    </FormGroup>
+  );
+};
+
+const RouterName = ({ s }: { s: ReturnType<typeof useSettings> }) => {
+  const fqdn = s.valueOf<string | null>("fqdn", null) ?? "";
+  const name = fqdn.trim().toLowerCase();
+  const issues = checkRouterName(ingressContext(s));
+  const needsAccount = issues.some((it) => ACCOUNT_CODES.has(it.code));
+  const running = getPath(s.effective, "fqdn");
+  const applied = typeof running === "string" ? running.toLowerCase() : "";
+  // The port this page came in on: Cockpit's own, unless a proxy is in front.
+  const { port } = window.location;
+  const url = `https://${name}${port ? `:${port}` : ""}`;
+
+  return (
+    <>
+      <FormGroup
+        label={_("Domain name")}
+        fieldId="fqdn"
+        labelHelp={hint(
+          _(
+            "The router's own name, such as gw.example.com. Cockpit then serves a Let's Encrypt certificate for it, and the router's DNS points the name at the router for LAN and WireGuard clients. The certificate is issued through Cloudflare DNS, so the name must be in one of your Cloudflare zones, but it needs no public record.",
+          ),
+        )}
+      >
+        <TextInput
+          id="fqdn"
+          value={fqdn}
+          placeholder="gw.example.com"
+          isDisabled={s.lockedOf("fqdn")}
+          validated={badName(issues) ? "error" : "default"}
+          onChange={(_e, v) => s.setLeaf("fqdn", v.trim() || null)}
+        />
+        {!badName(issues) && (
+          <HelperText>
+            <HelperTextItem>
+              {name
+                ? cockpit.format(
+                    _(
+                      "Cockpit will be at $0, with a trusted certificate once it is issued. Like every certificate, it is listed in public Certificate Transparency logs.",
+                    ),
+                    url,
+                  )
+                : _("Optional. Without one, Cockpit keeps its self-signed certificate.")}
+            </HelperTextItem>
+          </HelperText>
+        )}
+        <IssueList issues={issues} />
+        {needsAccount && (
+          <Alert
+            variant="info"
+            isInline
+            isPlain
+            title={_(
+              "The certificate is ordered with the Let's Encrypt account on Ingress → Reverse proxy.",
+            )}
+            actionLinks={
+              <AlertActionLink onClick={() => cockpit.jump(sectionHref(sectionOf("acme")))}>
+                {_("Open Certificates")}
+              </AlertActionLink>
+            }
+          />
+        )}
+      </FormGroup>
+      {name && !badName(issues) && applied === name && <RouterNameCert name={name} />}
+      {name && !badName(issues) && applied !== name && (
+        <FormGroup label={_("Certificate")} fieldId="fqdnCertPending">
+          <HelperText id="fqdnCertPending">
+            <HelperTextItem>{_("Apply the settings to request the certificate.")}</HelperTextItem>
+          </HelperText>
+        </FormGroup>
+      )}
+    </>
+  );
+};
+
 // ── Settings: system identity + admin user ──────────────────────────────────
 const SystemSettings = () => {
   const s = useSettings();
@@ -286,6 +434,7 @@ const SystemSettings = () => {
                 )}
               />
             </FormGroup>
+            <RouterName s={s} />
           </FormSection>
 
           <FormSection title={_("Admin user")} titleElement="h2">
@@ -376,6 +525,11 @@ const TABS = ["operations", "settings"];
 export const System = () => {
   const s = usePageSettings({ publishStatus: false });
   const [tab, setTab] = useTabRoute(TABS);
+  // A domain name the rebuild would reject (modules/cockpit-cert.nix).
+  const issues =
+    s.ready && hasErrors(checkRouterName(ingressContext(s)))
+      ? _("Fix the errors under Domain name first")
+      : undefined;
   return (
     <SettingsProvider value={s}>
       <SystemStatus dirty={s.dirty} />
@@ -390,7 +544,9 @@ export const System = () => {
             ]}
           />
         }
-        footer={s.ready && (tab === "settings" || s.dirty) ? <SaveActions s={s} /> : null}
+        footer={
+          s.ready && (tab === "settings" || s.dirty) ? <SaveActions s={s} issues={issues} /> : null
+        }
       >
         {tab === "operations" ? <SystemOps /> : <SystemSettings />}
       </TabbedPage>

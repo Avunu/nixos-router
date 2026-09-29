@@ -4,6 +4,7 @@ description: The Cloudflare API tokens the router uses for dynamic DNS, DNS-01 c
 code:
   - modules/ddns.nix
   - modules/acme.nix
+  - modules/cockpit-cert.nix
   - modules/reverse-proxy.nix
   - modules/cloudflare-tunnel.nix
   - modules/reporting.nix
@@ -30,7 +31,7 @@ Four router features call the Cloudflare API, each with an API token you create 
 | Feature | Permissions | Default token file | Where to set it |
 | --- | --- | --- | --- |
 | [Dynamic DNS](/docs/dynamic-dns/) | Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-ddns.token` | **Network → Dynamic DNS** |
-| [Reverse proxy](/docs/ingress/reverse-proxy/) certificates with the Cloudflare DNS challenge | Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-acme.token` | **Ingress → Reverse proxy**, **Certificates** card |
+| [Reverse proxy](/docs/ingress/reverse-proxy/) certificates with the Cloudflare DNS challenge, and the certificate for the router's [domain name](/docs/start/cockpit/#a-trusted-certificate) | Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-acme.token` | **Ingress → Reverse proxy**, **Certificates** card |
 | [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/) | Account → Cloudflare Tunnel → Edit, Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-tunnel.token` | **Ingress → Tunnel** |
 | Emailed scheduled reports | Email Routing: Edit, plus the account ID | `/etc/router/secrets/cloudflare-email.token` | **Reports → Scheduled reports**, **Email delivery** section |
 
@@ -56,6 +57,7 @@ A reverse proxy route whose certificate uses the Cloudflare DNS challenge proves
 - **Setting:** `acme.cloudflare.apiTokenFile`.
 - **Sharing:** a **Use the DDNS token** link appears beside the field when a dynamic DNS token file is set and this field holds a different path. It points this setting at the dynamic DNS token file. See [Share one token between features](#share-one-token-between-features).
 - **Missing token:** the tab shows "The Cloudflare DNS challenge needs an API token — set the token file under Certificates.", and the build stops with `router.reverseProxy.routes: route 'cloud' uses the dns-cloudflare challenge, but router.acme.cloudflare.apiTokenFile is not set`.
+- **The router's domain name:** Cockpit's certificate for the router's [domain name](/docs/start/cockpit/#a-trusted-certificate) always uses this challenge and this token, so the token's zones must cover that name too. Without a token, **System → Settings** shows the same message under **Domain name**, and the build stops with `router.fqdn: Cockpit's certificate uses the dns-cloudflare challenge, but router.acme.cloudflare.apiTokenFile is not set`.
 
 ## Cloudflare Tunnel
 
