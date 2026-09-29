@@ -132,6 +132,11 @@ let
             # nobody has edited since.
             rawHash = builtins.hashFile "sha256" path;
             migrated = if migrated == raw then null else migrated;
+            # Everything this evaluation built from, in the shape activation
+            # leaves on disk. Cockpit compares the file against it (see
+            # /etc/router/applied-settings.json in modules/system.nix) to tell
+            # saved-but-unapplied edits from the running configuration.
+            settings = migrated;
           };
         }
       ];

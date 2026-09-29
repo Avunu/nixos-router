@@ -15,7 +15,11 @@
 #     with, which stays ignored and warns unless it is 53;
 #   • the activation step really rewrites the file on disk — run here against
 #     a copy — keeps a backup and the file's mode, and never touches a file
-#     edited since the evaluation.
+#     edited since the evaluation;
+#   • the generation carries the settings it was built from as
+#     /etc/router/applied-settings.json (Cockpit's baseline for unapplied
+#     changes), equal to the file activation leaves on disk, and a router
+#     that bypasses the loader has none rather than a wrong one.
 {
   pkgs,
   routerModule,
@@ -101,7 +105,10 @@ let
   legacyFile = builtins.toFile "router-settings.json" (builtins.toJSON legacy);
   sys = evalRouter [
     (settingsModule legacyFile)
-    { router.cockpit.settingsFile = "router-settings.json"; }
+    {
+      router.cockpit.enable = true;
+      router.cockpit.settingsFile = "router-settings.json";
+    }
   ];
 
   failedAssertions = failedAssertionsOf sys;
@@ -121,6 +128,15 @@ let
     ];
   preLoaderSeeded = preLoader 53;
   preLoaderMoved = preLoader 5353;
+  preLoaderCockpit = evalRouter [
+    (
+      { lib, ... }:
+      {
+        router = lib.mkDefault baseSettings;
+      }
+    )
+    { router.cockpit.enable = true; }
+  ];
   listenPortWarnings = s: lib.filter (lib.hasInfix "router.dns.technitium.listenPort") s.warnings;
   # What router-technitium-reconcile sets Technitium's listeners to.
   endpointsOf =
@@ -133,6 +149,10 @@ let
   activation =
     if builtins.isString activationEntry then activationEntry else activationEntry.text or null;
   expectedFile = pkgs.writeText "expected.json" (builtins.toJSON migrated);
+
+  # Cockpit's baseline: what this generation was built from.
+  appliedEntry = sys.environment.etc."router/applied-settings.json" or null;
+  appliedFile = pkgs.writeText "applied-settings.json" appliedEntry.text;
 
   checks = [
     {
@@ -239,6 +259,23 @@ let
       detail = "listenPort = 5353 moved Technitium to ${endpointsOf preLoaderMoved}";
     }
     {
+      name = "applied-settings-is-migrated";
+      ok =
+        appliedEntry != null
+        && builtins.fromJSON appliedEntry.text == migrated
+        && appliedEntry.mode == "0600";
+      detail =
+        if appliedEntry == null then
+          "no /etc/router/applied-settings.json although the settings came through the loader"
+        else
+          "mode ${appliedEntry.mode}, content ${appliedEntry.text}";
+    }
+    {
+      name = "pre-loader-has-no-applied-settings";
+      ok = !(preLoaderCockpit.environment.etc ? "router/applied-settings.json");
+      detail = "a router that bypasses the loader got a baseline it cannot know";
+    }
+    {
       name = "activation-rewrites-file";
       ok = activation != null;
       detail = "no routerSettingsMigrate activation step although a migration changed the settings";
@@ -267,6 +304,8 @@ pkgs.runCommand "router-settings-loader" { nativeBuildInputs = [ pkgs.jq ]; } (
       activate
       same router-settings.json ${expectedFile} \
         || { echo "FAIL the file was not rewritten to the upgraded settings" >&2; exit 1; }
+      same router-settings.json ${appliedFile} \
+        || { echo "FAIL the rewritten file differs from /etc/router/applied-settings.json" >&2; exit 1; }
       cmp -s router-settings.json.pre-migration ${legacyFile} \
         || { echo "FAIL no faithful router-settings.json.pre-migration backup" >&2; exit 1; }
       [ "$(stat -c %a router-settings.json)" = 640 ] \
