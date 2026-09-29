@@ -26,7 +26,7 @@ import {
   Label,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { useSettings, Loading, SaveBar, hint, ListEditor } from "./settings";
+import { useSettings, Loading, hint, ListEditor } from "./settings";
 import { isPrefix } from "./ip-math";
 import { normalizeForward } from "./forwards";
 import { claimsWebPorts } from "./ingress";
@@ -451,15 +451,6 @@ export const PortForwards = () => {
               </Card>
             </StackItem>
           )}
-
-          <StackItem>
-            <SaveBar
-              saving={s.saving}
-              status={s.status}
-              onSave={s.save}
-              onSaveApply={s.saveAndApply}
-            />
-          </StackItem>
         </Stack>
       </StackItem>
     </Stack>

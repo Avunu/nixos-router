@@ -66,7 +66,9 @@ import {
   OuterScrollContainer,
   InnerScrollContainer,
 } from "@patternfly/react-table";
-import { useSettings, Loading, SubNav, SaveBar, hint, TabbedPage } from "./settings";
+import { usePageSettings, useTabRoute, Loading, SubNav, hint, TabbedPage } from "./settings";
+import type { Settings } from "./settings";
+import { SaveActions } from "./save-actions";
 import { loadNeighbors, resolveNames, loadOuiMap, vendorFor, isIPv4 } from "./hosts-live";
 import type { LiveHost } from "./hosts-live";
 import {
@@ -94,7 +96,7 @@ import type {
 
 const _ = cockpit.gettext;
 
-type S = ReturnType<typeof useSettings>;
+type S = Settings;
 
 // ── shared helpers ──────────────────────────────────────────────────────────
 interface NetShapes {
@@ -1117,9 +1119,6 @@ const DevicesTab = ({ s }: { s: S }) => {
           </OuterScrollContainer>
         )}
       </StackItem>
-      <StackItem>
-        <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
-      </StackItem>
     </Stack>
   );
 };
@@ -1362,17 +1361,16 @@ const GroupsTab = ({ s }: { s: S }) => {
           </Table>
         )}
       </StackItem>
-      <StackItem>
-        <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
-      </StackItem>
     </Stack>
   );
 };
 
 // ── page shell ──────────────────────────────────────────────────────────────
+const TABS = ["devices", "groups"];
+
 export const Hosts = () => {
-  const s = useSettings();
-  const [tab, setTab] = useState("devices");
+  const s = usePageSettings();
+  const [tab, setTab] = useTabRoute(TABS);
 
   return (
     <TabbedPage
@@ -1386,6 +1384,7 @@ export const Hosts = () => {
           ]}
         />
       }
+      footer={s.ready ? <SaveActions s={s} /> : null}
     >
       {!s.ready && !s.error ? (
         <Loading />

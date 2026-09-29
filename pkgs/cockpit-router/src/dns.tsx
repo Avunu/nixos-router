@@ -26,9 +26,21 @@ import {
   EmptyStateBody,
   Split,
   SplitItem,
+  NumberInput,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { useSettings, Loading, SubNav, SaveBar, ListEditor, hint, TabbedPage } from "./settings";
+import {
+  useSettings,
+  usePageSettings,
+  useTabRoute,
+  SettingsProvider,
+  Loading,
+  SubNav,
+  ListEditor,
+  hint,
+  TabbedPage,
+} from "./settings";
+import { SaveActions } from "./save-actions";
 import type { Json } from "./nix";
 import type { DnsForwardZone, DnsOverride, DnsRecordType } from "./types";
 
@@ -265,15 +277,6 @@ const Overrides = () => {
               </Card>
             </StackItem>
           )}
-
-          <StackItem>
-            <SaveBar
-              saving={s.saving}
-              status={s.status}
-              onSave={s.save}
-              onSaveApply={s.saveAndApply}
-            />
-          </StackItem>
         </Stack>
       </StackItem>
     </Stack>
@@ -486,15 +489,6 @@ const ForwardZones = () => {
               </Card>
             </StackItem>
           )}
-
-          <StackItem>
-            <SaveBar
-              saving={s.saving}
-              status={s.status}
-              onSave={s.save}
-              onSaveApply={s.saveAndApply}
-            />
-          </StackItem>
         </Stack>
       </StackItem>
     </Stack>
@@ -502,6 +496,45 @@ const ForwardZones = () => {
 };
 
 // ── Resolver ────────────────────────────────────────────────────────────────
+// A TCP/UDP port, kept within 0–65535 as it is typed.
+const PortInput = ({
+  id,
+  value,
+  isDisabled,
+  onChange,
+  ariaLabel,
+}: {
+  id: string;
+  value: number;
+  isDisabled: boolean;
+  onChange: (port: number) => void;
+  ariaLabel: string;
+}) => {
+  const set = (raw: number) => {
+    const port = Math.max(0, Math.trunc(raw));
+    onChange(Math.min(65_535, port));
+  };
+  return (
+    <NumberInput
+      id={id}
+      value={value}
+      min={0}
+      max={65_535}
+      isDisabled={isDisabled}
+      widthChars={6}
+      onMinus={() => set(value - 1)}
+      onPlus={() => set(value + 1)}
+      onChange={(e) => {
+        const n = Number((e.target as HTMLInputElement).value);
+        if (Number.isFinite(n)) {
+          set(n);
+        }
+      }}
+      inputAriaLabel={ariaLabel}
+    />
+  );
+};
+
 const Resolver = () => {
   const s = useSettings();
 
@@ -551,7 +584,13 @@ const Resolver = () => {
               onChange={(_e, v) => s.setLeaf("dns.registerStaticHosts", v)}
             />
           </FormGroup>
-          <FormGroup label={_("Enforce SafeSearch")} fieldId="dnsSafeSearch">
+          <FormGroup
+            label={_("Enforce SafeSearch")}
+            fieldId="dnsSafeSearch"
+            labelHelp={hint(
+              _("Enforced via DNS records for Google, Bing, DuckDuckGo, and YouTube."),
+            )}
+          >
             <Switch
               id="dnsSafeSearch"
               isChecked={s.valueOf<boolean>("dns.technitium.safeSearch", false)}
@@ -573,34 +612,52 @@ const Resolver = () => {
               onChange={(_e, v) => s.setLeaf("dns.technitium.blockDoHProviders", v)}
             />
           </FormGroup>
+          <FormGroup
+            label={_("Web console port")}
+            fieldId="dnsWebPort"
+            labelHelp={hint(
+              _("Port of the DNS server's own web console, which the router pages use too."),
+            )}
+          >
+            <PortInput
+              id="dnsWebPort"
+              value={s.valueOf<number>("dns.technitium.webPort", 5380)}
+              isDisabled={s.lockedOf("dns.technitium.webPort")}
+              onChange={(v) => s.setLeaf("dns.technitium.webPort", v)}
+              ariaLabel={_("Web console port")}
+            />
+          </FormGroup>
         </Form>
-      </StackItem>
-      <StackItem>
-        <SaveBar saving={s.saving} status={s.status} onSave={s.save} onSaveApply={s.saveAndApply} />
       </StackItem>
     </Stack>
   );
 };
 
+const TABS = ["overrides", "forward", "resolver"];
+
 export const Dns = () => {
-  const [tab, setTab] = useState("overrides");
+  const s = usePageSettings();
+  const [tab, setTab] = useTabRoute(TABS);
   return (
-    <TabbedPage
-      subnav={
-        <SubNav
-          active={tab}
-          onSelect={setTab}
-          items={[
-            { id: "overrides", label: _("Overrides") },
-            { id: "forward", label: _("Forward zones") },
-            { id: "resolver", label: _("Resolver") },
-          ]}
-        />
-      }
-    >
-      {tab === "overrides" && <Overrides />}
-      {tab === "forward" && <ForwardZones />}
-      {tab === "resolver" && <Resolver />}
-    </TabbedPage>
+    <SettingsProvider value={s}>
+      <TabbedPage
+        subnav={
+          <SubNav
+            active={tab}
+            onSelect={setTab}
+            items={[
+              { id: "overrides", label: _("Overrides") },
+              { id: "forward", label: _("Forward zones") },
+              { id: "resolver", label: _("Resolver") },
+            ]}
+          />
+        }
+        footer={s.ready ? <SaveActions s={s} /> : null}
+      >
+        {tab === "overrides" && <Overrides />}
+        {tab === "forward" && <ForwardZones />}
+        {tab === "resolver" && <Resolver />}
+      </TabbedPage>
+    </SettingsProvider>
   );
 };

@@ -25,7 +25,17 @@ import {
   FormSection,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { useSettings, Loading, SubNav, SaveBar, ListEditor, hint, TabbedPage } from "./settings";
+import {
+  usePageSettings,
+  useTabRoute,
+  Loading,
+  SubNav,
+  ListEditor,
+  hint,
+  TabbedPage,
+} from "./settings";
+import type { Settings } from "./settings";
+import { SaveActions } from "./save-actions";
 import { useInterfaces, validateNetwork } from "./interfaces";
 import type { Nic, NetView } from "./interfaces";
 import { Diagnostics } from "./diagnostics";
@@ -33,7 +43,7 @@ import { DynamicDnsTab } from "./dynamic-dns";
 
 const _ = cockpit.gettext;
 
-type S = ReturnType<typeof useSettings>;
+type S = Settings;
 
 // Resolved interface/VLAN view from leaf reads (avoids partial-desired shadowing).
 const netView = (s: S): NetView => ({
@@ -791,10 +801,12 @@ const WireGuardTab = ({ s }: { s: S }) => {
 };
 
 // ── Network page ────────────────────────────────────────────────────────────
+const TABS = ["interfaces", "wan", "lan", "guest", "wireguard", "ddns", "diagnostics"];
+
 export const Network = () => {
-  const s = useSettings();
+  const s = usePageSettings();
   const { nics } = useInterfaces();
-  const [tab, setTab] = useState("interfaces");
+  const [tab, setTab] = useTabRoute(TABS);
 
   if (!s.ready && !s.error) {
     return <Loading />;
@@ -830,19 +842,9 @@ export const Network = () => {
           ]}
         />
       }
-    >
-      <Stack className="ct-router-stack">
-        <StackItem isFilled style={{ overflowY: "auto" }}>
-          {tab === "interfaces" && <InterfacesTab s={s} nics={nics} net={net} />}
-          {tab === "wan" && <WanTab s={s} net={net} />}
-          {tab === "lan" && <LanTab s={s} nics={nics} net={net} />}
-          {tab === "guest" && <GuestTab s={s} nics={nics} net={net} />}
-          {tab === "wireguard" && <WireGuardTab s={s} />}
-          {tab === "ddns" && <DynamicDnsTab s={s} />}
-          {tab === "diagnostics" && <Diagnostics />}
-        </StackItem>
-        {!isMonitorTab && (
-          <StackItem>
+      footer={
+        !isMonitorTab || s.dirty ? (
+          <>
             {errors.length > 0 && (
               <Alert
                 variant="danger"
@@ -857,16 +859,21 @@ export const Network = () => {
                 </ul>
               </Alert>
             )}
-            <SaveBar
-              saving={s.saving}
-              status={s.status}
-              onSave={s.save}
-              onSaveApply={s.saveAndApply}
-              applyDisabled={errors.length > 0}
+            <SaveActions
+              s={s}
+              issues={errors.length > 0 ? _("Fix the network configuration first") : undefined}
             />
-          </StackItem>
-        )}
-      </Stack>
+          </>
+        ) : null
+      }
+    >
+      {tab === "interfaces" && <InterfacesTab s={s} nics={nics} net={net} />}
+      {tab === "wan" && <WanTab s={s} net={net} />}
+      {tab === "lan" && <LanTab s={s} nics={nics} net={net} />}
+      {tab === "guest" && <GuestTab s={s} nics={nics} net={net} />}
+      {tab === "wireguard" && <WireGuardTab s={s} />}
+      {tab === "ddns" && <DynamicDnsTab s={s} />}
+      {tab === "diagnostics" && <Diagnostics />}
     </TabbedPage>
   );
 };

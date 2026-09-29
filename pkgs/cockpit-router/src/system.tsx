@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import {
   Button,
   Alert,
@@ -8,8 +8,6 @@ import {
   CardTitle,
   CardBody,
   Spinner,
-  CodeBlock,
-  CodeBlockCode,
   Split,
   SplitItem,
   Label,
@@ -21,12 +19,31 @@ import {
   FormSelect,
   FormSelectOption,
   TextInput,
+  Content,
 } from "@patternfly/react-core";
 import { Table, Thead, Tbody, Tr, Th, Td } from "@patternfly/react-table";
-import { flakeHostRef, writeApplied, loadState, errMsg } from "./nix";
-import type { Json } from "./nix";
-import { validateSettings } from "./schema";
-import { useSettings, SubNav, SaveBar, Loading, ListEditor, hint, TabbedPage } from "./settings";
+import { errMsg } from "./nix";
+import {
+  useSettings,
+  usePageSettings,
+  useTabRoute,
+  SettingsProvider,
+  Loading,
+  ListEditor,
+  hint,
+  SubNav,
+  TabbedPage,
+} from "./settings";
+import { SaveActions } from "./save-actions";
+import { ChangesPanel, SystemStatus, useAdmin } from "./changes";
+import {
+  busyLabel,
+  getRebuildJob,
+  startRebuild,
+  subscribeRebuildJob,
+  useRebuildJob,
+} from "./rebuild-job";
+import type { RebuildOp } from "./rebuild-status";
 
 const _ = cockpit.gettext;
 
@@ -38,21 +55,17 @@ interface Generation {
   current?: boolean;
 }
 
+// Rebuilds run as router-rebuild.service (see rebuild-job.ts), so they carry
+// on when this page is closed and show in the changes panel above wherever
+// they were started. Their output is in the journal, not here.
 const SystemOps = () => {
-  // Only for its error: Apply validates the settings file first, and is
-  // disabled with the reason shown while the file cannot be read.
-  const settings = useSettings();
-  const [log, setLog] = useState("");
-  const [running, setRunning] = useState(""); // Label of the in-flight operation
-  const [done, setDone] = useState<{ ok: boolean; label: string } | null>(null);
+  const job = useRebuildJob();
+  const admin = useAdmin();
+  const [error, setError] = useState("");
   const [gens, setGens] = useState<Generation[]>([]);
   const [gensError, setGensError] = useState("");
   const [gensLoading, setGensLoading] = useState(true);
-  const procRef = useRef<CockpitProcess | null>(null);
-  const logRef = useRef<HTMLDivElement>(null);
 
-  // Fetch only (`gensLoading` starts true for the mount effect); after an
-  // upgrade or rollback, `loadGenerations` shows the spinner first.
   const fetchGenerations = useCallback(() => {
     cockpit
       .spawn(["nixos-rebuild", "list-generations", "--json"], { superuser: "try", err: "message" })
@@ -67,250 +80,159 @@ const SystemOps = () => {
       });
   }, []);
 
-  const loadGenerations = useCallback(() => {
-    setGensLoading(true);
-    setGensError("");
-    fetchGenerations();
-  }, [fetchGenerations]);
-
+  // Again whenever a rebuild starts or ends: a switch or rollback adds or
+  // moves the current generation.
   useEffect(() => {
     fetchGenerations();
-  }, [fetchGenerations]);
-
-  // Keep the log scrolled to the newest output (nothing to follow while empty).
-  useEffect(() => {
-    const el = logRef.current;
-    if (el && log) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [log]);
-
-  const run = useCallback(
-    (label: string, argv: string[], onSuccess?: () => void) => {
-      if (running) {
-        return;
+    let { kind } = getRebuildJob();
+    return subscribeRebuildJob(() => {
+      const { kind: next } = getRebuildJob();
+      if (next !== kind) {
+        kind = next;
+        fetchGenerations();
       }
-      setRunning(label);
-      setLog("");
-      setDone(null);
-      const proc = cockpit.spawn(argv, { superuser: "require", err: "out" });
-      procRef.current = proc;
-      void proc.stream((d: string) => setLog((prev) => prev + d));
-      proc
-        .then(() => {
-          setDone({ ok: true, label });
-          onSuccess?.();
-        })
-        .catch((e: unknown) => {
-          setLog((prev) => `${prev}\n${errMsg(e)}\n`);
-          setDone({ ok: false, label });
-        })
-        .finally(() => {
-          setRunning("");
-          procRef.current = null;
-        });
-    },
-    [running],
-  );
+    });
+  }, [fetchGenerations]);
 
-  const cancel = () => {
-    if (procRef.current) {
-      procRef.current.close("terminated");
-    }
+  const run = (op: RebuildOp) => {
+    setError("");
+    startRebuild(op).catch((e: unknown) => setError(errMsg(e)));
   };
-
-  // Let every open form and the changes tray pick up the new generation's
-  // effective config, and refresh the generation list.
-  const afterSwitch = () => {
-    window.dispatchEvent(new Event("router:changed"));
-    loadGenerations();
-  };
-
-  // After a successful switch, snapshot the JSON the rebuild was started from
-  // as the applied baseline, so the changes tray clears. As in the tray's own
-  // Apply, that is the copy apply validated, not a re-read after the rebuild,
-  // which could pick up an edit saved while it ran.
-  const onApplied = (built: Json) => {
-    writeApplied(built)
-      .catch(() => {})
-      .finally(afterSwitch);
-  };
-
-  // `system-upgrade` also exits 0 when flake.lock did not change and it skipped
-  // the rebuild, so its success says nothing about the saved JSON. loadState
-  // does: snapshotStale is set only when the running generation was activated
-  // after the last write to the JSON and the snapshot disagrees with it — the
-  // switch built from what is on disk. After a skipped rebuild, saved edits
-  // stay in the tray.
-  const onUpgraded = () => {
-    loadState()
-      .then((st) => (st.snapshotStale ? writeApplied(st.desired) : null))
-      .catch(() => {})
-      .finally(afterSwitch);
-  };
-
-  const apply = () => {
-    const fail = (msg: string) => {
-      setLog(msg);
-      setDone({ ok: false, label: _("Apply configuration") });
-    };
-    // Validate the on-disk config against the schema before rebuilding. A
-    // settings file that cannot be read stops here too.
-    void loadState()
-      .then((st) => {
-        const errors = validateSettings(st.desired);
-        if (errors.length > 0) {
-          fail(`Configuration does not match the schema:\n${errors.join("\n")}`);
-          return;
-        }
-        run(
-          _("Apply configuration"),
-          ["nixos-rebuild", "switch", "--flake", flakeHostRef(), "--impure"],
-          () => onApplied(st.desired),
-        );
-      })
-      .catch((e: unknown) => fail(errMsg(e)));
-  };
-  const check = () =>
-    run(_("Check flake"), ["nixos-rebuild", "dry-build", "--flake", flakeHostRef(), "--impure"]);
-  const update = () => run(_("Update system"), ["system-upgrade"], onUpgraded);
-  const rollback = () =>
-    run(_("Roll back"), ["nixos-rebuild", "switch", "--rollback"], () => loadGenerations());
-
-  const busy = Boolean(running);
+  const busy = busyLabel(job);
 
   return (
     <Stack hasGutter className="ct-router-stack">
       <StackItem isFilled style={{ overflowY: "auto" }}>
-        <Card isCompact style={{ marginBlockEnd: "1rem" }}>
-          <CardTitle>{_("Configuration")}</CardTitle>
-          <CardBody>
-            {settings.error && (
-              <Alert
-                variant="danger"
-                isInline
-                title={_("Could not load settings")}
-                style={{ marginBlockEnd: "1rem" }}
-              >
-                {settings.error}
-              </Alert>
-            )}
-            <Split hasGutter>
-              <SplitItem>
-                <Button
-                  variant="primary"
-                  onClick={apply}
-                  isDisabled={busy || Boolean(settings.error)}
-                >
-                  {_("Apply configuration")}
-                </Button>
-              </SplitItem>
-              <SplitItem>
-                <Button variant="secondary" onClick={check} isDisabled={busy}>
-                  {_("Check flake")}
-                </Button>
-              </SplitItem>
-              <SplitItem>
-                <Button variant="secondary" onClick={update} isDisabled={busy}>
-                  {_("Update system")}
-                </Button>
-              </SplitItem>
-              <SplitItem isFilled />
-              {busy && (
-                <SplitItem>
-                  <Button variant="link" isDanger onClick={cancel}>
-                    {_("Cancel")}
-                  </Button>
-                </SplitItem>
-              )}
-            </Split>
-          </CardBody>
-        </Card>
+        <Stack hasGutter>
+          <StackItem>
+            <ChangesPanel />
+          </StackItem>
 
-        {(running || log || done) && (
-          <Card isCompact style={{ marginBlockEnd: "1rem" }}>
-            <CardTitle>
-              {running ? (
-                <Split hasGutter>
-                  <SplitItem>
-                    <Spinner size="md" />
-                  </SplitItem>
-                  <SplitItem>{cockpit.format(_("$0…"), running)}</SplitItem>
+          <StackItem>
+            <Card isCompact>
+              <CardTitle>{_("Configuration")}</CardTitle>
+              <CardBody>
+                {error && (
+                  <Alert
+                    variant="danger"
+                    isInline
+                    title={_("Could not start the rebuild")}
+                    style={{ marginBlockEnd: "1rem", whiteSpace: "pre-line" }}
+                  >
+                    {error}
+                  </Alert>
+                )}
+                {admin ? (
+                  <Split hasGutter>
+                    <SplitItem>
+                      <Button
+                        variant="secondary"
+                        onClick={() => run("apply")}
+                        isDisabled={Boolean(busy)}
+                      >
+                        {_("Apply configuration")}
+                      </Button>
+                    </SplitItem>
+                    <SplitItem>
+                      <Button
+                        variant="secondary"
+                        onClick={() => run("check")}
+                        isDisabled={Boolean(busy)}
+                      >
+                        {_("Check configuration")}
+                      </Button>
+                    </SplitItem>
+                    <SplitItem>
+                      <Button
+                        variant="secondary"
+                        onClick={() => run("update")}
+                        isDisabled={Boolean(busy)}
+                      >
+                        {_("Update system")}
+                      </Button>
+                    </SplitItem>
+                    {busy && (
+                      <SplitItem isFilled style={{ alignSelf: "center" }}>
+                        <Content component="small">{busy}</Content>
+                      </SplitItem>
+                    )}
+                  </Split>
+                ) : (
+                  <Content component="p">
+                    {_("Administrative access is needed to rebuild the router.")}
+                  </Content>
+                )}
+              </CardBody>
+            </Card>
+          </StackItem>
+
+          <StackItem>
+            <Card isCompact>
+              <CardTitle>
+                <Split>
+                  <SplitItem isFilled>{_("Generations")}</SplitItem>
+                  {admin && (
+                    <SplitItem>
+                      <Button
+                        variant="secondary"
+                        onClick={() => run("rollback")}
+                        isDisabled={Boolean(busy) || gens.length < 2}
+                      >
+                        {_("Roll back to previous")}
+                      </Button>
+                    </SplitItem>
+                  )}
                 </Split>
-              ) : done ? (
-                <Label color={done.ok ? "green" : "red"}>
-                  {cockpit.format(done.ok ? _("$0: succeeded") : _("$0: failed"), done.label)}
-                </Label>
-              ) : null}
-            </CardTitle>
-            <CardBody>
-              <div ref={logRef} style={{ maxBlockSize: "24rem", overflow: "auto" }}>
-                <CodeBlock>
-                  <CodeBlockCode>{log || _("(no output yet)")}</CodeBlockCode>
-                </CodeBlock>
-              </div>
-            </CardBody>
-          </Card>
-        )}
-
-        <Card isCompact>
-          <CardTitle>
-            <Split>
-              <SplitItem isFilled>{_("Generations")}</SplitItem>
-              <SplitItem>
-                <Button variant="secondary" onClick={rollback} isDisabled={busy || gens.length < 2}>
-                  {_("Roll back to previous")}
-                </Button>
-              </SplitItem>
-            </Split>
-          </CardTitle>
-          <CardBody>
-            {gensLoading ? (
-              <Spinner />
-            ) : gensError ? (
-              <Alert variant="danger" isInline title={_("Could not list generations")}>
-                {gensError}
-              </Alert>
-            ) : gens.length === 0 ? (
-              <EmptyState>
-                <EmptyStateBody>{_("No generations found.")}</EmptyStateBody>
-              </EmptyState>
-            ) : (
-              <Table variant="compact" aria-label={_("Generations")}>
-                <Thead>
-                  <Tr>
-                    <Th>{_("Generation")}</Th>
-                    <Th>{_("Date")}</Th>
-                    <Th>{_("NixOS version")}</Th>
-                    <Th>{_("Kernel")}</Th>
-                    <Th>{_("Current")}</Th>
-                  </Tr>
-                </Thead>
-                <Tbody>
-                  {[...gens]
-                    .toSorted((a, b) => b.generation - a.generation)
-                    .map((g) => (
-                      <Tr key={g.generation}>
-                        <Td>{g.generation}</Td>
-                        <Td>{g.date || "—"}</Td>
-                        <Td>{g.nixosVersion || "—"}</Td>
-                        <Td>{g.kernelVersion || "—"}</Td>
-                        <Td>
-                          {g.current ? (
-                            <Label color="green" isCompact>
-                              {_("current")}
-                            </Label>
-                          ) : (
-                            ""
-                          )}
-                        </Td>
+              </CardTitle>
+              <CardBody>
+                {gensLoading ? (
+                  <Spinner />
+                ) : gensError ? (
+                  <Alert variant="danger" isInline title={_("Could not list generations")}>
+                    {gensError}
+                  </Alert>
+                ) : gens.length === 0 ? (
+                  <EmptyState>
+                    <EmptyStateBody>{_("No generations found.")}</EmptyStateBody>
+                  </EmptyState>
+                ) : (
+                  <Table variant="compact" aria-label={_("Generations")}>
+                    <Thead>
+                      <Tr>
+                        <Th>{_("Generation")}</Th>
+                        <Th>{_("Date")}</Th>
+                        <Th>{_("NixOS version")}</Th>
+                        <Th>{_("Kernel")}</Th>
+                        <Th>{_("Current")}</Th>
                       </Tr>
-                    ))}
-                </Tbody>
-              </Table>
-            )}
-          </CardBody>
-        </Card>
+                    </Thead>
+                    <Tbody>
+                      {[...gens]
+                        .toSorted((a, b) => b.generation - a.generation)
+                        .map((g) => (
+                          <Tr key={g.generation}>
+                            <Td>{g.generation}</Td>
+                            <Td>{g.date || "—"}</Td>
+                            <Td>{g.nixosVersion || "—"}</Td>
+                            <Td>{g.kernelVersion || "—"}</Td>
+                            <Td>
+                              {g.current ? (
+                                <Label color="green" isCompact>
+                                  {_("current")}
+                                </Label>
+                              ) : (
+                                ""
+                              )}
+                            </Td>
+                          </Tr>
+                        ))}
+                    </Tbody>
+                  </Table>
+                )}
+              </CardBody>
+            </Card>
+          </StackItem>
+        </Stack>
       </StackItem>
     </Stack>
   );
@@ -440,35 +362,38 @@ const SystemSettings = () => {
               </FormSelect>
             </FormGroup>
           </FormSection>
-
-          <SaveBar
-            saving={s.saving}
-            status={s.status}
-            onSave={s.save}
-            onSaveApply={s.saveAndApply}
-          />
         </Form>
       </StackItem>
     </Stack>
   );
 };
 
+const TABS = ["operations", "settings"];
+
+// Preloaded (manifest.json), so this page's sidebar entry carries the whole
+// router's state from login on; see SystemStatus. Its own unsaved edits (the
+// Settings tab) are part of that status rather than a status of their own.
 export const System = () => {
-  const [tab, setTab] = useState("operations");
+  const s = usePageSettings({ publishStatus: false });
+  const [tab, setTab] = useTabRoute(TABS);
   return (
-    <TabbedPage
-      subnav={
-        <SubNav
-          active={tab}
-          onSelect={setTab}
-          items={[
-            { id: "operations", label: _("Operations") },
-            { id: "settings", label: _("Settings") },
-          ]}
-        />
-      }
-    >
-      {tab === "operations" ? <SystemOps /> : <SystemSettings />}
-    </TabbedPage>
+    <SettingsProvider value={s}>
+      <SystemStatus dirty={s.dirty} />
+      <TabbedPage
+        subnav={
+          <SubNav
+            active={tab}
+            onSelect={setTab}
+            items={[
+              { id: "operations", label: _("Operations") },
+              { id: "settings", label: _("Settings") },
+            ]}
+          />
+        }
+        footer={s.ready && (tab === "settings" || s.dirty) ? <SaveActions s={s} /> : null}
+      >
+        {tab === "operations" ? <SystemOps /> : <SystemSettings />}
+      </TabbedPage>
+    </SettingsProvider>
   );
 };

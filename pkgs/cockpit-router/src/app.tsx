@@ -11,7 +11,6 @@ import { System } from "./system";
 import { Network } from "./network";
 import { Ingress } from "./ingress-page";
 import { Wireless } from "./wireless";
-import { ChangesTray } from "./changes";
 
 // Hide the PatternFly 6 Page sidebar area (the Cockpit shell provides the real
 // nav). <Page> itself supplies the scrollable main area + page padding, which a
@@ -38,7 +37,6 @@ export const views: Record<string, ReactNode> = {
 
 export const App = ({ view }: { view: ReactNode }) => (
   <Page sidebar={emptySidebar} isContentFilled>
-    <ChangesTray />
     {view}
   </Page>
 );
