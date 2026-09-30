@@ -1315,7 +1315,10 @@ const GroupsTab = ({ s }: { s: S }) => {
                       {confirmDelete === g.name ? (
                         <>
                           {members > 0 && (
-                            <span className="pf-v6-u-color-200" style={{ marginRight: "0.5rem" }}>
+                            <span
+                              className="pf-v6-u-text-color-subtle"
+                              style={{ marginRight: "0.5rem" }}
+                            >
                               {cockpit.format(
                                 _("$0 member device(s) will lose this group."),
                                 members,

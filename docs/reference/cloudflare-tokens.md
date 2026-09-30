@@ -4,6 +4,7 @@ description: The Cloudflare API tokens the router uses for dynamic DNS, DNS-01 c
 code:
   - modules/ddns.nix
   - modules/acme.nix
+  - modules/cockpit-cert.nix
   - modules/reverse-proxy.nix
   - modules/cloudflare-tunnel.nix
   - modules/reporting.nix
@@ -30,9 +31,9 @@ Four router features call the Cloudflare API, each with an API token you create 
 | Feature | Permissions | Default token file | Where to set it |
 | --- | --- | --- | --- |
 | [Dynamic DNS](/docs/dynamic-dns/) | Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-ddns.token` | **Network → Dynamic DNS** |
-| [Reverse proxy](/docs/ingress/reverse-proxy/) certificates with the Cloudflare DNS challenge | Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-acme.token` | **Ingress → Reverse proxy**, **Certificates** card |
+| [Reverse proxy](/docs/ingress/reverse-proxy/) certificates with the Cloudflare DNS challenge, and the certificate for the router's [domain name](/docs/start/cockpit/#a-trusted-certificate) | Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-acme.token` | **Ingress → Reverse proxy**, **Certificates** card |
 | [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/) | Account → Cloudflare Tunnel → Edit, Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-tunnel.token` | **Ingress → Tunnel** |
-| Emailed scheduled reports | Email Routing: Edit, plus the account ID | None | **Reports → Scheduled reports**, **Email delivery** section |
+| Emailed scheduled reports | Email Routing: Edit, plus the account ID | `/etc/router/secrets/cloudflare-email.token` | **Reports → Scheduled reports**, **Email delivery** section |
 
 Zone permissions must cover the zone of every name the feature manages. The router authenticates with the token as a bearer token, so it needs an API token; your account's Global API Key doesn't work.
 
@@ -56,6 +57,7 @@ A reverse proxy route whose certificate uses the Cloudflare DNS challenge proves
 - **Setting:** `acme.cloudflare.apiTokenFile`.
 - **Sharing:** a **Use the DDNS token** link appears beside the field when a dynamic DNS token file is set and this field holds a different path. It points this setting at the dynamic DNS token file. See [Share one token between features](#share-one-token-between-features).
 - **Missing token:** the tab shows "The Cloudflare DNS challenge needs an API token — set the token file under Certificates.", and the build stops with `router.reverseProxy.routes: route 'cloud' uses the dns-cloudflare challenge, but router.acme.cloudflare.apiTokenFile is not set`.
+- **The router's domain name:** Cockpit's certificate for the router's [domain name](/docs/start/cockpit/#a-trusted-certificate) always uses this challenge and this token, so the token's zones must cover that name too. Without a token, **System → Settings** shows the same message under **Domain name**, and the build stops with `router.fqdn: Cockpit's certificate uses the dns-cloudflare challenge, but router.acme.cloudflare.apiTokenFile is not set`.
 
 ## Cloudflare Tunnel
 
@@ -71,20 +73,11 @@ The router creates and owns the tunnel through the API. It looks up the zone of 
 
 A scheduled report can be emailed through Cloudflare's Email Sending API, using the account ID and token you give it.
 
-- **Permissions:** the option's description asks for a token with Email Routing: Edit.
+- **Permissions:** "Create a token in the Cloudflare dashboard (My Profile → API Tokens) with Email Routing: Edit on the account that sends the reports. It needs its own token: the other features' tokens lack this permission."
 - **Also needed:** your Cloudflare account ID in **Cloudflare account id**, and a **From address** on a domain set up for Cloudflare Email Routing.
-- **Where:** **Reports → Scheduled reports**, in the **Email delivery** section, **API token file**. This field takes a path only: there's no **Set token…** button and no default path, so you create the file yourself (see below).
+- **Where:** **Reports → Scheduled reports**, in the **Email delivery** section, **API token file**, then **Set token…**.
 - **Settings:** `reporting.email.accountId`, `reporting.email.apiTokenFile` and `reporting.email.fromAddress`.
 - **Delivery failures don't stop the report.** The PDF is still generated and kept in Cockpit. The report's log says `Cloudflare email not configured (accountId/apiTokenFile) — skipping delivery` when the token or account ID is missing, and `Cloudflare email delivery failed:` followed by the reason when the API refuses. Read it with `journalctl -u router-report-weekly.service`, using your schedule's name in place of `weekly`. The exception is a path in **API token file** that doesn't exist: systemd then can't load the credential, the report service fails to start, and no PDF is made.
-
-To create the token file by hand, run this on the router, paste the token, press Enter, then press Ctrl-D:
-
-```bash
-sudo install -d -m 700 /etc/router/secrets
-sudo sh -c 'umask 077 && cat > /etc/router/secrets/cloudflare-email.token'
-```
-
-Then enter `/etc/router/secrets/cloudflare-email.token` in **API token file** and choose **Save and apply** from the **Save** menu.
 
 ## Share one token between features
 

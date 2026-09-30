@@ -104,6 +104,7 @@ portForwardsToHosts =
 migrations = [
   portForwardsToHosts
   dropDnsListenPort
+  clearedValuesToNull
 ];
 ```
 
@@ -138,6 +139,7 @@ upnpExtraLines =
 migrations = [
   portForwardsToHosts
   dropDnsListenPort
+  clearedValuesToNull
   upnpExtraLines
 ];
 ```

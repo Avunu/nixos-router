@@ -378,8 +378,8 @@ let
   );
 
   # A slug that lost a race with an explicit override for the same name, or
-  # with the router's own <hostName>.<domain> zone, is dropped too — the
-  # hand-written entry is the one the admin meant.
+  # with the router's own <hostName>.<domain> zone or router.fqdn, is dropped
+  # too — the hand-written entry is the one the admin meant.
   overrideNames = map (o: toLower o.name) dcfg.overrides;
   hostRecordsUsable = filter (
     e:
@@ -387,6 +387,7 @@ let
     && !(elem e.slug slugDupes)
     && !(elem "${e.slug}.${hostZone}" overrideNames)
     && "${e.slug}.${hostZone}" != toLower localZone
+    && "${e.slug}.${hostZone}" != routerName
   ) staticHostSlugs;
 
   dynamicHostSlugsUsable = filter (
@@ -395,6 +396,7 @@ let
     && !(elem e.slug slugDupes)
     && !(elem "${e.slug}.${hostZone}" overrideNames)
     && "${e.slug}.${hostZone}" != toLower localZone
+    && "${e.slug}.${hostZone}" != routerName
   ) dynamicHostSlugs;
 
   hostRecords = optionals registerHosts (
@@ -434,7 +436,31 @@ let
         ) cfg.hosts
       );
 
-  localDnsRecords = overrideRecords ++ hostRecords ++ publicHostRecords;
+  # The router's own name (router.fqdn, modules/cockpit-cert.nix), which
+  # Cockpit's certificate is issued for. It needs no public record, so answer
+  # it here with the LAN gateway, which WireGuard clients reach too. Skipped
+  # where something else already answers it: an explicit override (the admin's
+  # entry wins), the router's own Primary zone (already the gateway), or a
+  # forward zone, which hands its whole subtree elsewhere (warned below).
+  routerName = if cfg.fqdn != null then toLower cfg.fqdn else null;
+  routerNameForwarded = routerName != null && any (isUnderZone routerName) forwardZoneNames;
+  routerNameRecords =
+    optional
+      (
+        routerName != null
+        && !(elem routerName overrideNames)
+        && routerName != toLower localZone
+        && !routerNameForwarded
+      )
+      {
+        name = routerName;
+        type = "A";
+        value = lanGW;
+        ttl = 300;
+        ptr = false;
+      };
+
+  localDnsRecords = overrideRecords ++ hostRecords ++ publicHostRecords ++ routerNameRecords;
 
   # FWD record set mirroring the global upstreams — the "fall through to the
   # public horizon" half of every zone this feature creates.
@@ -896,6 +922,12 @@ in
           router.hosts: these device names slugify to the same DNS label, so
           NONE of them is published: ${concatStringsSep ", " slugDupes}.
           Rename the devices in router.hosts, or add explicit router.dns.overrides.
+        ''
+        ++ optional routerNameForwarded ''
+          router.fqdn: ${routerName} sits inside a router.dns.forwardZones zone, which
+          forwards the entire subtree, so the router does not answer it with its LAN
+          address. Cockpit's certificate is still issued; point the name at the router
+          on the forward zone's server, or narrow the forward zone.
         ''
         ++ optional (apexOverrides != [ ]) ''
           router.dns.overrides: ${concatStringsSep ", " apexOverrides} override a whole

@@ -86,7 +86,7 @@ export const UtCapitoleSelector = ({
             onChange={(_e, on) => onChange(on ? [...value, c.id] : value.filter((x) => x !== c.id))}
           />
           <div
-            className="pf-v6-u-color-200"
+            className="pf-v6-u-text-color-subtle"
             style={{ fontSize: "0.85rem", marginBlockStart: "0.125rem" }}
           >
             {c.description}
@@ -211,7 +211,7 @@ export const UrlListEditor = ({
         </Split>
       ))}
       {rows.length === 0 && (
-        <div className="pf-v6-u-color-200" style={{ marginBlockEnd: "0.5rem" }}>
+        <div className="pf-v6-u-text-color-subtle" style={{ marginBlockEnd: "0.5rem" }}>
           {_("No custom lists.")}
         </div>
       )}

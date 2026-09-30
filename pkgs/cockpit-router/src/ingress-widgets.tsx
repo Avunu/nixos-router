@@ -1,7 +1,8 @@
-// Pieces shared by the Ingress tabs (and Network → Dynamic DNS): the API
-// token path + writer, host labels, unit-state labels, and the text for the
-// validation issues ingress.ts reports by code.
-import { useState } from "react";
+// Pieces shared by the Ingress tabs (and Network → Dynamic DNS, Reports and
+// the System page's domain name): the API token path + writer, host labels,
+// unit-state labels, certificate status, and the text for the validation
+// issues ingress.ts reports by code.
+import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 import {
   ActionGroup,
@@ -24,7 +25,8 @@ import type { useSettings } from "./settings";
 import { errMsg } from "./nix";
 import { saveSecret } from "./ddns";
 import type { IngressContext, IngressIssue } from "./ingress";
-import type { UnitState } from "./ingress-runtime";
+import { loadCert, renewUnit, unitState } from "./ingress-runtime";
+import type { CertInfo, UnitState } from "./ingress-runtime";
 import type {
   AcmeSettings,
   CloudflareTunnelSettings,
@@ -62,6 +64,7 @@ export const ingressContext = (s: S): IngressContext => {
       apiTokenFile: tunnel.apiTokenFile ?? null,
       ingress: tunnel.ingress ?? [],
     },
+    fqdn: s.valueOf<string | null>("fqdn", null),
   };
 };
 
@@ -152,6 +155,22 @@ function issueBody(it: IngressIssue): string {
     case "tunnelToken": {
       return _("The tunnel needs a Cloudflare API token file.");
     }
+    case "clashRouterName": {
+      return cockpit.format(
+        _(
+          "$0 is the router's own domain name (System → Settings) — a name can point one way only.",
+        ),
+        list(it),
+      );
+    }
+    case "privateRouterName": {
+      return cockpit.format(
+        _(
+          "$0 is not a public domain name, so Let's Encrypt can't issue a certificate for it — use a name in one of your Cloudflare zones.",
+        ),
+        list(it),
+      );
+    }
     case "tunnelNoIngress": {
       return _(
         "The tunnel has no hostnames, so its connector doesn't run. Add a hostname and the router creates the tunnel, or reuses the one it already has.",
@@ -202,6 +221,98 @@ export const UnitLabel = ({ state }: { state: UnitState | null }) => {
     </Label>
   );
 };
+
+// ── Certificate state ───────────────────────────────────────────────────────
+// Shared by the reverse proxy's routes and the System page's certificate for
+// the router's own name (router.fqdn).
+export interface CertState {
+  cert: CertInfo;
+  unit: UnitState;
+  // Days until notAfter, taken when the state was loaded.
+  daysLeft: number;
+}
+
+const DAY = 86_400_000;
+
+export const CertStatus = ({ st }: { st: CertState | undefined }) => {
+  if (!st) {
+    return "—";
+  }
+  let label;
+  if (st.unit.activeState === "activating") {
+    label = (
+      <Label color="blue" isCompact>
+        {_("Renewing…")}
+      </Label>
+    );
+  } else if (st.cert.state === "missing") {
+    label = (
+      <Label color="grey" isCompact>
+        {_("No certificate")}
+      </Label>
+    );
+  } else if (st.cert.state === "pending") {
+    label = (
+      <Label color="orange" isCompact>
+        {_("Pending")}
+      </Label>
+    );
+  } else {
+    const end = st.cert.notAfter;
+    const left = st.daysLeft;
+    label = (
+      <Label color={left <= 0 ? "red" : left < 14 ? "orange" : "green"} isCompact>
+        {!end
+          ? _("Issued")
+          : left <= 0
+            ? _("Expired")
+            : cockpit.format(_("Valid until $0"), end.toLocaleDateString())}
+      </Label>
+    );
+  }
+  const failed =
+    st.unit.activeState === "failed" || (st.unit.result && st.unit.result !== "success");
+  return (
+    <>
+      <div>{label}</div>
+      {failed && (
+        <small>
+          <Label color="red" isCompact>
+            {_("last renewal failed")}
+          </Label>
+        </small>
+      )}
+      {!failed && st.unit.exitedAt && (
+        <small>{cockpit.format(_("last run $0"), st.unit.exitedAt)}</small>
+      )}
+    </>
+  );
+};
+
+// Certificate + renewal-unit state of every cert, refreshed on demand.
+export function useCertStates(certs: string[], active: boolean) {
+  const [states, setStates] = useState<Record<string, CertState>>({});
+  const key = certs.join(" ");
+  const refresh = useCallback(() => {
+    if (!active) {
+      return;
+    }
+    const names = key.split(" ").filter(Boolean);
+    void Promise.all(
+      names.map((c) =>
+        Promise.all([loadCert(c), unitState(renewUnit(c))]).then(([cert, unit]) => {
+          const end = cert.notAfter;
+          const daysLeft = end ? (end.getTime() - Date.now()) / DAY : 0;
+          return [c, { cert, unit, daysLeft }] as const;
+        }),
+      ),
+    ).then((entries) => setStates(Object.fromEntries(entries)));
+  }, [key, active]);
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+  return { states: active ? states : {}, refresh };
+}
 
 // ── API token ───────────────────────────────────────────────────────────────
 // The token itself never enters the settings JSON: the form stores a path,

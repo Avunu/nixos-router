@@ -14,6 +14,7 @@ import {
 import type { ReactNode } from "react";
 import {
   Button,
+  FormGroupLabelHelp,
   TextInput,
   Label,
   LabelGroup,
@@ -28,7 +29,6 @@ import {
   Popover,
   PageSection,
 } from "@patternfly/react-core";
-import { HelpIcon } from "@patternfly/react-icons";
 import { getPath, setPath, isLocked, errMsg, rebaseEdits, deepEqual } from "./nix";
 import type { Json } from "./nix";
 import { patchWithEdits } from "./settings-json";
@@ -46,17 +46,11 @@ import { usePageStatus } from "./page-status";
 const _ = cockpit.gettext;
 
 // PatternFly's FormGroup `labelHelp` expects a ReactElement (a popover trigger);
-// wrap a help string into one.
+// wrap a help string into one. FormGroupLabelHelp is PatternFly's plain help
+// button — the same unboxed icon Cockpit's own forms use.
 export const hint = (body: string) => (
   <Popover bodyContent={body}>
-    <button
-      type="button"
-      aria-label={_("More information")}
-      onClick={(e) => e.preventDefault()}
-      className="pf-v6-c-form__group-label-help"
-    >
-      <HelpIcon />
-    </button>
+    <FormGroupLabelHelp aria-label={_("More information")} />
   </Popover>
 );
 

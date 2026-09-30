@@ -104,10 +104,60 @@ let
     else
       settings;
 
+  # 2026-09 — a cleared optional value is null, not "".
+  #   { reporting.email.apiTokenFile = ""; } → { reporting.email.apiTokenFile = null; }
+  # Older Cockpit pages stored "" when one of these fields was emptied, and the
+  # modules take "" for a value: the report service asked systemd for a
+  # credential at an empty path and failed to start, an empty bind password
+  # file failed the "bindDn is empty" assertion, an empty TLS path went into
+  # sssd.conf, and an emptied initial password kept its warning (and would
+  # have given a new account an empty password). Only these keys: elsewhere ""
+  # is a value of its own.
+  clearedValuesToNull =
+    settings:
+    let
+      paths = [
+        [
+          "reporting"
+          "email"
+          "apiTokenFile"
+        ]
+        [
+          "directory"
+          "sssd"
+          "bindPasswordFile"
+        ]
+        [
+          "directory"
+          "sssd"
+          "tlsCaCertFile"
+        ]
+        [
+          "directory"
+          "sssd"
+          "tlsClientCertFile"
+        ]
+        [
+          "directory"
+          "sssd"
+          "tlsClientKeyFile"
+        ]
+        [
+          "adminUser"
+          "initialPassword"
+        ]
+      ];
+      clear =
+        s: path:
+        if lib.attrByPath path null s == "" then lib.recursiveUpdate s (lib.setAttrByPath path null) else s;
+    in
+    lib.foldl' clear settings paths;
+
   # Oldest first. Append new migrations at the end.
   migrations = [
     portForwardsToHosts
     dropDnsListenPort
+    clearedValuesToNull
   ];
 
   migrateSettings = settings: lib.foldl' (s: m: m s) settings migrations;

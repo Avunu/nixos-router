@@ -17,8 +17,10 @@ import {
 
 const _ = cockpit.gettext;
 
-const BLUE = "#0066cc";
-const RED = "#c9190b";
+// PatternFly tokens rather than fixed colours, so both follow the light/dark
+// theme. Victory puts them in inline styles, where var() resolves.
+const BLUE = "var(--pf-t--global--color--brand--default)";
+const RED = "var(--pf-t--global--color--status--danger--default)";
 
 // Horizontal ranking-bar list. Pure CSS bars to avoid a charting dependency for
 // the cheap "top N" case (a real chart would be overkill).
@@ -29,7 +31,7 @@ export const RankCard = ({ title, rows }: { title: string; rows: [string, number
       <CardTitle>{title}</CardTitle>
       <CardBody>
         {rows.length === 0 ? (
-          <div className="pf-v6-u-color-200">{_("No data in range.")}</div>
+          <div className="pf-v6-u-text-color-subtle">{_("No data in range.")}</div>
         ) : (
           rows.map(([k, count]) => (
             <div key={k} style={{ marginBlockEnd: "0.5rem" }}>

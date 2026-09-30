@@ -29,6 +29,7 @@ const SECTIONS: Record<string, Place> = {
   directory: { label: "Directory", page: "users", tab: "settings" },
   diskDevice: { label: "Disk", page: "system", tab: "settings" },
   dns: { label: "DNS", page: "dns" },
+  fqdn: { label: "Domain name", page: "system", tab: "settings" },
   guest: { label: "Guest network", page: "network", tab: "guest" },
   hostGroups: { label: "Host groups", page: "hosts", tab: "groups" },
   hostName: { label: "Host name", page: "system", tab: "settings" },

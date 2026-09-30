@@ -58,24 +58,15 @@ A schedule generates a PDF report and a CSV file on a timer, and can email the P
 
 ### Before you start
 
-To email reports, you need a Cloudflare account set up to send email for the domain of your sender address, and an API token with the permission [Cloudflare API tokens](/docs/reference/cloudflare-tokens/) lists for report email. The token goes in a file on the router, like any other secret. See [Cloudflare API tokens](/docs/reference/cloudflare-tokens/). To keep reports on the router only, you need neither.
+To email reports, you need a Cloudflare account set up to send email for the domain of your sender address, and an API token with the permission [Cloudflare API tokens](/docs/reference/cloudflare-tokens/) lists for report email. The router keeps the token in a root-only file, like any other secret. To keep reports on the router only, you need neither.
 
 ### Set up email delivery
 
-1. Store the token on the router:
-
-   ```bash
-   sudo install -d -m 0700 -o root -g root /etc/router/secrets
-   sudo sh -c 'umask 077; cat > /etc/router/secrets/cloudflare-email.token'
-   ```
-
-   Paste the token, press Enter, then Ctrl+D.
-
-2. Open **Reports → Scheduled reports**. Under **Email delivery**, fill in:
+1. Open **Reports → Scheduled reports**. Under **Email delivery**, fill in:
    - **Cloudflare account id:** the account that sends the email.
-   - **API token file:** `/etc/router/secrets/cloudflare-email.token`. The help text reads "Path to a root-owned file on the router — never the secret itself."
+   - **API token file:** click **Set token…**, paste the token into **API token** and click **Save token**. An empty field fills in `/etc/router/secrets/cloudflare-email.token`, and the token is written there at once, readable by root only. The help text reads "Path to a root-owned file on the router — never the token itself."
    - **From address:** the sender, such as `reports@example.org`.
-3. Choose **Save and apply** from the **Save** menu.
+2. Choose **Save and apply** from the **Save** menu, so the settings file records the path.
 
 ### Create a schedule
 

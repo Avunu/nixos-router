@@ -1,5 +1,9 @@
 // Cockpit page layout helpers (global heading sizes, page fill, PF overrides).
 @use "page.scss";
+// PatternFly's utility classes are not part of its base CSS; load only the
+// ones the pages use, as Cockpit's own components do. Text: the subtle text
+// colour (pf-v6-u-text-color-subtle) for secondary lines.
+@use "@patternfly/patternfly/utilities/Text/text.scss";
 
 // ── Sticky table headers ────────────────────────────────────────────────────
 // Each table uses PatternFly's dynamic sticky header (<Table isStickyHeaderBase

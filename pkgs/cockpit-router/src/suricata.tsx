@@ -92,6 +92,12 @@ import { RankCard } from "./widgets";
 
 const _ = cockpit.gettext;
 
+// Severity bar colours as PatternFly tokens, so they follow the light/dark
+// theme (high = danger, medium = warning, low = a neutral grey).
+const SEV_HIGH = "var(--pf-t--global--color--status--danger--default)";
+const SEV_MED = "var(--pf-t--global--color--status--warning--default)";
+const SEV_LOW = "var(--pf-t--global--icon--color--subtle)";
+
 // ── shared types & helpers ──────────────────────────────────────────────────
 interface Policy {
   sid: number;
@@ -239,9 +245,9 @@ const SeverityChart = ({ events }: { events: Ev[] }) => {
                     height: "140px",
                   }}
                 >
-                  <div style={{ background: "#c9190b", blockSize: h(b.high) }} />
-                  <div style={{ background: "#ef9234", blockSize: h(b.med) }} />
-                  <div style={{ background: "#8a8d90", blockSize: h(b.low) }} />
+                  <div style={{ background: SEV_HIGH, blockSize: h(b.high) }} />
+                  <div style={{ background: SEV_MED, blockSize: h(b.med) }} />
+                  <div style={{ background: SEV_LOW, blockSize: h(b.low) }} />
                 </div>
                 <div style={{ fontSize: "0.75rem", marginBlockStart: "0.25rem" }}>{b.label}</div>
                 <div style={{ fontSize: "0.75rem", fontWeight: 600 }}>{total}</div>
@@ -523,7 +529,7 @@ const EventDetail = ({ event, onClose }: { event: Ev; onClose: () => void }) => 
 
         <FormSection title={_("Add self-defined policy")} titleElement="h3">
           {sid === undefined ? (
-            <div className="pf-v6-u-color-200">
+            <div className="pf-v6-u-text-color-subtle">
               {_("This event has no signature ID, so no policy can be derived from it.")}
             </div>
           ) : (
@@ -739,11 +745,9 @@ const SuricataEvents = () => {
                   {shown.map((r, i) => (
                     <Tr
                       key={i}
-                      onClick={() => setSelected(r)}
-                      style={{
-                        cursor: "pointer",
-                        background: selected === r ? "#e7f1fa" : undefined,
-                      }}
+                      isClickable
+                      isRowSelected={selected === r}
+                      onRowClick={() => setSelected(r)}
                     >
                       <Td>{fmtTime(r.timestamp)}</Td>
                       <Td>
@@ -906,7 +910,7 @@ const CategoryEditor = ({
                 <SplitItem isFilled>
                   <div style={{ fontWeight: 600 }}>{c.label}</div>
                   <div
-                    className="pf-v6-u-color-200"
+                    className="pf-v6-u-text-color-subtle"
                     style={{ fontSize: "0.8rem", marginBlockStart: "0.125rem" }}
                   >
                     {c.description}
@@ -1184,7 +1188,7 @@ const SuricataPolicies = () => {
       <StackItem isFilled style={{ overflowY: "auto" }}>
         <Form onSubmit={(e) => e.preventDefault()}>
           <FormSection title={_("Rule categories")} titleElement="h2">
-            <div className="pf-v6-u-color-200" style={{ marginBlockEnd: "0.5rem" }}>
+            <div className="pf-v6-u-text-color-subtle" style={{ marginBlockEnd: "0.5rem" }}>
               {_(
                 "Set an action per ET Open category. Drop only takes effect in IPS mode (Settings tab).",
               )}
@@ -1198,7 +1202,7 @@ const SuricataPolicies = () => {
           </FormSection>
 
           <FormSection title={_("Signature policies")} titleElement="h2">
-            <div className="pf-v6-u-color-200" style={{ marginBlockEnd: "0.5rem" }}>
+            <div className="pf-v6-u-text-color-subtle" style={{ marginBlockEnd: "0.5rem" }}>
               {_(
                 "Per-signature overrides by SID — typically added from an event in the Events tab.",
               )}
@@ -1211,7 +1215,7 @@ const SuricataPolicies = () => {
           </FormSection>
 
           <FormSection title={_("Suppressions")} titleElement="h2">
-            <div className="pf-v6-u-color-200" style={{ marginBlockEnd: "0.5rem" }}>
+            <div className="pf-v6-u-text-color-subtle" style={{ marginBlockEnd: "0.5rem" }}>
               {_("Stop a signature from firing for a specific host (threshold.config suppress).")}
             </div>
             <SuppressionEditor

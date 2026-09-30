@@ -28,6 +28,7 @@ The file is a single JSON object. Each top-level key is one of the router module
 | Key | What it holds | Guide |
 | --- | --- | --- |
 | `hostName`, `timeZone` | The router's name and time zone. | **System → Settings** |
+| `fqdn` | The router's domain name, for Cockpit's Let's Encrypt certificate. | [The web UI](/docs/start/cockpit/#a-trusted-certificate) |
 | `adminUser` | The admin account: `name`, `sshKeys`, `initialPassword`. | [Install a router](/docs/start/install/) |
 | `stateVersion`, `diskDevice`, `bootMode` | Install-time values. Don't change them on a running router. | [Install a router](/docs/start/install/) |
 | `wan`, `lan`, `guest`, `trunkInterfaces` | Networks, interfaces and VLANs. | [Networks and VLANs](/docs/network/) |
@@ -97,7 +98,7 @@ The settings file, like every value that goes into a NixOS build, ends up readab
 | `acme.cloudflare.apiTokenFile` | `/etc/router/secrets/cloudflare-acme.token` | **Set token…** on **Ingress → Reverse proxy** |
 | `cloudflareTunnel.apiTokenFile` | `/etc/router/secrets/cloudflare-tunnel.token` | **Set token…** on **Ingress → Tunnel** |
 | `wireguard.<name>.privateKeyFile` | `/etc/wireguard/<name>.key` | **Generate keypair** on **Network → WireGuard** |
-| `reporting.email.apiTokenFile` | none | You, as root |
+| `reporting.email.apiTokenFile` | `/etc/router/secrets/cloudflare-email.token` | **Set token…** on **Reports → Scheduled reports** |
 | `directory.sssd.bindPasswordFile` | none | You, as root |
 
 **Set token…** opens a form, "Set Cloudflare API token". The token you paste travels to the router over standard input, never on a command line, and is written to the path with mode 0600 in a directory with mode 0700. Only the path is saved in the settings file.
@@ -105,7 +106,7 @@ The settings file, like every value that goes into a NixOS build, ends up readab
 For the files you create yourself, keep the same convention. This is what **Set token…** runs, with the token on standard input:
 
 ```bash
-sudo sh -c 'umask 077 && install -d -m 700 /etc/router/secrets && cat > /etc/router/secrets/cloudflare-email.token'
+sudo sh -c 'umask 077 && install -d -m 700 /etc/router/secrets && cat > /etc/router/secrets/ldap-bind.password'
 ```
 
 Paste the token, press Enter, then Ctrl+D. Then enter the path in the matching field.
@@ -146,6 +147,7 @@ Register the device on the **Hosts** page with that static IP, then apply again.
 | --- | --- |
 | 2026-09 | Port forwards: `destination` becomes `host` (the device reserving that address), `source` becomes `sources`, and `family` is set to `ipv4`. |
 | 2026-09 | `dns.technitium.listenPort` is removed. The resolver always listens on port 53. |
+| 2026-09 | An empty `reporting.email.apiTokenFile`, `directory.sssd.bindPasswordFile`, `tlsCaCertFile`, `tlsClientCertFile`, `tlsClientKeyFile` or `adminUser.initialPassword` becomes `null`. Older versions of the web UI saved `""` when you cleared one of these fields, which the build took for a value. |
 
 Maintainers add migrations as described in [Settings migrations](/docs/develop/settings-migrations/).
 

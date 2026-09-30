@@ -74,6 +74,8 @@ let
     router.accessPolicies.blockPage.enable = true;
     # effective.json (the UI's view of the new keys) is Cockpit's.
     router.cockpit.enable = true;
+    # Mixed case: every use must be the lowercase name.
+    router.fqdn = "Console.example.com";
     router.ddns = {
       enable = true;
       names = [ "home.example.com" ];
@@ -165,6 +167,17 @@ let
       apiTokenFile = "/etc/router/secrets/cloudflare-tunnel.token";
     };
   };
+  # The router's name on a host's public name, with Cockpit off: the clash
+  # still fails, and nothing asks for a certificate.
+  fqdnNoCockpit = evalWith {
+    router.hosts = hosts;
+    router.cockpit.enable = false;
+    router.fqdn = "nas.example.com";
+  };
+  cockpitCert = sys.security.acme.certs.cockpit;
+  certInstaller = sys.systemd.services.router-cockpit-cert;
+  routerNameZone = lib.findFirst (z: z.zone == "console.example.com") null sys.router._localDnsZones;
+
   # The tunnel turned off with its token path kept, for the teardown.
   tunnelOff = evalWith {
     router.cloudflareTunnel.apiTokenFile = "/etc/router/secrets/cloudflare-tunnel.token";
@@ -175,6 +188,9 @@ let
   # Every misconfiguration at once, in ONE evaluation (each costs ~1 GB).
   bad = evalWith {
     router.hosts = hosts;
+    # A route's and a tunnel's hostname at once, with no ACME token.
+    router.cockpit.enable = true;
+    router.fqdn = "dns.example.com";
     router.ddns = {
       enable = true;
       names = [ "dup.example.com" ];
@@ -465,6 +481,72 @@ let
         && lib.any (lib.hasInfix "with no ingress hostnames, so no connector runs") idle.warnings;
       detail = "with no ingress hostnames, cloudflared still runs, the provisioner is missing, or the warning is gone: ${lib.concatStringsSep " | " idle.warnings}";
     }
+    # ── router name (Cockpit's certificate) ──
+    {
+      # DNS-01 only, asked of a public resolver: the router's own Technitium
+      # holds a local zone for the name.
+      name = "cockpit-cert-by-dns-challenge";
+      ok =
+        cockpitCert.domain == "console.example.com"
+        && cockpitCert.dnsProvider == "cloudflare"
+        && cockpitCert.dnsResolver == "1.1.1.1:53"
+        &&
+          cockpitCert.credentialFiles == {
+            CF_DNS_API_TOKEN_FILE = "/etc/router/secrets/cloudflare-ddns.token";
+          }
+        && cockpitCert.reloadServices == [ "cockpit.service" ];
+      detail = "cockpit certificate: ${
+        builtins.toJSON {
+          inherit (cockpitCert)
+            domain
+            dnsProvider
+            dnsResolver
+            credentialFiles
+            reloadServices
+            ;
+        }
+      }";
+    }
+    {
+      # Before every Cockpit start (the directory is cleaned daily), and
+      # after the placeholder unit has written its files.
+      name = "cockpit-cert-installed-before-every-start";
+      ok =
+        lib.elem "cockpit.service" certInstaller.wantedBy
+        && lib.elem "cockpit.service" certInstaller.before
+        && lib.elem "acme-cockpit.service" certInstaller.after
+        && certInstaller.serviceConfig.Type == "oneshot";
+      detail = "router-cockpit-cert is not a oneshot pulled in by, and ordered before, cockpit.service";
+    }
+    {
+      name = "cockpit-accepts-router-name";
+      ok =
+        lib.elem "https://console.example.com" sys.services.cockpit.allowed-origins
+        && lib.elem "https://console.example.com:9090" sys.services.cockpit.allowed-origins;
+      detail = "allowed-origins: ${builtins.toJSON sys.services.cockpit.allowed-origins}";
+    }
+    {
+      # Its own zone, so the rest of example.com still resolves upstream.
+      name = "router-name-resolves-to-lan-gateway";
+      ok =
+        routerNameZone != null
+        && routerNameZone.type == "Forwarder"
+        && lib.any (
+          r: r.name == "console.example.com" && r.type == "A" && r.value == sys.router.lan.address
+        ) routerNameZone.records;
+      detail = "split-horizon zone: ${builtins.toJSON routerNameZone}";
+    }
+    {
+      name = "router-name-off-without-cockpit";
+      ok =
+        !(fqdnNoCockpit.security.acme.certs ? cockpit)
+        && !(fqdnNoCockpit.systemd.services ? router-cockpit-cert)
+        && lib.any (lib.hasInfix "Cockpit is disabled, so no certificate is requested") fqdnNoCockpit.warnings
+        && lib.any (lib.hasInfix "nas.example.com is also used by host 'nas' (publicHostname)") (
+          failedAssertions fqdnNoCockpit
+        );
+      detail = "with Cockpit off: a certificate or installer is defined, the warning is missing, or the publicHostname clash passes: ${lib.concatStringsSep " | " (failedAssertions fqdnNoCockpit)}";
+    }
     {
       name = "effective-json-carries-new-keys";
       ok =
@@ -473,8 +555,11 @@ let
             builtins.unsafeDiscardStringContext sys.environment.etc."router/effective.json".text
           );
         in
-        eff ? acme && eff ? reverseProxy && eff ? cloudflareTunnel;
-      detail = "effective.json lacks acme/reverseProxy/cloudflareTunnel";
+        eff ? acme
+        && eff ? reverseProxy
+        && eff ? cloudflareTunnel
+        && eff.fqdn or null == "Console.example.com";
+      detail = "effective.json lacks acme/reverseProxy/cloudflareTunnel/fqdn";
     }
     {
       name = "system-toplevel-instantiates";
@@ -497,6 +582,8 @@ let
     (rejects "tunnel-unknown-host" "'home-tunnel.example.com' references unknown host 'ghost'")
     (rejects "tunnel-duplicate" "duplicate hostname(s) home-tunnel.example.com")
     (rejects "tunnel-vs-proxy" "dns.example.com is also published by reverse proxy route 'dns-no-token'")
+    (rejects "router-name-vs-proxy-and-tunnel" "router.fqdn: dns.example.com is also used by reverse proxy route 'dns-no-token', Cloudflare Tunnel hostname")
+    (rejects "router-name-needs-token" "Cockpit's certificate uses the dns-cloudflare challenge")
   ];
 
   failures = lib.filter (c: !c.ok) checks;

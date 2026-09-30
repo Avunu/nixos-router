@@ -61,13 +61,26 @@ export interface CertInfo {
   state: "missing" | "pending" | "issued";
   notAfter: Date | null;
   issuer: string;
+  // Its DNS names (subjectAltName): a certificate still for a name the
+  // settings no longer ask for shows as such until the new one lands.
+  names: string[];
 }
 
-// /var/lib/acme/<cert> is readable by root and the acme group only.
+// /var/lib/acme/<cert> is readable by root and the certificate's group only.
 export function loadCert(cert: string): Promise<CertInfo> {
   return cockpit
     .spawn(
-      ["openssl", "x509", "-issuer", "-enddate", "-noout", "-in", `/var/lib/acme/${cert}/cert.pem`],
+      [
+        "openssl",
+        "x509",
+        "-issuer",
+        "-enddate",
+        "-ext",
+        "subjectAltName",
+        "-noout",
+        "-in",
+        `/var/lib/acme/${cert}/cert.pem`,
+      ],
       { superuser: "try", err: "ignore" },
     )
     .then((out: string): CertInfo => {
@@ -78,9 +91,10 @@ export function loadCert(cert: string): Promise<CertInfo> {
         state: /minica/i.test(issuer) ? "pending" : "issued",
         notAfter: notAfter && !Number.isNaN(notAfter.getTime()) ? notAfter : null,
         issuer,
+        names: [...out.matchAll(/DNS:([^\s,]+)/g)].map((m) => (m[1] ?? "").toLowerCase()),
       };
     })
-    .catch((): CertInfo => ({ state: "missing", notAfter: null, issuer: "" }));
+    .catch((): CertInfo => ({ state: "missing", notAfter: null, issuer: "", names: [] }));
 }
 
 // ── Cloudflare Tunnel ───────────────────────────────────────────────────────
