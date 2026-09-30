@@ -490,9 +490,10 @@ let
         cockpitCert.domain == "console.example.com"
         && cockpitCert.dnsProvider == "cloudflare"
         && cockpitCert.dnsResolver == "1.1.1.1:53"
-        && cockpitCert.credentialFiles == {
-          CF_DNS_API_TOKEN_FILE = "/etc/router/secrets/cloudflare-ddns.token";
-        }
+        &&
+          cockpitCert.credentialFiles == {
+            CF_DNS_API_TOKEN_FILE = "/etc/router/secrets/cloudflare-ddns.token";
+          }
         && cockpitCert.reloadServices == [ "cockpit.service" ];
       detail = "cockpit certificate: ${
         builtins.toJSON {
@@ -554,7 +555,10 @@ let
             builtins.unsafeDiscardStringContext sys.environment.etc."router/effective.json".text
           );
         in
-        eff ? acme && eff ? reverseProxy && eff ? cloudflareTunnel && eff.fqdn or null == "Console.example.com";
+        eff ? acme
+        && eff ? reverseProxy
+        && eff ? cloudflareTunnel
+        && eff.fqdn or null == "Console.example.com";
       detail = "effective.json lacks acme/reverseProxy/cloudflareTunnel/fqdn";
     }
     {
@@ -578,9 +582,7 @@ let
     (rejects "tunnel-unknown-host" "'home-tunnel.example.com' references unknown host 'ghost'")
     (rejects "tunnel-duplicate" "duplicate hostname(s) home-tunnel.example.com")
     (rejects "tunnel-vs-proxy" "dns.example.com is also published by reverse proxy route 'dns-no-token'")
-    (rejects "router-name-vs-proxy-and-tunnel"
-      "router.fqdn: dns.example.com is also used by reverse proxy route 'dns-no-token', Cloudflare Tunnel hostname"
-    )
+    (rejects "router-name-vs-proxy-and-tunnel" "router.fqdn: dns.example.com is also used by reverse proxy route 'dns-no-token', Cloudflare Tunnel hostname")
     (rejects "router-name-needs-token" "Cockpit's certificate uses the dns-cloudflare challenge")
   ];
 

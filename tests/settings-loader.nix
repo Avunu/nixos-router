@@ -268,9 +268,10 @@ let
           };
         in
         migrateSettings set == set
-        && migrateSettings { hostName = "router"; } == {
-          hostName = "router";
-        };
+        &&
+          migrateSettings { hostName = "router"; } == {
+            hostName = "router";
+          };
       detail = "a set path, an absent key or an unrelated empty string was changed";
     }
     {

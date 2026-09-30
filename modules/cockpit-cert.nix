@@ -145,8 +145,11 @@ in
       ];
 
       warnings =
-        optional (!cfg.cockpit.enable) "router.fqdn is set but Cockpit is disabled, so no certificate is requested; the name only resolves to the router on the LAN."
-        ++ optional (!cfg.dns.technitium.enable) "router.fqdn: Technitium is disabled, so the router's DNS does not answer ${fqdn} — LAN clients need their own record for it.";
+        optional (!cfg.cockpit.enable)
+          "router.fqdn is set but Cockpit is disabled, so no certificate is requested; the name only resolves to the router on the LAN."
+        ++
+          optional (!cfg.dns.technitium.enable)
+            "router.fqdn: Technitium is disabled, so the router's DNS does not answer ${fqdn} — LAN clients need their own record for it.";
     })
 
     (mkIf wantCert {

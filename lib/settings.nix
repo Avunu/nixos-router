@@ -149,10 +149,7 @@ let
       ];
       clear =
         s: path:
-        if lib.attrByPath path null s == "" then
-          lib.recursiveUpdate s (lib.setAttrByPath path null)
-        else
-          s;
+        if lib.attrByPath path null s == "" then lib.recursiveUpdate s (lib.setAttrByPath path null) else s;
     in
     lib.foldl' clear settings paths;
 
