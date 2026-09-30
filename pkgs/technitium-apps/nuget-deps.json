@@ -1,8 +1,8 @@
 [
   {
     "pname": "Microsoft.Extensions.Configuration",
-    "version": "10.0.9",
-    "hash": "sha256-4d8r6Vyune1Qb0kwqzfGPA7BK2nvaiOenTiJedzq6sU="
+    "version": "10.0.12",
+    "hash": "sha256-0G3p03buPSiw/sZFs5aZOj63sE+8HvcJFlSgjZ4ecss="
   },
   {
     "pname": "Microsoft.Extensions.Configuration.Abstractions",
@@ -11,13 +11,13 @@
   },
   {
     "pname": "Microsoft.Extensions.Configuration.Abstractions",
-    "version": "10.0.9",
-    "hash": "sha256-pliaksEAQdxyPURUVSlXpfF3LzJB93zHaeEDsaF5QJE="
+    "version": "10.0.12",
+    "hash": "sha256-9zl98oXLKjTIimkpcQwLjthJEzguKucI9zQGC8CRzlE="
   },
   {
     "pname": "Microsoft.Extensions.Primitives",
-    "version": "10.0.9",
-    "hash": "sha256-WEPtmlEexm6QSFR4ITlBHuUD5/bqMfecOxFe5hkbAPU="
+    "version": "10.0.12",
+    "hash": "sha256-l+50Kv4MsGNFWCYvklzBErWILQnbjRaVdeVZAx2mOSI="
   },
   {
     "pname": "Serilog",
