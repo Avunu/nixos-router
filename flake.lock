@@ -190,16 +190,16 @@
     "technitium-dns": {
       "flake": false,
       "locked": {
-        "lastModified": 1790420406,
-        "narHash": "sha256-h6GhWVqv+SRpJberH/xJ2bny1j+RFM7FI1E+LxuhLOw=",
+        "lastModified": 1791034432,
+        "narHash": "sha256-1BihL4y33XdI0TpQck0yriW50o9kclN+vnFLUJN8h4Y=",
         "owner": "TechnitiumSoftware",
         "repo": "DnsServer",
-        "rev": "4323993c2dd6cbe828d2fd3b239c401a526f58fc",
+        "rev": "70495af5b3caddb1244c2608514987b1622b1594",
         "type": "github"
       },
       "original": {
         "owner": "TechnitiumSoftware",
-        "ref": "v15.5.1",
+        "ref": "v15.6.0",
         "repo": "DnsServer",
         "type": "github"
       }
