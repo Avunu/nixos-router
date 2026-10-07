@@ -11,13 +11,13 @@
     "check": "jx schema && jx validate && bun scripts/lint-docs.ts && bun run build"
   },
   "dependencies": {
-    "@jxsuite/parser": "^1.8.1",
-    "@jxsuite/search": "^0.3.0"
+    "@jxsuite/parser": "^1.8.2",
+    "@jxsuite/search": "^0.3.1"
   },
   "devDependencies": {
-    "@jxsuite/compiler": "^4.0.1",
-    "@jxsuite/runtime": "^4.0.1",
-    "@jxsuite/server": "^4.2.2",
-    "oxfmt": "^0.70.0"
+    "@jxsuite/compiler": "^4.0.2",
+    "@jxsuite/runtime": "^4.0.2",
+    "@jxsuite/server": "^4.4.0",
+    "oxfmt": "^0.71.0"
   }
 }
