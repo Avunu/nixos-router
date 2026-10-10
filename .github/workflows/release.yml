@@ -1,0 +1,184 @@
+# Releases. Changes land on `develop`. release-please turns the conventional-commit history there
+# into one rolling release pull request, and merging that pull request is the release.
+#
+# `main` is release-only. It is the branch routers pin (github:Avunu/nixos-router/main), and the only
+# thing that moves it is `advance-main` below, after the release has passed the same checks.yml gate
+# that `develop` runs, at the tag and with the Cachix push enabled. Nothing pushes to `main` by hand,
+# and nothing force-pushes it.
+#
+# WHY A PERSONAL TOKEN (RELEASE_TOKEN) AND NOT GITHUB_TOKEN. GITHUB_TOKEN cannot do three things here:
+#   * a pull request it opens gets no CI, because GitHub starts no workflow for an event that
+#     GITHUB_TOKEN caused, so the release pull request's required checks would never report;
+#   * it cannot be a bypass actor on the `main` ruleset, so `main` could not be locked to releases;
+#   * its push to `main` raises no `push` event, so the docs deploy in site.yml would not run.
+# The token's owner must be on the bypass list of the `main` ruleset. docs/develop.md says how.
+#
+# WHY A SCHEDULE. Dependabot merges are made with GITHUB_TOKEN, which raises no `push` event on
+# `develop`, so the schedule is what notices them. Every run is idempotent: with nothing to release it
+# leaves the release pull request alone and every job below after `plan` is skipped.
+name: Release
+
+on:
+  push:
+    branches: [develop]
+  schedule:
+    - cron: "30 0 * * *"
+  workflow_dispatch:
+
+permissions: {}
+
+# Only one release run at a time. A queued run waits rather than cancelling the one in flight,
+# because cancelling `advance-main` halfway would leave the decision to the next run.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release_created: ${{ steps.rp.outputs.release_created }}
+      tag_name: ${{ steps.rp.outputs.tag_name }}
+    steps:
+      - id: rp
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ secrets.RELEASE_TOKEN }}
+          target-branch: develop
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+      # Lets the release pull request land without a person clicking merge. It is opened by
+      # RELEASE_TOKEN, so its checks run. Auto-merge is GitHub's, and it refuses to merge while a
+      # required check is missing or red, which is the fail-closed behaviour we want.
+      #
+      # The pull request is found by branch name because the action's `pr` and `prs` outputs are only
+      # set when a release was created. An open release pull request is the normal case, not that one.
+      - name: Enable auto-merge on the open release pull request
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          prs="$(gh pr list --base develop --state open --json number,headRefName \
+                  --jq '.[] | select(.headRefName | startswith("release-please--")) | .number')"
+          for n in $prs; do
+            enabled="$(gh pr view "$n" --json autoMergeRequest --jq '.autoMergeRequest != null')"
+            if [ "$enabled" = "true" ]; then
+              echo "#$n already has auto-merge"
+            else
+              gh pr merge "$n" --auto --squash
+              echo "auto-merge enabled on #$n"
+            fi
+          done
+
+  # Decides whether `main` should move, from the repository's state rather than from this run's
+  # outputs alone. release-please reports `release_created` only on the run that creates the tag. If
+  # that run dies after creating the tag, which jx has seen as a GitHub 5xx mid-run, the re-run reports
+  # nothing new, and the tag would be orphaned. Checking the tag against `main` still finds it.
+  plan:
+    needs: release-please
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    outputs:
+      advance: ${{ steps.decide.outputs.advance }}
+      tag: ${{ steps.decide.outputs.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - id: decide
+        run: |
+          set -euo pipefail
+          version="$(jq -r '.["."]' .release-please-manifest.json)"
+          tag="v${version}"
+          advance=false
+          if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+            git fetch --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+            # Advance when the release is not yet on `main`. A diverged `main` is not handled here on
+            # purpose: the push in advance-main is not a force, so it fails loudly instead.
+            if ! git merge-base --is-ancestor "$tag" origin/main; then
+              advance=true
+            fi
+          fi
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "advance=${advance}" >> "$GITHUB_OUTPUT"
+          echo "::notice::${tag}: advance main = ${advance}"
+
+  # The same gate as develop: every check, the VM tests, the install system, and the Cachix push.
+  # `publish: true` is the only place the cache is written from a release, and it is what makes the
+  # Cachix step fail the gate rather than warn. A release that cannot be cached does not reach routers.
+  gate:
+    needs: plan
+    if: needs.plan.outputs.advance == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    uses: ./.github/workflows/checks.yml
+    with:
+      ref: refs/tags/${{ needs.plan.outputs.tag }}
+      publish: true
+    secrets:
+      CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+  # Fast-forwards `main` to the release tag. A plain push, never a force: `main` only moves forward
+  # along the history `develop` has, so a rejected push means something is wrong and should fail
+  # loudly rather than rewrite the branch that routers are on.
+  advance-main:
+    needs: [plan, gate]
+    if: needs.plan.outputs.advance == 'true' && needs.gate.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      # The push below authenticates with RELEASE_TOKEN, which checkout persists for this job.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: refs/tags/${{ needs.plan.outputs.tag }}
+          fetch-depth: 0
+          token: ${{ secrets.RELEASE_TOKEN }}
+
+      - name: Fast-forward main to the release
+        env:
+          TAG: ${{ needs.plan.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git push origin "HEAD:refs/heads/main"
+          echo "main -> ${TAG} ($(git rev-parse --short HEAD))"
+
+  # When the gate fails, `main` stays on the previous release and routers keep the last good one.
+  # One open issue, not one per run: plan keeps asking for `main` to advance until it does, and the
+  # schedule would otherwise file a new issue every day.
+  report:
+    needs: [plan, gate]
+    if: always() && needs.plan.outputs.advance == 'true' && needs.gate.result != 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.plan.outputs.tag }}
+      GATE_RESULT: ${{ needs.gate.result }}
+    steps:
+      - name: Open a release-incomplete issue
+        run: |
+          set -euo pipefail
+          title="main did not advance to ${TAG}"
+          open="$(gh issue list --state open --label release-incomplete \
+                    --search "$title in:title" --json number --jq '.[0].number // empty')"
+          if [ -n "$open" ]; then
+            echo "tracked by #$open"
+            exit 0
+          fi
+          # The label must exist or `gh issue create` errors, and the `|| true` below would hide it.
+          gh label create release-incomplete --color B60205 \
+            --description "A release shipped incomplete: a missing asset, publish, tag or cache entry" \
+            2>/dev/null || true
+          gh issue create --title "$title" --label release-incomplete --body "The release gate for ${TAG} was ${GATE_RESULT}, so \`main\` still points at the previous release. Routers keep that release until this is fixed. Re-run the Release workflow once the cause is addressed." \
+            || true

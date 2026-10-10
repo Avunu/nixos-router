@@ -106,7 +106,9 @@
           installModules = [ self.nixosModules.router ];
           optionRoots = [ "router" ];
           flakeStyle = "local";
-          upstream = "github:Avunu/nixos-router";
+          # The release branch (see local/flake.nix). Without the ref this would
+          # follow the default branch, `develop`.
+          upstream = "github:Avunu/nixos-router/main";
           # No generic guided ISO. The guided image bakes the router modules
           # evaluated with NO settings, but a router with no settings is not a
           # router: network.nix asserts that a WAN uplink, a LAN port and at least

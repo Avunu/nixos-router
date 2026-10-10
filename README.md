@@ -51,20 +51,20 @@ See [Install a router](https://avunu.github.io/nixos-router/docs/start/install/)
 
 ## Binary cache
 
-Routers download their router-specific packages from [nixos-router.cachix.org](https://nixos-router.cachix.org) instead of compiling them. These are the Technitium DNS apps, `router-dns-tools`, the Cockpit plugin bundle and the NixOS system derivations. CI builds them from this repository's `flake.lock` and pushes whatever cache.nixos.org doesn't have. The `cache` job in `.github/workflows/checks.yml` does this on every push to `main` and nightly; pull requests build but never publish. The router module adds the substituter, and `flake.nix` declares it in `nixConfig` for deploys and development machines.
+Routers download their router-specific packages from [nixos-router.cachix.org](https://nixos-router.cachix.org) instead of compiling them. These are the Technitium DNS apps, `router-dns-tools`, the Cockpit plugin bundle and the NixOS system derivations. CI builds them from the release's `flake.lock` and pushes whatever cache.nixos.org doesn't have. The release gate in `.github/workflows/release.yml` does this before `main` moves to a release. Pull requests and `develop` runs build but never publish. The router module adds the substituter, and `flake.nix` declares it in `nixConfig` for deploys and development machines.
 
-A router only hits the cache when its nixpkgs is the rev CI built, so the host flake takes nixpkgs from nixos-router rather than tracking nixos-unstable itself:
+A router only hits the cache when its nixpkgs is the rev CI built, so the host flake takes nixpkgs from nixos-router rather than tracking nixos-unstable itself, and it follows the `main` branch:
 
 ```nix
 inputs = {
-  nixos-router.url = "github:Avunu/nixos-router";
+  nixos-router.url = "github:Avunu/nixos-router/main";
   nixpkgs.follows = "nixos-router/nixpkgs";
 };
 ```
 
-Routers installed before this change still have `nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable"` and `nixos-router.inputs.nixpkgs.follows = "nixpkgs"`. Change `/etc/nixos/flake.nix` to the block above once, then run `system-upgrade`.
+Routers installed before this change still have `nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable"` and `nixos-router.inputs.nixpkgs.follows = "nixpkgs"`. Change `/etc/nixos/flake.nix` to the block above once, then run `system-upgrade`. The `/main` matters on its own: without it, a router follows the default branch, `develop`, where unreleased changes land.
 
-CI publishes with the `CACHIX_AUTH_TOKEN` secret. Add it under Actions secrets only. The `cache` job publishes from `main` alone, never from a pull request, so the token must not go in the Dependabot secret store; `.github/workflows/checks.yml` explains why.
+CI publishes with the `CACHIX_AUTH_TOKEN` secret. Add it under Actions secrets only. Only the release gate publishes, and never from a pull request, so the token must not go in the Dependabot secret store; `.github/workflows/checks.yml` explains why.
 
 ## Develop
 
@@ -80,7 +80,7 @@ The documentation site lives in `site/`. Run `bun install`, then `bun run dev` f
 
 ## Docs
 
-The guides are published at https://avunu.github.io/nixos-router/docs/. Their source is [docs/](docs/): Markdown, one file per page, with the sidebar in [docs/nav.json](docs/nav.json). The site itself is a [Jx](https://jxsuite.com) project in [site/](site/), and `.github/workflows/site.yml` deploys it from `main`.
+The guides are published at https://avunu.github.io/nixos-router/docs/. Their source is [docs/](docs/): Markdown, one file per page, with the sidebar in [docs/nav.json](docs/nav.json). The site itself is a [Jx](https://jxsuite.com) project in [site/](site/), and `.github/workflows/site.yml` deploys it on every push to `main`, which is how a release reaches the site.
 
 -   [Install a router](https://avunu.github.io/nixos-router/docs/start/install/)
 -   [Access policies](https://avunu.github.io/nixos-router/docs/access-policies/): DNS filtering, the block page, directory groups, reports

@@ -139,7 +139,7 @@ The installed router's `/etc/nixos` holds a generated `flake.nix`, a `local.nix`
 
 `local/flake.nix` is the template for the `/etc/nixos/flake.nix` of a router installed over the network. It is short:
 
-- **Inputs:** `nixos-router` (`github:Avunu/nixos-router`), and `nixpkgs`, which follows nixos-router's own nixpkgs.
+- **Inputs:** `nixos-router` (`github:Avunu/nixos-router/main`), and `nixpkgs`, which follows nixos-router's own nixpkgs.
 - **Modules:** the router module; the settings file, loaded through `nixos-router.lib.settingsModule`; and a module of locked settings, which turns Cockpit on and sets its port and allowed origins. Your own Nix settings go in that module too. This flake doesn't import a `local.nix`.
 - **Outputs:** one NixOS configuration, named after the `hostName` in the settings file, plus a `default` alias. The nightly upgrade, `system-upgrade` and Cockpit's apply all build `/etc/nixos#<hostName>`.
 
@@ -167,7 +167,7 @@ nixos-router's CI builds the router-specific packages and pushes them to the bin
 
 ```nix
 inputs = {
-  nixos-router.url = "github:Avunu/nixos-router";
+  nixos-router.url = "github:Avunu/nixos-router/main";
   nixpkgs.follows = "nixos-router/nixpkgs";
 };
 ```
@@ -175,6 +175,8 @@ inputs = {
 This also keeps the Technitium DNS apps in step with the DNS server that loads them. The router module adds the cache on the router itself, and `local/flake.nix` declares it in `nixConfig` for the build on your workstation.
 
 Routers installed before this change have `nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable"` and `nixos-router.inputs.nixpkgs.follows = "nixpkgs"` instead. Change `/etc/nixos/flake.nix` to the block above once, then run `system-upgrade`.
+
+The `/main` in the block matters on its own. It keeps the router on the release branch. A `nixos-router` input without a ref follows the default branch, `develop`, where unreleased changes land, so a router that has no `/main` needs the same one-line change.
 
 ## First-boot checklist
 

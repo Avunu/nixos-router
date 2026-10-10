@@ -1,6 +1,11 @@
 version: 2
 
 updates:
+  # Every entry targets `develop`, the default branch. `main` is release-only and
+  # moves only through release.yml, so a bump reaches routers when the release
+  # pull request that collects it merges. Security updates always use the default
+  # branch, which is `develop` once it is the default.
+  #
   # Nix flake inputs.
   #
   # Grouped into one PR deliberately: nixpkgs and the `technitium-dns` source
@@ -15,19 +20,23 @@ updates:
   #
   # Daily, because this lock is now what routers run: a router's host flake
   # follows nixos-router/nixpkgs (local/flake.nix), so its nightly upgrade
-  # lands on this lock's nixpkgs — the rev the `cache` CI job built and
-  # published — and nothing newer. These pull requests auto-merge like every
-  # other Dependabot update (dependabot-auto-merge.yml) once the required
-  # checks pass, above all "VM tests (slow)", which boots real routers. That is
-  # the gate: a nixpkgs bump is far too large to review by eye, and it is how
-  # routers get their system security updates, so holding it for a human only
-  # delays them. No cooldown: nixpkgs has already been through Hydra.
+  # lands on this lock's nixpkgs — the rev the release gate cached — and
+  # nothing newer. These pull requests auto-merge like every other Dependabot
+  # update (dependabot-auto-merge.yml) once the required checks pass, above all
+  # "VM tests (slow)", which boots real routers. They reach routers through the
+  # release pull request that collects them (release.yml), so the prefix is
+  # `fix`: a nixpkgs bump is a releasable change. That is the gate: a nixpkgs
+  # bump is far too large to review by eye, and it is how routers get their
+  # system security updates, so holding it for a human only delays them. No
+  # cooldown: nixpkgs has already been through Hydra.
   - package-ecosystem: nix
     directory: /
+    target-branch: develop
     schedule:
       interval: daily
     commit-message:
-      prefix: chore
+      prefix: fix
+      include: scope
     groups:
       nix:
         patterns: ["*"]
@@ -52,13 +61,15 @@ updates:
   # updates are separate from version updates and are not delayed.
   - package-ecosystem: npm
     directory: /pkgs/cockpit-router
+    target-branch: develop
     schedule:
       interval: weekly
     cooldown:
       default-days: 5
       semver-major-days: 14
     commit-message:
-      prefix: chore
+      prefix: fix
+      include: scope
     groups:
       npm:
         patterns: ["*"]
@@ -72,13 +83,15 @@ updates:
   # Cooldown as for npm.
   - package-ecosystem: cargo
     directory: /pkgs/router-proxy
+    target-branch: develop
     schedule:
       interval: weekly
     cooldown:
       default-days: 5
       semver-major-days: 14
     commit-message:
-      prefix: chore
+      prefix: fix
+      include: scope
     groups:
       cargo:
         patterns: ["*"]
@@ -87,13 +100,14 @@ updates:
   #
   # bun.lock is the whole change, as with npm above. What gates these PRs is
   # the `site build` job in site.yml, and only if it is a required check in the
-  # `main` ruleset (see that file's header); otherwise a bump that breaks the
+  # `develop` ruleset (see that file's header); otherwise a bump that breaks the
   # build still auto-merges, and the only cost is that the site stops deploying
   # until someone fixes it. Nothing from site/ reaches a router. Cooldown as
   # for npm: the build runs these packages with the repository's token in
   # scope.
   - package-ecosystem: bun
     directory: /site
+    target-branch: develop
     schedule:
       interval: weekly
     cooldown:
@@ -101,6 +115,7 @@ updates:
       semver-major-days: 14
     commit-message:
       prefix: chore
+      include: scope
     groups:
       site:
         patterns: ["*"]
@@ -112,12 +127,14 @@ updates:
   # actions run with the repository's tokens.
   - package-ecosystem: github-actions
     directory: /
+    target-branch: develop
     schedule:
       interval: weekly
     cooldown:
       default-days: 5
     commit-message:
       prefix: chore
+      include: scope
     groups:
       actions:
         patterns: ["*"]

@@ -11,7 +11,10 @@
   };
 
   inputs = {
-    nixos-router.url = "github:Avunu/nixos-router";
+    # `main` is the release branch: it moves only at a release (release.yml).
+    # Without the ref this follows the default branch, `develop`, where unreleased
+    # changes land.
+    nixos-router.url = "github:Avunu/nixos-router/main";
     # nixpkgs is nixos-router's own, locked in that repository and tested and
     # cached by its CI. Updating nixos-router therefore updates nixpkgs to a
     # rev whose router-specific builds (the Technitium apps, the Cockpit
