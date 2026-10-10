@@ -6,11 +6,12 @@
 # a required status check: a required check that a path filter skips never
 # reports, and the pull request waits on it forever. The build is a bun install
 # plus a static compile, well under a minute, so running it on every PR costs
-# little. Pull requests only build; `deploy` runs for `main` alone.
+# little. Pull requests only build; `deploy` runs for a push to `main`, which is
+# how a release reaches the site (release.yml moves `main` only at a release).
 #
 # Required matters because Dependabot bumps to site/ auto-merge
 # (dependabot-auto-merge.yml) once the required checks pass. Add "site build"
-# to the `main` ruleset alongside the two jobs in checks.yml. Without it, a
+# to the `develop` ruleset alongside the two jobs in checks.yml. Without it, a
 # bump that breaks the build still merges; the push to `main` then fails here,
 # nothing deploys, and the last good site stays live.
 #

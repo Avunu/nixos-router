@@ -98,6 +98,7 @@
       },
       "original": {
         "owner": "Avunu",
+        "ref": "main",
         "repo": "nixos-router",
         "type": "github"
       }

@@ -7,13 +7,14 @@
 # than only an eval. `vm` boots real routers and is minutes; it catches the
 # rest, but is too slow to be the only signal on a bot PR.
 #
-# Make BOTH jobs required status checks in the `main` ruleset — "drift + build
+# Make BOTH jobs required status checks in the `develop` ruleset — "drift + build
 # (fast)" and "VM tests (slow)". Dependabot pull requests auto-merge
 # (dependabot-auto-merge.yml) once the required checks pass, and routers
-# rebuild from `main` every night, so these two jobs are the whole gate
-# between a dependency bump and every router. `vm` is the one a nixpkgs bump
-# needs: it boots real routers. Nothing here can enforce that from inside the
-# repo.
+# upgrade from `main` every night, so these two jobs are the whole gate
+# between a dependency bump and every router. A release that reaches `main` has
+# already passed this same workflow at its tag (release.yml's `gate`). `vm` is
+# the one a nixpkgs bump needs: it boots real routers. Nothing here can enforce
+# that from inside the repo.
 #
 # A third job, `cache`, fills the project's binary cache (nixos-router.cachix.org)
 # with what cache.nixos.org cannot serve: the Technitium DNS apps (a .NET build
@@ -24,29 +25,47 @@
 # every router upgrading to it downloads those paths rather than compiling
 # them.
 #
-# It publishes only from `main` (push, the nightly schedule, a manual run) and
-# never from a pull request. Whoever holds CACHIX_AUTH_TOKEN can upload a
-# signed NAR under ANY store path, and input-addressed paths are not checked
-# against their contents, so a token exposed to pull-request code could plant a
-# path that every router later substitutes as trusted. Merged code publishes
-# soon enough: the push to `main` and the 02:41 nightly both run before the
-# routers' 03:00 upgrade. Keep the token in Actions secrets only; it does not
-# belong in the Dependabot secret store.
+# It publishes only when release.yml calls this workflow with `publish: true`,
+# which is the release gate. It never publishes from a pull request or a develop
+# run. Whoever holds CACHIX_AUTH_TOKEN can upload a signed NAR under ANY store
+# path, and input-addressed paths are not checked against their contents, so a
+# token exposed to pull-request code could plant a path that every router later
+# substitutes as trusted. A release is cached before `main` moves to it, so a
+# router that upgrades from `main` at 03:00 finds its paths already present.
+# Keep the token in Actions secrets only; it does not belong in the Dependabot
+# secret store.
 name: checks
 
 on:
   pull_request:
   push:
-    branches: [main]
-  # Nightly, for `cache` above all: keeps the Actions cache warm and republishes
-  # whatever an earlier run could not push. The other two jobs ride along,
-  # which catches a flake-input drift no commit caused.
+    branches: [develop]
+  # Nightly, for `cache` above all: keeps the Actions cache warm and checks that
+  # what an earlier run built still substitutes. The other two jobs ride along,
+  # which catches a flake-input drift no commit caused. It never publishes.
   schedule:
     - cron: "41 2 * * *"
   workflow_dispatch:
+  # Called by release.yml at a release tag. `publish: true` is the only way this
+  # workflow pushes to Cachix.
+  workflow_call:
+    inputs:
+      ref:
+        description: "Git ref to check. Empty means the caller's ref."
+        required: false
+        default: ""
+        type: string
+      publish:
+        description: "Push the cache-only closure to Cachix. A failed push fails the run."
+        required: false
+        default: false
+        type: boolean
+    secrets:
+      CACHIX_AUTH_TOKEN:
+        required: false
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ inputs.ref || github.ref }}
   cancel-in-progress: true
 
 # magic-nix-cache-action needs id-token: write to scope its GitHub Actions
@@ -61,6 +80,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
       # `determinate: false` — this flake declares no Determinate-only
       # nixConfig (lazy trees, FlakeHub substituters), so there's nothing to
       # gain from Determinate Nix here, and the default `true` has the
@@ -114,6 +135,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
 
       # NixOS VM tests need /dev/kvm, which is present on Linux runners but not
       # world-accessible by default.
@@ -139,6 +162,8 @@ jobs:
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ inputs.ref }}
 
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
         with:
@@ -213,20 +238,20 @@ jobs:
       # not uploaded twice. Paths go as ARGUMENTS (`cachix push` documents only
       # `CACHE-NAME [PATHS...]`); `xargs -r` makes an empty set a no-op.
       #
-      # Never on a pull request (see the header): the step and its token only
-      # exist on runs of `main`. `continue-on-error`, because a cache is an
-      # optimisation: a failed push must not turn a green build red. The
-      # nightly run publishes what this one could not.
+      # Only when release.yml asks for it (see the header), so the token is never in
+      # scope for a pull request or a develop run. Not `continue-on-error`: `main`
+      # only moves to a release whose closure reached the cache, so a failed push
+      # or a missing token must fail the gate. Nothing else is published, so there
+      # is no later run that would retry it.
       - name: Publish to Cachix
-        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
-        continue-on-error: true
+        if: inputs.publish
         env:
           CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
         run: |
           set -euo pipefail
           if [ -z "${CACHIX_AUTH_TOKEN:-}" ]; then
-            echo "::warning::CACHIX_AUTH_TOKEN is empty on this run, so nothing was published."
-            exit 0
+            echo "::error::CACHIX_AUTH_TOKEN is empty, so the release cannot be cached."
+            exit 1
           fi
           xargs -r cachix push nixos-router < unsigned.txt
 

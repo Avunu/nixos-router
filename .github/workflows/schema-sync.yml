@@ -10,10 +10,10 @@
 # and `router-schema-fresh`'s own failure message already tells a fork
 # contributor how to fix it by hand.
 #
-# Pull requests only. `main` is protected by a ruleset that requires a pull
+# Pull requests only. `develop` is protected by a ruleset that requires a pull
 # request and the checks.yml status checks, so this lane can no longer push to
 # it directly, and it does not need to: `router-schema-fresh` is part of the
-# required "drift + build (fast)" check, so a stale schema cannot reach `main`
+# required "drift + build (fast)" check, so a stale schema cannot reach `develop`
 # in the first place. The lane pushes the regenerated file to the PR branch
 # instead. Termination is a fixed point rather than a guard: the generator is
 # deterministic, so a second run regenerates to identical bytes and pushes

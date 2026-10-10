@@ -24,7 +24,7 @@ Every day at `03:00`, in the router's time zone, the router upgrades itself:
 
 If the router was off at `03:00`, the upgrade runs as soon as it's back on.
 
-Commits reach `main` only after CI has built them and booted test routers from them; see [Development](/docs/develop/#continuous-integration). CI also pushes each commit on `main` to the binary cache, so a router downloads its packages instead of compiling them.
+Changes reach `main` only as a release, after CI has built the release and booted test routers from its tag; see [Development](/docs/develop/#branches-and-releases). The same run pushes each release to the binary cache, so a router downloads its packages instead of compiling them.
 
 :::doc-warning
 The nightly upgrade rebuilds from the settings file as it is on disk. Anything you saved in Cockpit but didn't apply is applied at `03:00`.

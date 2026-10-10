@@ -4,14 +4,15 @@ name: Dependabot auto-merge
 # included. GitHub then merges it once the branch is mergeable and all
 # *required* status checks pass. Tests are the gate, not review: nobody can
 # meaningfully read a nixpkgs bump, and those bumps are how routers get their
-# system security updates. Routers rebuild from `main` every night, so the
-# required checks are all that stands between a bump and every router.
+# system security updates. Dependabot targets `develop` (dependabot.yml), and a
+# bump reaches routers only through a release (release.yml). The required checks
+# are what stands between a bump and every router.
 #
 # Requires (one-time, in repo settings):
 #   • Settings → General → Pull Requests → "Allow auto-merge"
-#   • A ruleset on `main` requiring a pull request and the checks.yml status
-#     checks "drift + build (fast)" AND "VM tests (slow)". Without it,
-#     `gh pr merge --auto` merges on nothing.
+#   • A ruleset on `develop`, the default branch, requiring a pull request and the
+#     checks.yml status checks "drift + build (fast)" AND "VM tests (slow)", and
+#     "pr title". Without it, `gh pr merge --auto` merges on nothing.
 on: pull_request
 
 permissions:
