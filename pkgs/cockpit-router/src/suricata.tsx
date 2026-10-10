@@ -188,8 +188,13 @@ interface DayBucket {
 const dayKey = (d: Date) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
 
 const SeverityChart = ({ events }: { events: Ev[] }) => {
+  // Kept in state (refreshed each minute) so render stays pure: no Date() call during render.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
   const buckets = useMemo<DayBucket[]>(() => {
-    const now = new Date();
     const list: DayBucket[] = [];
     const byKey = new Map<string, DayBucket>();
     for (let i = 6; i >= 0; i--) {
@@ -219,7 +224,7 @@ const SeverityChart = ({ events }: { events: Ev[] }) => {
       }
     }
     return list;
-  }, [events]);
+  }, [events, now]);
 
   const max = Math.max(0, ...buckets.map((b) => b.high + b.med + b.low)) || 1;
 

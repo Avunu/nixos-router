@@ -125,6 +125,12 @@ export const QueriesChart = ({
   labelFormat?: string;
 }) => {
   const [ref, width] = useContainerWidth();
+  // Kept in state (refreshed each minute) so render stays pure: no Date() call during render.
+  const [now, setNow] = useState(() => new Date());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(new Date()), 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   const n = total.length;
 
@@ -156,7 +162,6 @@ export const QueriesChart = ({
         ? d.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", hour12: false })
         : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
     }
-    const now = new Date();
     const back = n - 1 - i;
     if ((timeUnits ?? "days") === "hours") {
       const d = new Date(now.getTime() - back * 3_600_000);
