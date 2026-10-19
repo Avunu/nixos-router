@@ -74,7 +74,7 @@
       inputs.disko.follows = "disko";
     };
     technitium-dns = {
-      url = "github:TechnitiumSoftware/DnsServer/v15.6.0";
+      url = "github:TechnitiumSoftware/DnsServer/v15.6.1";
       flake = false;
     };
   };
