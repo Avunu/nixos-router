@@ -35,7 +35,7 @@ concurrency:
 
 jobs:
   release-please:
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     permissions:
       contents: write
       pull-requests: write
@@ -81,7 +81,7 @@ jobs:
   # nothing new, and the tag would be orphaned. Checking the tag against `main` still finds it.
   plan:
     needs: release-please
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     permissions:
       contents: read
     outputs:
@@ -132,7 +132,7 @@ jobs:
   advance-main:
     needs: [plan, gate]
     if: needs.plan.outputs.advance == 'true' && needs.gate.result == 'success'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     permissions:
       contents: read
     steps:
@@ -157,7 +157,7 @@ jobs:
   report:
     needs: [plan, gate]
     if: always() && needs.plan.outputs.advance == 'true' && needs.gate.result != 'success'
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     permissions:
       issues: write
     env:
