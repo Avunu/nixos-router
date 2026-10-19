@@ -197,6 +197,14 @@ jobs:
         with:
           use-flakehub: false
 
+      # cachix-action installs `cachix` into the Nix user profile; on the
+      # self-hosted runner no installer step has put that profile on PATH.
+      - name: Put the Nix user profile on PATH
+        if: runner.environment == 'self-hosted'
+        run: |
+          echo "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
+          echo "${XDG_STATE_HOME:-$HOME/.local/state}/nix/profile/bin" >> "$GITHUB_PATH"
+
       # Installs the `cachix` binary and configures the cache as a substituter.
       # Pushing is deliberately NOT delegated to this action: its daemon mode
       # registers a post-build hook, which magic-nix-cache above already owns,
