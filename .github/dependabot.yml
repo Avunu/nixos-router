@@ -8,15 +8,26 @@ updates:
   #
   # Nix flake inputs.
   #
-  # Grouped into one PR deliberately: nixpkgs and the `technitium-dns` source
-  # input have to move together, because the DNS apps are compiled from that
-  # input and loaded by nixpkgs' technitium-dns-server. Separate PRs would each
-  # look fine in isolation and desync the pair on merge.
+  # Deliberately NOT grouped: with no `groups:` Dependabot opens one PR per
+  # outdated input (nixpkgs, git-hooks, disko, nixos-install-helper,
+  # technitium-dns), so each is checked, held or merged on its own. That is what
+  # lets a `technitium-dns` bump wait for nixpkgs to ship the same server version
+  # without holding up the nixpkgs bumps that carry the system security updates.
+  # git-hooks, disko and nixos-install-helper follow nixpkgs, so none of them
+  # brings a second nixpkgs into the lock.
   #
-  # Note that Dependabot cannot fix that drift by itself — `technitium-dns` is
-  # pinned to a TAG in flake.nix, which never moves, so a nixpkgs bump leaves it
-  # behind. The `technitium-version` check fails the PR when that happens; the
-  # fix is to bump the ref in flake.nix by hand and run `nix run .#update-deps`.
+  # nixpkgs and `technitium-dns` still have to agree, because the DNS apps are
+  # compiled from that input and loaded by nixpkgs' technitium-dns-server. Keeping
+  # them together is the `technitium-version` check's job, not the grouping's: it
+  # runs in the required "drift + build (fast)" job, so a PR that moves either
+  # half ahead of the other fails it and cannot auto-merge. A `technitium-dns`
+  # bump therefore stays red until nixpkgs carries that server version, and a
+  # nixpkgs bump that carries a newer server stays red until the ref moves.
+  #
+  # Dependabot cannot move that ref itself — `technitium-dns` is pinned to a TAG
+  # in flake.nix, and pkgs/technitium-apps/nuget-deps.json has to be regenerated
+  # with it. The fix is to bump the ref in flake.nix by hand and run
+  # `nix run .#update-deps`.
   #
   # Daily, because this lock is now what routers run: a router's host flake
   # follows nixos-router/nixpkgs (local/flake.nix), so its nightly upgrade
@@ -37,9 +48,6 @@ updates:
     commit-message:
       prefix: fix
       include: scope
-    groups:
-      nix:
-        patterns: ["*"]
 
   # The Cockpit plugin's npm dependencies.
   #
