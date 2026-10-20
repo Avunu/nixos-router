@@ -29,8 +29,13 @@ python3Packages.buildPythonApplication {
     duckdb
   ];
 
+  # One list element per argv entry: with structured attrs, a single
+  # "--prefix PATH : …" string reaches makeWrapper as one unparseable argument.
   makeWrapperArgs = [
-    "--prefix PATH : ${lib.makeBinPath [ typst ]}"
+    "--prefix"
+    "PATH"
+    ":"
+    (lib.makeBinPath [ typst ])
   ];
 
   # No upstream tests; the technitium-vm NixOS test exercises everything
