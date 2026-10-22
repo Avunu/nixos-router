@@ -65,6 +65,9 @@ export const ingressContext = (s: S): IngressContext => {
       ingress: tunnel.ingress ?? [],
     },
     fqdn: s.valueOf<string | null>("fqdn", null),
+    blockPage:
+      Boolean(s.valueOf("accessPolicies.blockPage.enable", false)) &&
+      s.valueOf<boolean>("dns.technitium.enable", true),
   };
 };
 
@@ -159,6 +162,14 @@ function issueBody(it: IngressIssue): string {
       return cockpit.format(
         _(
           "$0 is the router's own domain name (System → Settings) — a name can point one way only.",
+        ),
+        list(it),
+      );
+    }
+    case "clashPortalName": {
+      return cockpit.format(
+        _(
+          "$0 is the block page's HTTPS name, under the router's domain name (System → Settings) — a name can point one way only.",
         ),
         list(it),
       );

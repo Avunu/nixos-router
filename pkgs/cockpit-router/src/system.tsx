@@ -249,7 +249,9 @@ const SystemOps = () => {
 // ── Domain name ─────────────────────────────────────────────────────────────
 // router.fqdn: the router's own name, with a Let's Encrypt certificate for
 // Cockpit under it (modules/cockpit-cert.nix, which names the certificate
-// "cockpit"). Issued with the ACME account on Ingress → Reverse proxy.
+// "cockpit"). Issued with the ACME account on Ingress → Reverse proxy. The
+// block page's HTTPS portal has its own certificate under the name, shown on
+// Access policies → Block page (browser-extension.ts).
 const ROUTER_CERT = "cockpit";
 const ACCOUNT_CODES = new Set(["dnsNeedsToken", "acmeTerms", "acmeEmail"]);
 const badName = (issues: IngressIssue[]) => issues.some((it) => it.code === "badHostname");
@@ -331,7 +333,7 @@ const RouterName = ({ s }: { s: ReturnType<typeof useSettings> }) => {
         fieldId="fqdn"
         labelHelp={hint(
           _(
-            "The router's own name, such as gw.example.com. Cockpit then serves a Let's Encrypt certificate for it, and the router's DNS points the name at the router for LAN and WireGuard clients. The certificate is issued through Cloudflare DNS, so the name must be in one of your Cloudflare zones, but it needs no public record.",
+            "The router's own name, such as gw.example.com. Cockpit then serves a Let's Encrypt certificate for it, and the router's DNS points the name at the router for LAN and WireGuard clients. While the block page is on, blocked.<name> gets a certificate too, for the browser extension. The certificates are issued through Cloudflare DNS, so the name must be in one of your Cloudflare zones, but it needs no public record.",
           ),
         )}
       >

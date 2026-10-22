@@ -15,6 +15,11 @@
 #   • the Log Exporter → router-logd ingest pipeline records the blocked query
 #     WITH group attribution;
 #   • the block page is served and the exception-request portal round-trips;
+#   • the HTTPS portal for the browser extension: its own name and certificate
+#     (the ACME placeholder, with minica's CA trusted by the test), the
+#     Router Live DNS block-check oracle answering as each client would be
+#     answered and refusing everyone but the router, /portal/check, the page,
+#     the exception form over TLS, and a certificate reload without a restart;
 #   • split-horizon DNS: overrides answer locally, a name inside an overridden
 #     domain that was NOT overridden still falls through to the forwarder
 #     rather than going NXDOMAIN (the one thing an eval check cannot pin), a
@@ -195,6 +200,8 @@ pkgs.testers.runNixOSTest {
               {
                 name = "Base";
                 blockDomains = [ "lan-blocked.vmtest" ];
+                # The oracle's regex report path (regex= comes last).
+                blockRegex = [ "^regex-blocked[.]vmtest$" ];
                 responseType = "blockingAddress";
               }
               {
@@ -288,6 +295,18 @@ pkgs.testers.runNixOSTest {
               forwarders = [ "127.0.0.1:5354" ];
             }
           ];
+
+          # The router's own name, which gives the block page its HTTPS portal
+          # at blocked.gw.example.com:8068 (and Cockpit a certificate).
+          # Hermetic: nothing is ever ordered from a CA. acme-<cert>.service
+          # writes a minica placeholder for each name, and the test trusts
+          # minica's CA, so hostname verification is still real.
+          router.fqdn = "gw.example.com";
+          router.acme = {
+            acceptTerms = true;
+            email = "vmtest@example.com";
+            cloudflare.apiTokenFile = "/etc/router-vmtest/cloudflare.token";
+          };
 
           router.reporting.schedules = [
             {
@@ -416,8 +435,16 @@ pkgs.testers.runNixOSTest {
             pkgs.curl
             pkgs.jq
             pkgs.nftables
+            pkgs.openssl
             mdnsTestResponder
           ];
+
+          # No CA to order from: keep the placeholders (see router.fqdn above).
+          # The order units retry on failure, forever.
+          systemd.services."acme-order-renew-router-portal".enable = lib.mkForce false;
+          systemd.services."acme-order-renew-cockpit".enable = lib.mkForce false;
+          systemd.timers."acme-renew-router-portal".enable = lib.mkForce false;
+          systemd.timers."acme-renew-cockpit".enable = lib.mkForce false;
         }
       ];
     };
@@ -708,6 +735,229 @@ pkgs.testers.runNixOSTest {
             )
         )["requests"]
         assert next(r["status"] for r in reqs if r["id"] == rid) == "approved", reqs
+
+    # ── HTTPS portal (the browser extension's side) ──────────────────────
+    # blocked.gw.example.com:8068 on the ACME placeholder, trusted through
+    # minica's CA. --resolve pins the name to the gateway, and the name's own
+    # split-horizon record is checked separately below.
+    zone = "blockcheck.nixos-router.internal"
+    origin = "https://blocked.gw.example.com:8068"
+    minica = "/var/lib/acme/.minica/cert.pem"
+    pcurl = (
+        "ip netns exec {ns} curl -sS --max-time 15 --cacert " + minica
+        + " --resolve blocked.gw.example.com:8068:10.48.4.1 "
+    )
+    api = "-H 'X-Router-Portal: 1' "
+
+    def oracle(host, ip):
+        # From the router itself: loopback is the only requester it answers.
+        return router.succeed(
+            f"dig +short +tcp +time=5 +tries=1 @127.0.0.1 TXT {host}.{ip.replace('.', '-')}.{zone}"
+        ).strip()
+
+    def portal_get(ns, path, headers=api):
+        """(status, body) of a GET on the portal from a client netns."""
+        out = router.succeed(pcurl.format(ns=ns) + "-w '\\n%{http_code}' " + headers + f"'{origin}{path}'")
+        body, _, code = out.rpartition("\n")
+        return int(code), body
+
+    with subtest("portal: its own name, certificate and split-horizon record"):
+        router.wait_for_unit("acme-router-portal.service")
+        assert router.succeed("stat -c %G /var/lib/acme/router-portal/key.pem").strip() == "router-portal"
+        assert router.succeed(
+            dig_short.format(ns="guestpc", name="blocked.gw.example.com")
+        ).strip() == "10.48.4.1"
+        # Cockpit keeps its own certificate and name: its session cookie must
+        # never reach the portal's origin.
+        assert "blocked.gw.example.com" not in router.succeed("cat /etc/cockpit/cockpit.conf")
+
+    with subtest("portal: the block-check zone is Primary, carries the app, and denies queries"):
+        token = router.succeed("cat /var/lib/cockpit-router/technitium-token").strip()
+        zones = json.loads(
+            router.succeed(
+                f"curl -sS -H 'Authorization: Bearer {token}' "
+                "'http://127.0.0.1:5380/api/zones/list'"
+            )
+        )["response"]["zones"]
+        by_name = {z["name"]: z for z in zones}
+        assert by_name[zone]["type"] == "Primary", zones
+        records = json.loads(
+            router.succeed(
+                f"curl -sS -H 'Authorization: Bearer {token}' "
+                f"'http://127.0.0.1:5380/api/zones/records/get?domain={zone}&zone={zone}&listZone=true'"
+            )
+        )["response"]["records"]
+        assert any(r["type"] == "APP" for r in records), records
+        options = json.loads(
+            router.succeed(
+                f"curl -sS -H 'Authorization: Bearer {token}' "
+                f"'http://127.0.0.1:5380/api/zones/options/get?zone={zone}'"
+            )
+        )["response"]
+        assert options["queryAccess"] == "Deny", options
+
+    with subtest("portal: the oracle answers as each client would be answered"):
+        router.wait_until_succeeds(
+            f"dig +tcp +time=5 +tries=1 @127.0.0.1 TXT lan-blocked.vmtest.10-48-4-99.{zone} | grep -q 'group=Base'",
+            timeout=120,
+        )
+        out = oracle("lan-blocked.vmtest", "10.48.4.99")
+        assert "rcode=NoError" in out and "group=Base" in out, out
+        out = oracle("kids-blocked.vmtest", "10.48.4.50")        # host-group tier
+        assert "rcode=NxDomain" in out and "group=Strict" in out, out
+        out = oracle("kids-blocked.vmtest", "10.48.4.60")        # directory tier
+        assert "group=Strict" in out, out
+        out = oracle("regex-blocked.vmtest", "10.48.4.99")
+        assert "regex=" in out, out
+        # Exactly one group: Strict does not inherit Base. Not blocked means an
+        # empty answer, after the probe runs out of time on the unreachable
+        # forwarders.
+        assert oracle("lan-blocked.vmtest", "10.48.4.50") == ""
+        # The router's own addresses are the bypass group, never a device.
+        assert oracle("lan-blocked.vmtest", "127.0.0.1") == ""
+        # A host under the oracle's own zone would come back to the oracle.
+        assert oracle(f"x.{zone}", "10.48.4.99") == ""
+        a = router.succeed(f"dig +short +time=5 +tries=1 @127.0.0.1 A lan-blocked.vmtest.10-48-4-99.{zone}")
+        assert a.strip() == "", a
+
+    with subtest("portal: the oracle refuses everyone but the router"):
+        out = router.succeed(
+            f"ip netns exec guestpc dig +tcp +time=5 +tries=1 @10.48.4.1 TXT lan-blocked.vmtest.10-48-4-99.{zone}"
+        )
+        assert "status: REFUSED" in out, out
+
+    with subtest("portal: /portal/info and /portal/check"):
+        router.wait_until_succeeds(pcurl.format(ns="guestpc") + api + f"'{origin}/portal/info'", timeout=60)
+        code, body = portal_get("guestpc", "/portal/info")
+        assert code == 200, (code, body)
+        assert json.loads(body) == {
+            "service": "nixos-router-portal",
+            "apiVersion": 1,
+            "name": router.succeed("hostname").strip(),
+        }, body
+
+        code, body = portal_get("guestpc", "/portal/check?host=lan-blocked.vmtest")
+        assert code == 200, (code, body)
+        assert json.loads(body) == {"blocked": True, "host": "lan-blocked.vmtest", "reason": None}, body
+        # Upper case and a trailing dot are the same host.
+        code, body = portal_get("guestpc", "/portal/check?host=LAN-Blocked.vmtest.")
+        assert json.loads(body)["blocked"] is True, body
+        # An NXDOMAIN policy is for devices that should fail quietly: no page.
+        code, body = portal_get("kid", "/portal/check?host=kids-blocked.vmtest")
+        assert json.loads(body)["blocked"] is False, body
+        # Each device gets its own answer: Base's block is not Strict's.
+        code, body = portal_get("kid", "/portal/check?host=lan-blocked.vmtest")
+        assert json.loads(body)["blocked"] is False, body
+
+        code, body = portal_get("guestpc", "/portal/check?host=lan-blocked.vmtest", headers="")
+        assert code == 403, (code, body)
+        for bad in ["a%3Cb.vmtest", "10.48.4.1", "localhost", ""]:
+            code, body = portal_get("guestpc", f"/portal/check?host={bad}")
+            assert code == 400, (bad, code, body)
+
+        # Only the portal's own name verifies.
+        router.fail(
+            f"ip netns exec guestpc curl -sS --max-time 10 --cacert {minica} "
+            "-H 'X-Router-Portal: 1' https://10.48.4.1:8068/portal/info"
+        )
+        # The data endpoints do not exist here, token or not.
+        qtoken = router.succeed("cat /var/lib/router-technitium/logd-query.token").strip()
+        for path in ["/logs", "/portal/requests", "/healthz"]:
+            code, _ = portal_get("guestpc", path, headers=f"-H 'Authorization: Bearer {qtoken}' ")
+            assert code == 404, (path, code)
+
+    with subtest("portal: the block page, with headers for a trusted origin"):
+        out = router.succeed(
+            pcurl.format(ns="guestpc") + f"-D - '{origin}/portal/blocked?host=lan-blocked.vmtest'"
+        )
+        headers, _, page = out.partition("\r\n\r\n")
+        csp_match = re.search(r"(?im)^content-security-policy: (.*)$", headers)
+        assert csp_match, headers
+        csp = csp_match.group(1)
+        nonce_match = re.search(r"script-src 'nonce-([^']+)'", csp)
+        assert nonce_match, csp
+        nonce = nonce_match.group(1)
+        assert f'<script nonce="{nonce}">' in page, page
+        assert f'<style nonce="{nonce}">' in page, page
+        assert "frame-ancestors 'none'" in csp, csp
+        assert '<meta name="blocked-host" content="lan-blocked.vmtest">' in page, page
+        assert "VM-TEST Blocked" in page, page
+        assert 'action="/portal/request-exception"' in page, page
+        assert re.search(r"(?im)^referrer-policy: same-origin", headers), headers
+        assert re.search(r"(?im)^x-content-type-options: nosniff", headers), headers
+        assert not re.search(r"(?im)^(set-cookie|strict-transport-security|access-control-allow-origin):", headers), headers
+        # The Block Page app's own copy keeps no placeholder behind.
+        http_page = router.succeed("ip netns exec guestpc curl -s http://10.48.4.1/")
+        assert not re.search(r"@[A-Z_]+@", http_page), http_page
+
+        code, page = portal_get("guestpc", "/portal/blocked?host=kids-blocked.vmtest", headers="")
+        assert code == 200 and "isn't blocked" in page, (code, page)
+        code, _ = portal_get("guestpc", "/portal/blocked?host=a%3Cb.vmtest", headers="")
+        assert code == 400, code
+
+    with subtest("portal: the exception form over HTTPS, same origin only"):
+        form = "-d 'domain=tls-request.vmtest&reason=over https' "
+        out = router.succeed(
+            pcurl.format(ns="kid") + form + f"-H 'Origin: {origin}' '{origin}/portal/request-exception'"
+        )
+        assert "request submitted" in out.lower(), out
+        for bad_origin in ["-H 'Origin: https://evil.example' ", "-H 'Origin: null' ", ""]:
+            code = router.succeed(
+                pcurl.format(ns="kid") + "-o /dev/null -w '%{http_code}' " + form + bad_origin
+                + f"'{origin}/portal/request-exception'"
+            ).strip()
+            assert code == "403", (bad_origin, code)
+        qtoken = router.succeed("cat /var/lib/router-technitium/logd-query.token").strip()
+        reqs = json.loads(
+            router.succeed(
+                f"curl -s -H 'Authorization: Bearer {qtoken}' http://127.0.0.1:8067/portal/requests"
+            )
+        )["requests"]
+        mine = [r for r in reqs if r["domain"] == "tls-request.vmtest"]
+        assert len(mine) == 1 and mine[0]["device"] == "lab-1", reqs
+
+    with subtest("portal: the oracle's own lookups stay out of the query log"):
+        # The Log Exporter flushes in order: once a later query has landed,
+        # the oracle lookups above would have too, had they been kept.
+        router.succeed(dig.format(ns="guestpc", name="ingest-marker.vmtest"))
+        qtoken = router.succeed("cat /var/lib/router-technitium/logd-query.token").strip()
+        router.wait_until_succeeds(
+            f"curl -s -H 'Authorization: Bearer {qtoken}' "
+            "'http://127.0.0.1:8067/logs?qname=ingest-marker' | jq -e '.total > 0'",
+            timeout=120,
+        )
+        total = json.loads(
+            router.succeed(
+                f"curl -s -H 'Authorization: Bearer {qtoken}' 'http://127.0.0.1:8067/logs?qname=blockcheck'"
+            )
+        )["total"]
+        assert total == 0, total
+
+    fingerprint = (
+        "echo | ip netns exec guestpc openssl s_client -connect 10.48.4.1:8068 "
+        "-servername blocked.gw.example.com 2>/dev/null "
+        "| openssl x509 -noout -fingerprint -sha256"
+    )
+
+    with subtest("portal: a renewed certificate is a reload, not a restart"):
+        before = router.succeed(fingerprint).strip()
+        pid = router.succeed("systemctl show -P MainPID router-logd.service").strip()
+        # No acme-success yet, so the placeholder unit mints a fresh key.
+        router.succeed("rm /var/lib/acme/router-portal/*.pem")
+        router.succeed("systemctl restart acme-router-portal.service")
+        # What the order unit's post-run does for reloadServices.
+        router.succeed("systemctl try-reload-or-restart router-logd.service")
+        router.wait_until_succeeds(f"test \"$({fingerprint})\" != '{before}'", timeout=30)
+        assert router.succeed("systemctl show -P MainPID router-logd.service").strip() == pid
+
+    with subtest("portal: without a certificate, HTTPS stays off and plain HTTP runs on"):
+        router.succeed("mkdir -p /root/portal-cert && mv /var/lib/acme/router-portal/*.pem /root/portal-cert/")
+        router.succeed("systemctl restart router-logd.service")
+        router.wait_until_succeeds("curl -s http://127.0.0.1:8067/healthz | grep -q true")
+        router.fail(pcurl.format(ns="guestpc") + api + f"'{origin}/portal/info'")
+        router.succeed("mv /root/portal-cert/*.pem /var/lib/acme/router-portal/")
+        router.succeed("systemctl reload router-logd.service")
+        router.wait_until_succeeds(pcurl.format(ns="guestpc") + api + f"'{origin}/portal/info'", timeout=30)
 
     with subtest("a report PDF is generated offline"):
         router.succeed("systemctl start router-report-vmtest.service")

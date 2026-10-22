@@ -89,6 +89,7 @@ export type IssueCode =
   | "tunnelToken"
   | "tunnelNoIngress"
   | "clashRouterName"
+  | "clashPortalName"
   | "privateRouterName";
 
 export interface IngressIssue {
@@ -111,6 +112,23 @@ export interface IngressContext {
   tunnel: { enable: boolean; apiTokenFile: string | null; ingress: TunnelIngress[] };
   // router.fqdn: the router's own name, which Cockpit's certificate is for.
   fqdn: string | null;
+  // The block page is on (with Technitium), so blocked.<fqdn> is taken too:
+  // the HTTPS portal for the browser extension (cockpit-cert.nix, wantPortal).
+  blockPage: boolean;
+}
+
+// The names the router answers for itself, with the issue each one raises
+// when something else claims it.
+export function routerOwnNames(ctx: IngressContext): { name: string; code: IssueCode }[] {
+  const fqdn = ctx.fqdn?.trim().toLowerCase() ?? "";
+  if (!fqdn) {
+    return [];
+  }
+  const names: { name: string; code: IssueCode }[] = [{ name: fqdn, code: "clashRouterName" }];
+  if (ctx.blockPage) {
+    names.push({ name: `blocked.${fqdn}`, code: "clashPortalName" });
+  }
+  return names;
 }
 
 const lower = (xs: string[]) => xs.map((x) => x.toLowerCase());
@@ -193,10 +211,12 @@ export function checkRoute(r: ProxyRoute, ctx: IngressContext, self: number | nu
     }
   }
   // cockpit-cert.nix checks the routes only while the proxy is on.
-  if (ctx.proxy.enable && ctx.fqdn) {
-    const own = overlap(names, [ctx.fqdn]);
-    if (own.length > 0) {
-      issues.push({ level: "error", code: "clashRouterName", names: own });
+  if (ctx.proxy.enable) {
+    for (const { name, code } of routerOwnNames(ctx)) {
+      const own = overlap(names, [name]);
+      if (own.length > 0) {
+        issues.push({ level: "error", code, names: own });
+      }
     }
   }
   return issues;
@@ -236,8 +256,10 @@ export function checkIngress(ing: TunnelIngress, ctx: IngressContext, self: numb
     ) {
       issues.push({ level: "error", code: "clashProxy", names: [name] });
     }
-    if (ctx.fqdn && overlap([name], [ctx.fqdn]).length > 0) {
-      issues.push({ level: "error", code: "clashRouterName", names: [name] });
+    for (const own of routerOwnNames(ctx)) {
+      if (overlap([name], [own.name]).length > 0) {
+        issues.push({ level: "error", code: own.code, names: [name] });
+      }
     }
   }
   return issues;
@@ -282,26 +304,20 @@ export function checkRouterName(ctx: IngressContext): IngressIssue[] {
   if (isPrivateName(name)) {
     issues.push({ level: "warning", code: "privateRouterName", names: [name] });
   }
-  if (overlap([name], publicHostnames(ctx)).length > 0) {
-    issues.push({ level: "error", code: "clashPublicHost", names: [name] });
+  // The name itself, and blocked.<name> while the block page is on.
+  const own = routerOwnNames(ctx).map((o) => o.name);
+  const clash = (taken: string[]) => overlap(own, taken);
+  const pub = clash(publicHostnames(ctx));
+  if (pub.length > 0) {
+    issues.push({ level: "error", code: "clashPublicHost", names: pub });
   }
-  if (
-    ctx.proxy.enable &&
-    overlap(
-      [name],
-      ctx.proxy.routes.flatMap((r) => r.hostnames),
-    ).length > 0
-  ) {
-    issues.push({ level: "error", code: "clashProxy", names: [name] });
+  const proxied = ctx.proxy.enable ? clash(ctx.proxy.routes.flatMap((r) => r.hostnames)) : [];
+  if (proxied.length > 0) {
+    issues.push({ level: "error", code: "clashProxy", names: proxied });
   }
-  if (
-    ctx.tunnel.enable &&
-    overlap(
-      [name],
-      ctx.tunnel.ingress.map((i) => i.hostname),
-    ).length > 0
-  ) {
-    issues.push({ level: "error", code: "clashTunnel", names: [name] });
+  const tunnelled = ctx.tunnel.enable ? clash(ctx.tunnel.ingress.map((i) => i.hostname)) : [];
+  if (tunnelled.length > 0) {
+    issues.push({ level: "error", code: "clashTunnel", names: tunnelled });
   }
   if (!ctx.acme.cloudflare?.apiTokenFile) {
     issues.push({ level: "error", code: "dnsNeedsToken" });

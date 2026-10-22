@@ -129,6 +129,11 @@ def reconcile_local_dns(client: TechnitiumClient, cfg: dict, zones: dict[str, st
         zone = zone_spec["zone"]
         desired_zones[zone] = zone_spec["type"]
         _ensure_zone(client, zones, zone_spec, managed)
+        # Asserted on every run, not only at creation, so a zone whose options
+        # were changed by hand (the block-check zone's query access, say) is
+        # put back.
+        if zone_spec.get("options"):
+            client.set_zone_options(zone, **zone_spec["options"])
 
         # `overwrite` clears whatever the name held before, so it must be set
         # on the FIRST record of each (name, type) and cleared for the rest —

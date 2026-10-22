@@ -15,6 +15,11 @@ below.
   • GET/POST /portal/requests[...]    exception queue for the Cockpit UI
   • GET  /healthz
 
+With router.fqdn set and the block page on, a second listener serves the
+portal over HTTPS at blocked.<fqdn> for the browser extension (PortalHandler):
+the block check, the block page, and the exception form, never the token
+endpoints. See portal.py.
+
 DuckDB is used for its columnar/analytical engine — nearly everything asked of
 this store is an aggregate over a time range (top domains, per-group counts,
 blocked ratios) rather than a point lookup."""
@@ -29,6 +34,9 @@ import io
 import ipaddress
 import json
 import re
+import signal
+import socket
+import ssl
 import sys
 import threading
 import time
@@ -44,7 +52,7 @@ import duckdb as dbapi
 
 DB_ENGINE = "duckdb"
 
-from . import csvsafe
+from . import csvsafe, portal
 from .compile_policies import _load_directory, compile_config
 
 BLOCKED_TYPES = ("Blocked", "UpstreamBlocked", "UpstreamBlockedCached")
@@ -371,6 +379,11 @@ class Handler(BaseHTTPRequestHandler):
             if not client_ip:
                 continue
             question = _jget(entry, "question", default={}) or {}
+            qname = str(_jget(question, "questionName", default="")).lower().rstrip(".")
+            # The portal's own oracle lookups: router-logd asking Technitium,
+            # not a device's traffic.
+            if any(qname == z or qname.endswith("." + z) for z in self.daemon.ignore_qname_suffixes):
+                continue
             answers = _jget(entry, "answers", default=[]) or []
             answer = ", ".join(str(_jget(a, "recordData", default="")) for a in answers if isinstance(a, dict))
             device, group, policy = self.daemon.attribution.resolve(client_ip)
@@ -483,7 +496,7 @@ class Handler(BaseHTTPRequestHandler):
         form = urllib.parse.parse_qs(body.decode("utf-8", "replace"))
         domain = (form.get("domain", [""])[0]).strip().lower()[:253]
         reason = (form.get("reason", [""])[0]).strip()[:1000]
-        if not re.fullmatch(r"[a-z0-9.-]{1,253}", domain or ""):
+        if not re.fullmatch(r"[a-z0-9_.-]{1,253}", domain or ""):
             return self._send(400, b"Invalid domain", "text/plain")
 
         device, group, policy = d.attribution.resolve(client_ip)
@@ -559,6 +572,10 @@ class Daemon:
         self.portal_rate_limit = cfg.get("portalRateLimitPerHour", 10)
         self.portal_hits: dict[str, list[float]] = {}
         self.portal_lock = threading.Lock()
+        self.ignore_qname_suffixes = [z.lower().rstrip(".") for z in cfg.get("ignoreQnameSuffixes", [])]
+        # The HTTPS portal's block check, per client per minute (PortalHandler).
+        self.check_rate_limit = (cfg.get("portal") or {}).get("checkRatePerMinute", 60)
+        self.check_hits: dict[str, list[float]] = {}
         self.cfg = cfg
 
     def prune_loop(self):
@@ -598,6 +615,192 @@ class BoundedThreadingHTTPServer(ThreadingHTTPServer):
             self._slots.release()
 
 
+class PortalHandler(Handler):
+    """The HTTPS portal at blocked.<fqdn> (portal.py). It answers the browser
+    extension and the pages it opens, so it serves only the public routes;
+    the token endpoints and /ingest are not found here, whatever the token.
+
+    Every response carries headers for a page on the router's own trusted
+    origin: no framing, no sniffing, no caching, a strict CSP, and no cookies.
+    No HSTS: it is per host, not per port, and would cover every port of
+    blocked.<fqdn>. No CORS headers either, so a web page can make the browser
+    send a check but never read its answer."""
+
+    server_version = "router-logd-portal"
+    portal_cfg: dict
+    block_check: portal.BlockCheck
+    template: str
+
+    _csp = "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+
+    def end_headers(self):
+        self.send_header("Content-Security-Policy", self._csp)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("X-Frame-Options", "DENY")
+        # same-origin, not no-referrer: under no-referrer the block page's own
+        # form POST would carry "Origin: null" and fail the check in do_POST.
+        self.send_header("Referrer-Policy", "same-origin")
+        self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
+    def _html(self, code: int, body: str, nonce: str | None = None):
+        if nonce:
+            self._csp = portal.page_csp(nonce)
+        self._send(code, body.encode(), "text/html; charset=utf-8")
+
+    def _api_ok(self) -> bool:
+        """The JSON endpoints need a header no cross-site page can send without
+        a CORS preflight, which fails here. That keeps pages from using up a
+        device's rate limit."""
+        if self.headers.get("X-Router-Portal") == "1":
+            return True
+        self._json({"error": "missing X-Router-Portal header"}, 403)
+        return False
+
+    def _check_rate_ok(self) -> bool:
+        d = self.daemon
+        client_ip = self.client_address[0]
+        now = time.time()
+        with d.portal_lock:
+            recent = [t for t in d.check_hits.get(client_ip, []) if now - t < 60]
+            limited = len(recent) >= d.check_rate_limit
+            if not limited:
+                d.check_hits[client_ip] = recent + [now]
+            if len(d.check_hits) > 1024:
+                d.check_hits = {ip: ts for ip, ts in d.check_hits.items() if now - ts[-1] < 60}
+        return not limited
+
+    def do_GET(self):
+        url = urllib.parse.urlparse(self.path)
+        q = urllib.parse.parse_qs(url.query)
+        if url.path == "/portal/info":
+            if not self._api_ok():
+                return
+            return self._json(
+                {"service": "nixos-router-portal", "apiVersion": 1, "name": self.portal_cfg.get("routerName")}
+            )
+        if url.path == "/portal/check":
+            if not self._api_ok():
+                return
+            return self._check(q)
+        if url.path == "/portal/blocked":
+            return self._blocked_page(q)
+        self._json({"error": "not found"}, 404)
+
+    def do_POST(self):
+        url = urllib.parse.urlparse(self.path)
+        if url.path == "/portal/request-exception":
+            # Only the portal's own block page submits here over HTTPS.
+            if self.headers.get("Origin") != self.portal_cfg["origin"]:
+                return self._send(403, b"Forbidden", "text/plain")
+            return self._portal_submit()
+        self._json({"error": "not found"}, 404)
+
+    def _lookup(self, q) -> tuple[str | None, portal.CheckResult | None, int]:
+        """(host, result, status): status is 200, or the error to answer."""
+        host = portal.normalize_host(q.get("host", [""])[0])
+        if host is None:
+            return None, None, 400
+        if not self._check_rate_ok():
+            return host, None, 429
+        try:
+            return host, self.block_check.check(host, self.client_address[0]), 200
+        except portal.OracleError as exc:
+            print(f"portal: block check for {host} failed: {exc}", file=sys.stderr)
+            return host, None, 503
+
+    def _check(self, q):
+        host, result, status = self._lookup(q)
+        if status != 200 or result is None:
+            error = {400: "invalid host", 429: "too many requests", 503: "block check unavailable"}[status]
+            return self._json({"error": error}, status)
+        self._json({"blocked": result.show_page, "host": host, "reason": result.reason if result.show_page else None})
+
+    def _blocked_page(self, q):
+        nonce = portal.new_nonce()
+        _, result, status = self._lookup(q)
+        if status == 400:
+            return self._send(400, b"Invalid host", "text/plain")
+        if status == 429:
+            return self._send(429, b"Too many requests", "text/plain")
+        if result is None:
+            return self._html(503, portal.render_unavailable(nonce), nonce)
+        # A page asked for by name shows the truth, NXDOMAIN policies included;
+        # only the extension's automatic redirect leaves those alone (_check).
+        if not result.blocked:
+            return self._html(200, portal.render_not_blocked(nonce, result.host), nonce)
+        self._html(200, portal.render_block_page(self.template, nonce, result.host, result.reason), nonce)
+
+
+class PortalTLSServer(BoundedThreadingHTTPServer):
+    """The HTTPS side. The TLS handshake runs in the connection's own thread,
+    under the connection ceiling, so a client that connects and never speaks
+    cannot stall the accept loop. The context is swapped on reload (SIGHUP after
+    a certificate renewal) without dropping the listener."""
+
+    handshake_timeout = 10
+
+    def __init__(self, address, handler, context: ssl.SSLContext):
+        self.context = context
+        super().__init__(address, handler)
+
+    def finish_request(self, request, client_address):
+        request.settimeout(self.handshake_timeout)
+        try:
+            tls = self.context.wrap_socket(request, server_side=True)
+        except (ssl.SSLError, OSError):
+            return
+        try:
+            self.RequestHandlerClass(tls, client_address, self)
+        finally:
+            try:
+                tls.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            tls.close()
+
+
+class PortalTLS:
+    """Owns the HTTPS listener's lifecycle. A missing or unreadable certificate
+    (not issued yet, mid-renewal) never takes router-logd down: the listener
+    starts on the first reload that finds a usable one, and a failed reload
+    keeps serving the previous certificate."""
+
+    def __init__(self, cfg: dict, handler: type):
+        self.cfg = cfg
+        self.handler = handler
+        self.server: PortalTLSServer | None = None
+        self.lock = threading.Lock()
+
+    def _context(self) -> ssl.SSLContext:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.load_cert_chain(self.cfg["certFile"], self.cfg["keyFile"])
+        return ctx
+
+    def reload(self) -> None:
+        with self.lock:
+            try:
+                ctx = self._context()
+            except (OSError, ssl.SSLError) as exc:
+                state = "keeps its previous certificate" if self.server else "stays off"
+                print(f"portal: cannot load {self.cfg['certFile']}: {exc}; HTTPS {state}", file=sys.stderr)
+                return
+            if self.server is not None:
+                self.server.context = ctx
+                print("portal: certificate reloaded", file=sys.stderr)
+                return
+            try:
+                self.server = PortalTLSServer(
+                    (self.cfg.get("listenAddress", "0.0.0.0"), self.cfg["tlsPort"]), self.handler, ctx
+                )
+            except OSError as exc:
+                print(f"portal: cannot listen on {self.cfg['tlsPort']}: {exc}", file=sys.stderr)
+                return
+            threading.Thread(target=self.server.serve_forever, daemon=True).start()
+            print(f"portal: HTTPS on {self.server.server_address} for {self.cfg['origin']}", file=sys.stderr)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="router query-log store and portal daemon")
     parser.add_argument("--config", required=True, help="runtime config JSON (Nix-generated)")
@@ -610,6 +813,33 @@ def main() -> None:
     handler = type("BoundHandler", (Handler,), {"daemon": daemon})
     server = BoundedThreadingHTTPServer((cfg.get("listenAddress", "0.0.0.0"), cfg.get("port", 8067)), handler)
     print(f"router-logd listening on {server.server_address} (db engine: {DB_ENGINE})", file=sys.stderr)
+
+    pcfg = cfg.get("portal")
+    if pcfg:
+        pcfg = {**pcfg, "listenAddress": cfg.get("listenAddress", "0.0.0.0")}
+        portal_handler = type(
+            "BoundPortalHandler",
+            (PortalHandler,),
+            {
+                "daemon": daemon,
+                "portal_cfg": pcfg,
+                "template": Path(pcfg["template"]).read_text(),
+                "block_check": portal.BlockCheck(
+                    pcfg["blockCheckZone"],
+                    pcfg.get("listNames", {}),
+                    port=pcfg.get("dnsPort", 53),
+                    timeout_ms=pcfg.get("dnsTimeoutMs", 1500),
+                ),
+            },
+        )
+        tls = PortalTLS(pcfg, portal_handler)
+        tls.reload()
+        # A certificate renewal (acme reloadServices) and `systemctl reload`
+        # send SIGHUP. Unhandled, it would end the process.
+        signal.signal(signal.SIGHUP, lambda *_: threading.Thread(target=tls.reload, daemon=True).start())
+    else:
+        signal.signal(signal.SIGHUP, signal.SIG_IGN)
+
     server.serve_forever()
 
 

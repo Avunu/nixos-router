@@ -109,6 +109,15 @@ jobs:
       - name: Build the Cockpit plugin
         run: nix build --no-link -L '.#packages.x86_64-linux.cockpit-router'
 
+      # The same two halves for the Block Page browser extension: its npm
+      # check suite plus `web-ext lint` over the Firefox build (what AMO runs
+      # on upload), then the package, which writes the store zips.
+      - name: Browser extension checks (format, lint, tsc, unit tests, web-ext lint)
+        run: nix build --no-link -L '.#checks.x86_64-linux.router-browser-extension'
+
+      - name: Build the browser extension
+        run: nix build --no-link -L '.#packages.x86_64-linux.router-browser-extension'
+
   vm:
     name: VM tests (slow)
     runs-on: ubuntu-latest

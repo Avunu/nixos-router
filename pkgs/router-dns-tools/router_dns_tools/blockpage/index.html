@@ -1,18 +1,27 @@
 <!doctype html>
-<!-- Served by the Technitium Block Page app (static-site mode) for every
-     blocked domain. Placeholders (@TITLE@ …) are substituted at Nix build
-     time from router.accessPolicies.blockPage, HTML-escaped (@CONTACT@ as a
-     complete JavaScript string literal); the browser lands here at
-     http://<blocked-domain>/, so location.hostname IS the blocked domain.
-     The form posts to router-logd's portal endpoint (plain form navigation —
-     no CORS involvement). -->
+<!-- Rendered twice (modules/dns-technitium.nix). The at-sign placeholders
+     are substituted at Nix build time from router.accessPolicies.blockPage,
+     HTML-escaped (the contact address as a complete JavaScript string literal).
+     Comments here must not spell them out: substitution would rewrite them too.
+
+     1. Served by the Technitium Block Page app (static-site mode) for every
+        blocked domain. The browser lands here at http://<blocked-domain>/, so
+        location.hostname IS the blocked domain. The nonce, head and details
+        placeholders are empty, and the form posts to router-logd's plain-HTTP
+        portal endpoint (plain form navigation, no CORS involvement).
+     2. Served by router-logd's HTTPS portal at /portal/blocked?host=… (where
+        the browser extension sends a blocked HTTPS site). The portal URL is
+        empty, so the form posts back to the same origin, and router-logd fills
+        the rest per response: the CSP nonce, a meta "blocked-host" with the
+        host it confirmed is blocked, and the reason line. -->
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex, nofollow">
+  @HEAD_EXTRA@
   <title>@TITLE@</title>
-  <style>
+  <style@NONCE_ATTR@>
     body { font-family: system-ui, -apple-system, sans-serif; color: #1b1f23;
            background: #f4f6f8; margin: 0; }
     main { max-width: 34rem; margin: 8vh auto; padding: 2.5rem;
@@ -22,7 +31,7 @@
     h1::before { content: "🛇 "; }
     .domain { font-family: ui-monospace, monospace; background: #f0f2f4;
               padding: .15rem .45rem; border-radius: 4px; }
-    p.contact { color: #57606a; font-size: .9rem; }
+    p.contact, p.reason { color: #57606a; font-size: .9rem; }
     details { margin-top: 1.75rem; border-top: 1px solid #e1e4e8; padding-top: 1rem; }
     summary { cursor: pointer; font-weight: 600; }
     label { display: block; margin: .9rem 0 .25rem; font-weight: 600; font-size: .9rem; }
@@ -40,6 +49,7 @@
     <h1>@HEADING@</h1>
     <p>@MESSAGE@</p>
     <p>Blocked address: <span class="domain" id="blocked-domain"></span></p>
+    @DETAILS@
     <p class="contact" id="contact" hidden>Questions? Contact <a id="contact-link" href=""></a>.</p>
 
     <details>
@@ -53,8 +63,9 @@
       </form>
     </details>
   </main>
-  <script>
-    var domain = location.hostname;
+  <script@NONCE_ATTR@>
+    var hostMeta = document.querySelector('meta[name="blocked-host"]');
+    var domain = hostMeta ? hostMeta.content : location.hostname;
     document.getElementById("blocked-domain").textContent = domain;
     document.getElementById("domain-field").value = domain;
     var contact = @CONTACT@;

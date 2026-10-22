@@ -312,8 +312,18 @@ let
           iifname "${brGuest}" tcp dport 53 accept
           iifname "${brGuest}" icmpv6 type { nd-neighbor-solicit, nd-neighbor-advert, nd-router-solicit } accept
           ${optionalString cfg.accessPolicies.blockPage.enable ''
-            # Block page (Technitium Block Page app) + exception-request portal (router-logd)
-            iifname "${brGuest}" tcp dport { 80, 443, ${toString cfg.reporting.logd.port} } accept
+            # Block page (Technitium Block Page app) + exception-request portal
+            # (router-logd), and the portal over HTTPS for the browser extension
+            iifname "${brGuest}" tcp dport { ${
+              concatMapStringsSep ", " toString (
+                [
+                  80
+                  443
+                  cfg.reporting.logd.port
+                ]
+                ++ optional cfg._portal.enable cfg._portal.port
+              )
+            } } accept
           ''}
           ${optionalString pcfg.enable ''
             # Reverse proxy hairpin (redirected 80/443 to the WAN address)

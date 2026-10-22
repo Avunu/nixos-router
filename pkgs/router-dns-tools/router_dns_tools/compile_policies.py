@@ -82,6 +82,9 @@ def _group_for(policy: dict, static: dict) -> dict:
     return {
         "name": policy["name"],
         "enableBlocking": True,
+        # Also what the HTTPS portal's block check reads: Advanced Blocking
+        # attaches its report (group, list, matched domain) only when this is
+        # on, and the Router Live DNS oracle finds blocked names by it.
         "allowTxtBlockingReport": True,
         "blockAsNxDomain": policy["responseType"] == "nxdomain",
         "blockingAddresses": blocking_addresses,
@@ -167,6 +170,10 @@ def compile_config(static: dict, directory: dict | None) -> dict:
         "blockingAnswerTtl": 30,
         "blockListUrlUpdateIntervalHours": 24,
         "blockListUrlUpdateIntervalMinutes": 0,
+        # Must stay empty: the Router Live DNS block-check oracle presents only
+        # a client address to Advanced Blocking (its synthetic query arrives on
+        # no local endpoint), so a mapping here would make the portal's answer
+        # differ from what the device's own queries get.
         "localEndPointGroupMap": {},
         "networkGroupMap": network_map,
         "groups": groups,

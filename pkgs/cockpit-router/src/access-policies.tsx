@@ -19,6 +19,7 @@ import {
   CardBody,
   CardTitle,
   Checkbox,
+  ClipboardCopy,
   EmptyState,
   EmptyStateBody,
   Form,
@@ -67,6 +68,16 @@ import { exceptionRequests, setExceptionStatus } from "./logd";
 import { resolvePolicy } from "./policy-resolver";
 import type { MatchStep, NetworkCidrs } from "./policy-resolver";
 import { StandardFiltersSelector, UtCapitoleSelector, UrlListEditor } from "./policy-editors";
+import { CertStatus, useCertStates } from "./ingress-widgets";
+import { sectionHref, sectionOf as settingsSection } from "./sections";
+import {
+  DOCS_URL,
+  EXTENSION_IDS,
+  PORTAL_CERT,
+  chromePolicy,
+  firefoxPolicy,
+  portalState,
+} from "./browser-extension";
 import type {
   AccessPoliciesSection,
   AccessPolicy,
@@ -1127,6 +1138,126 @@ const PreviewTab = () => {
   );
 };
 
+// ── Browser extension (the block page's HTTPS portal) ────────────────────────
+// A blocked secure site fails with a certificate warning: the router cannot
+// hold that site's certificate. The browser extension asks the router's HTTPS
+// portal at blocked.<fqdn> whether the site is blocked, and opens the block
+// page there instead (browser-extension.ts, modules/cockpit-cert.nix).
+const BrowserExtension = ({ s }: { s: ReturnType<typeof useSettings> }) => {
+  const portal = portalState(s.effective);
+  const { states } = useCertStates([PORTAL_CERT], portal.state === "ready");
+  const intro = _(
+    "Browsers can't show this page for blocked secure (https) sites; they show a certificate warning instead. The nixos-router browser extension shows the block page for them.",
+  );
+  const docs = (
+    <a href={DOCS_URL} target="_blank" rel="noopener noreferrer">
+      {_("Installing the extension")}
+    </a>
+  );
+
+  if (portal.state !== "ready") {
+    const needs = {
+      needsName: _(
+        "It needs the router's domain name, set under System → Settings, which gives the block page a trusted certificate.",
+      ),
+      needsBlockPage: _("It works once the block page is on and applied."),
+      needsDns: _("It needs the router's filtering DNS (Technitium)."),
+    }[portal.state];
+    return (
+      <FormSection title={_("Browser extension")} titleElement="h3">
+        <HelperText>
+          <HelperTextItem>
+            {intro} {needs}
+          </HelperTextItem>
+        </HelperText>
+        {portal.state === "needsName" && (
+          <div>
+            <Button
+              variant="link"
+              isInline
+              onClick={() => cockpit.jump(sectionHref(settingsSection("fqdn")))}
+            >
+              {_("Set a domain name")}
+            </Button>
+          </div>
+        )}
+      </FormSection>
+    );
+  }
+
+  return (
+    <FormSection title={_("Browser extension")} titleElement="h3">
+      <HelperText>
+        <HelperTextItem>
+          {intro} {docs}
+        </HelperTextItem>
+      </HelperText>
+      <FormGroup
+        label={_("Router address")}
+        fieldId="bp-ext-address"
+        labelHelp={hint(
+          _(
+            "Enter this in the extension's options to pair it with this router. It answers only on your networks.",
+          ),
+        )}
+      >
+        <ClipboardCopy id="bp-ext-address" isReadOnly hoverTip={_("Copy")} clickTip={_("Copied")}>
+          {portal.address}
+        </ClipboardCopy>
+      </FormGroup>
+      <FormGroup label={_("Certificate")} fieldId="bp-ext-cert">
+        <div id="bp-ext-cert">
+          <CertStatus st={states[PORTAL_CERT]} />
+        </div>
+        <HelperText>
+          <HelperTextItem>
+            {cockpit.format(
+              _(
+                "For $0, ordered like the domain name's own. The extension can pair once it is issued.",
+              ),
+              portal.name,
+            )}
+          </HelperTextItem>
+        </HelperText>
+      </FormGroup>
+      <FormGroup
+        label={_("Firefox policy")}
+        fieldId="bp-ext-firefox"
+        labelHelp={hint(
+          _(
+            "For browsers you manage: this policies.json entry pairs the extension with this router, with nothing for users to enter.",
+          ),
+        )}
+      >
+        <ClipboardCopy
+          id="bp-ext-firefox"
+          isCode
+          isReadOnly
+          variant="expansion"
+          hoverTip={_("Copy")}
+          clickTip={_("Copied")}
+        >
+          {firefoxPolicy(portal.origin)}
+        </ClipboardCopy>
+      </FormGroup>
+      {EXTENSION_IDS.chrome !== null && (
+        <FormGroup label={_("Chrome and Edge policy")} fieldId="bp-ext-chrome">
+          <ClipboardCopy
+            id="bp-ext-chrome"
+            isCode
+            isReadOnly
+            variant="expansion"
+            hoverTip={_("Copy")}
+            clickTip={_("Copied")}
+          >
+            {chromePolicy(portal.origin, EXTENSION_IDS.chrome)}
+          </ClipboardCopy>
+        </FormGroup>
+      )}
+    </FormSection>
+  );
+};
+
 // ── Block page tab ───────────────────────────────────────────────────────────
 const BlockPageTab = () => {
   const s = useSettings();
@@ -1150,7 +1281,9 @@ const BlockPageTab = () => {
             label={_("Serve a block page")}
             fieldId="bp-enable"
             labelHelp={hint(
-              _("Served on ports 80/443 for blocked domains; includes the exception-request form."),
+              _(
+                "Served on ports 80/443 for blocked domains; includes the exception-request form. Secure (https) sites need the browser extension below.",
+              ),
             )}
           >
             <Switch
@@ -1200,6 +1333,7 @@ const BlockPageTab = () => {
               onChange={(_e, v) => s.setLeaf("accessPolicies.blockPage.contactEmail", v)}
             />
           </FormGroup>
+          <BrowserExtension s={s} />
         </Form>
       </StackItem>
     </Stack>

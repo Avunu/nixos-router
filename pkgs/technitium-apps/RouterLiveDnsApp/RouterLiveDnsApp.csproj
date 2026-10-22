@@ -7,7 +7,7 @@
 		<IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
 		<AssemblyName>RouterLiveDnsApp</AssemblyName>
 		<RootNamespace>RouterLiveDns</RootNamespace>
-		<Description>Resolves adopted router.hosts entries without a static IP to their current live LAN address, and (in the "local" zone) live mDNS *.local names.</Description>
+		<Description>Resolves adopted router.hosts entries without a static IP to their current live LAN address, (in the "local" zone) live mDNS *.local names, and (in the block-check zone) whether a name is blocked for a given client.</Description>
 		<GeneratePackageOnBuild>false</GeneratePackageOnBuild>
 		<OutputType>Library</OutputType>
 		<Nullable>enable</Nullable>

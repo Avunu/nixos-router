@@ -44,6 +44,7 @@ const ctx = (over: Partial<IngressContext> = {}): IngressContext => ({
   proxy: { enable: true, publishDns: true, routes: [] },
   tunnel: { enable: true, apiTokenFile: "/etc/router/secrets/t", ingress: [] },
   fqdn: null,
+  blockPage: false,
   ...over,
 });
 
@@ -444,6 +445,38 @@ void test("checkRouterName: clashes with public, proxied and tunnelled names", (
   };
   assert.deepEqual(checkRouterName({ ...off, fqdn: "app.example.com" }), []);
   assert.deepEqual(checkRouterName({ ...off, fqdn: "wiki.example.com" }), []);
+});
+
+void test("checkRouterName: with the block page on, blocked.<name> is the router's too", () => {
+  const c = ctx({
+    acme: account,
+    fqdn: "gw.example.com",
+    blockPage: true,
+    proxy: {
+      enable: true,
+      publishDns: true,
+      routes: [route({ hostnames: ["blocked.gw.example.com"] })],
+    },
+  });
+  assert.deepEqual(checkRouterName(c), [
+    { level: "error", code: "clashProxy", names: ["blocked.gw.example.com"] },
+  ]);
+  // Off, the portal (and its name) does not exist.
+  assert.deepEqual(checkRouterName({ ...c, blockPage: false }), []);
+  // The route side reports it as the block page's name.
+  assert.ok(
+    rc(route({ hostnames: ["Blocked.GW.example.com"] }), c, null).includes("clashPortalName"),
+  );
+  assert.ok(
+    ic(ingress({ hostname: "blocked.gw.example.com" }), c, null).includes("clashPortalName"),
+  );
+  assert.ok(
+    !rc(
+      route({ hostnames: ["blocked.gw.example.com"] }),
+      { ...c, blockPage: false },
+      null,
+    ).includes("clashPortalName"),
+  );
 });
 
 void test("checkRouterName: a private suffix warns (no public CA issues for it)", () => {

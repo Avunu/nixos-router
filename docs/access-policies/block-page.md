@@ -10,6 +10,7 @@ code:
   - pkgs/router-dns-tools/router_dns_tools/logd.py
   - pkgs/router-dns-tools/router_dns_tools/blockpage/index.html
   - pkgs/cockpit-router/src/access-policies.tsx
+  - pkgs/router-dns-tools/router_dns_tools/portal.py
 ---
 
 # Block page and exceptions
@@ -24,7 +25,7 @@ The block page tells users that a site was blocked on purpose, instead of leavin
 ## Turn on the block page
 
 1. Open **Access Policies → Block page**.
-2. Turn on **Serve a block page**. The help text reads "Served on ports 80/443 for blocked domains; includes the exception-request form."
+2. Turn on **Serve a block page**. The help text reads "Served on ports 80/443 for blocked domains; includes the exception-request form. Secure (https) sites need the browser extension below."
 3. Set the text:
    - **Browser title:** the page title in the browser tab. Default "Website Blocked".
    - **Heading:** the large heading. Default "Website Blocked".
@@ -64,7 +65,7 @@ Almost every site is HTTPS. The browser connects to the router expecting the rea
 - For sites that use HSTS, which includes most large sites, the browser offers no way past the warning, so the user never sees the block page.
 - Requests to plain `http://` addresses show the page directly.
 
-The router has no setting that avoids this. Tell users that a certificate warning on a site they expected to work usually means it is blocked.
+The [browser extension](/docs/access-policies/browser-extension/) fixes this in Chrome, Edge, Brave and Firefox: it shows the block page, from the router's own address with a trusted certificate, instead of the warning. It needs the router's domain name. Without the extension, tell users that a certificate warning on a site they expected to work usually means it is blocked.
 
 ## How it works
 
@@ -72,7 +73,8 @@ The router has no setting that avoids this. Tell users that a certificate warnin
 - **The page is served on ports 80 and 443.** Technitium's Block Page app listens on all router addresses, but the firewall keeps it off the WAN. It allows everything from the LAN and WireGuard, and opens 80, 443 and the exception form's port to the guest network only while the block page is on. The page's text comes from your settings, HTML-escaped, and is rebuilt on each apply.
 - **The page reads the domain from the address bar.** The browser asked for `http://blocked.example.com/` and reached the router, so the page shows `blocked.example.com` as the blocked address and sends it with the form.
 - **Requests go to router-logd.** The form posts to `http://192.168.1.1:8067/portal/request-exception`, using your LAN gateway address and the `reporting.logd.port` setting (8067 by default). `router-logd` records the time, domain, client address and reason. From the client address it also works out the device name, its user and host group, and the policy that applies, so you can see who asked.
-- **Requests are rate-limited.** Each client address can send 10 requests per hour; after that it gets "Too many requests". The domain must contain only letters, digits, dots and hyphens, and the reason is cut to 1,000 characters.
+- **Requests are rate-limited.** Each client address can send 10 requests per hour; after that it gets "Too many requests". The domain must contain only letters, digits, dots, hyphens and underscores, and the reason is cut to 1,000 characters.
+- **With a domain name, the page is also served over HTTPS.** `router-logd` serves the same page, the same form and a check of whether a name is blocked at `blocked.<domain name>` on port 8068, with a certificate of its own. That is where the [browser extension](/docs/access-policies/browser-extension/) sends blocked HTTPS sites.
 
 ## Handle exception requests
 
@@ -106,7 +108,7 @@ Keep in mind:
 ## Limits
 
 - The block page never appears for **NXDOMAIN** policies.
-- HTTPS sites show a certificate warning first, and HSTS sites never show the page.
+- Without the [browser extension](/docs/access-policies/browser-extension/), HTTPS sites show a certificate warning first, and HSTS sites never show the page.
 - The page only appears when the blocked name is opened in a browser. Apps and background requests fail to connect.
 - The form requires the block page, so users on NXDOMAIN policies can't send requests.
 

@@ -105,6 +105,11 @@ class TechnitiumClient:
     def delete_zone(self, zone: str) -> None:
         self._call("/api/zones/delete", {"zone": zone})
 
+    def set_zone_options(self, zone: str, **options: str) -> None:
+        """Set zone options such as queryAccess ("Deny", "Allow", …). Options
+        not named are left as they are."""
+        self._call("/api/zones/options/set", {"zone": zone, **options})
+
     def get_records(self, domain: str, zone: str) -> list[dict]:
         resp = self._call("/api/zones/records/get", {"domain": domain, "zone": zone, "listZone": "true"})
         return resp.get("records", [])

@@ -166,17 +166,44 @@ let
       enable = true;
       apiTokenFile = "/etc/router/secrets/cloudflare-tunnel.token";
     };
+    # With no router.fqdn there is no name for the HTTPS portal.
+    router.accessPolicies.blockPage.enable = true;
   };
   # The router's name on a host's public name, with Cockpit off: the clash
-  # still fails, and nothing asks for a certificate.
+  # still fails, and Cockpit asks for no certificate. The block page is on, so
+  # the HTTPS portal still wants its own, with no token to get it by, on a name
+  # a proxy route also claims and a port router-logd already holds.
   fqdnNoCockpit = evalWith {
     router.hosts = hosts;
     router.cockpit.enable = false;
     router.fqdn = "nas.example.com";
+    router.accessPolicies.blockPage.enable = true;
+    router.reporting.logd.tlsPort = 8067;
+    router.reverseProxy = {
+      enable = true;
+      routes = [
+        {
+          name = "portal-clash";
+          hostnames = [ "blocked.nas.example.com" ];
+          host = "nas";
+        }
+      ];
+    };
   };
+  fqdnNoCockpitMessages = failedAssertions fqdnNoCockpit;
   cockpitCert = sys.security.acme.certs.cockpit;
   certInstaller = sys.systemd.services.router-cockpit-cert;
   routerNameZone = lib.findFirst (z: z.zone == "console.example.com") null sys.router._localDnsZones;
+
+  # The HTTPS portal for the browser extension (blocked.<fqdn>).
+  portalCert = sys.security.acme.certs.router-portal;
+  logdUnit = sys.systemd.services.router-logd;
+  portalZone = lib.findFirst (
+    z: z.zone == "blocked.console.example.com"
+  ) null sys.router._localDnsZones;
+  oracleZone = lib.findFirst (
+    z: z.zone == "blockcheck.nixos-router.internal"
+  ) null sys.router._localDnsZones;
 
   # The tunnel turned off with its token path kept, for the teardown.
   tunnelOff = evalWith {
@@ -547,6 +574,96 @@ let
         );
       detail = "with Cockpit off: a certificate or installer is defined, the warning is missing, or the publicHostname clash passes: ${lib.concatStringsSep " | " (failedAssertions fqdnNoCockpit)}";
     }
+    # ── the block page's HTTPS portal (browser extension) ──
+    {
+      # A name and certificate of its own: Cockpit's session cookie (host-only,
+      # sent to any port) and key never reach router-logd.
+      name = "portal-cert-of-its-own";
+      ok =
+        portalCert.domain == "blocked.console.example.com"
+        && portalCert.dnsProvider == "cloudflare"
+        && portalCert.dnsResolver == "1.1.1.1:53"
+        && portalCert.group == "router-portal"
+        && portalCert.reloadServices == [ "router-logd.service" ]
+        && sys.router._portal.origin == "https://blocked.console.example.com:8068"
+        && !lib.any (lib.hasInfix "blocked.") sys.services.cockpit.allowed-origins;
+      detail = "portal certificate: ${
+        builtins.toJSON {
+          inherit (portalCert)
+            domain
+            dnsProvider
+            group
+            reloadServices
+            ;
+          inherit (sys.router._portal) origin;
+        }
+      }";
+    }
+    {
+      # Group-read certificate, reloaded on SIGHUP: a renewal keeps the query
+      # log and the plain-HTTP form running.
+      name = "portal-logd-reads-and-reloads-the-cert";
+      ok =
+        lib.elem "acme-router-portal.service" logdUnit.wants
+        && lib.elem "acme-router-portal.service" logdUnit.after
+        && lib.elem "router-portal" logdUnit.serviceConfig.SupplementaryGroups
+        && lib.hasInfix "kill -HUP" logdUnit.serviceConfig.ExecReload;
+      detail = "router-logd: ${
+        builtins.toJSON {
+          inherit (logdUnit) wants after;
+          inherit (logdUnit.serviceConfig) SupplementaryGroups ExecReload;
+        }
+      }";
+    }
+    {
+      name = "portal-port-open-to-guest";
+      ok = has ''iifname "br-guest" tcp dport { 80, 443, 8067, 8068 } accept'';
+      detail = "the guest rule for the block page does not include the portal's 8068";
+    }
+    {
+      name = "portal-name-resolves-to-lan-gateway";
+      ok =
+        portalZone != null
+        && lib.any (
+          r: r.name == "blocked.console.example.com" && r.type == "A" && r.value == sys.router.lan.address
+        ) portalZone.records;
+      detail = "portal zone: ${builtins.toJSON portalZone}";
+    }
+    {
+      # Loopback only (query access Deny), answered by the Router Live DNS app.
+      name = "portal-oracle-zone-locked-to-the-router";
+      ok =
+        oracleZone != null
+        && oracleZone.type == "Primary"
+        && oracleZone.options.queryAccess or null == "Deny"
+        && lib.any (a: a.classPath == "RouterLiveDns.App") oracleZone.appRecords;
+      detail = "oracle zone: ${builtins.toJSON oracleZone}";
+    }
+    {
+      # The portal follows the block page, not Cockpit.
+      name = "portal-with-cockpit-off";
+      ok =
+        (fqdnNoCockpit.security.acme.certs.router-portal.domain or null) == "blocked.nas.example.com"
+        && lib.any (lib.hasInfix "the certificates under it use the dns-cloudflare challenge") (
+          failedAssertions fqdnNoCockpit
+        );
+      detail = "with Cockpit off: no portal certificate, or no token assertion: ${lib.concatStringsSep " | " (failedAssertions fqdnNoCockpit)}";
+    }
+    {
+      name = "portal-name-of-its-own";
+      ok = lib.any (lib.hasInfix "blocked.nas.example.com, the block page's HTTPS name, is also used by reverse proxy route 'portal-clash'") fqdnNoCockpitMessages;
+      detail = "no clash reported for the portal's name: ${lib.concatStringsSep " | " fqdnNoCockpitMessages}";
+    }
+    {
+      name = "portal-port-not-taken";
+      ok = lib.any (lib.hasInfix "router.reporting.logd.tlsPort: 8067 is already taken by the router") fqdnNoCockpitMessages;
+      detail = "no port clash reported: ${lib.concatStringsSep " | " fqdnNoCockpitMessages}";
+    }
+    {
+      name = "portal-off-without-a-name";
+      ok = !idle.router._portal.enable && !(idle.security.acme.certs ? router-portal);
+      detail = "the portal is on with no router.fqdn";
+    }
     {
       name = "effective-json-carries-new-keys";
       ok =
@@ -583,7 +700,7 @@ let
     (rejects "tunnel-duplicate" "duplicate hostname(s) home-tunnel.example.com")
     (rejects "tunnel-vs-proxy" "dns.example.com is also published by reverse proxy route 'dns-no-token'")
     (rejects "router-name-vs-proxy-and-tunnel" "router.fqdn: dns.example.com is also used by reverse proxy route 'dns-no-token', Cloudflare Tunnel hostname")
-    (rejects "router-name-needs-token" "Cockpit's certificate uses the dns-cloudflare challenge")
+    (rejects "router-name-needs-token" "the certificates under it use the dns-cloudflare challenge")
   ];
 
   failures = lib.filter (c: !c.ok) checks;

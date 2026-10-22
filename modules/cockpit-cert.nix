@@ -1,7 +1,17 @@
 # ── Cockpit certificate module ─────────────────────────────────────────────────
-# The router's own domain name (router.fqdn) and a Let's Encrypt certificate
-# for Cockpit under it, so the web UI opens at https://<fqdn>:9090 without a
-# certificate warning.
+# The router's own domain name (router.fqdn) and the Let's Encrypt
+# certificates under it:
+#
+#   • Cockpit's, for <fqdn> itself, so the web UI opens at
+#     https://<fqdn>:9090 without a certificate warning.
+#   • The HTTPS portal's, for blocked.<fqdn> (router._portal), while the
+#     block page is on: router-logd serves the block page and the "is this
+#     blocked for me?" check there, for the browser extension.
+#
+# The portal has a name of its own for two reasons. Browsers send cookies by
+# host, not port, so Cockpit's session cookie for <fqdn> would ride along to a
+# portal on <fqdn>:<port>. And sharing Cockpit's certificate would hand its
+# private key to router-logd, which the guest network can reach.
 #
 # Cockpit only listens on the trusted side (LAN + WireGuard), so the
 # certificate proves control of the name by DNS-01 through the Cloudflare API,
@@ -35,6 +45,13 @@ let
 
   fqdn = if cfg.fqdn != null then toLower cfg.fqdn else null;
   wantCert = fqdn != null && cfg.cockpit.enable;
+
+  # router-logd's HTTPS portal (modules/reporting.nix): on whenever there is a
+  # name for it and a block page to show, Cockpit or not.
+  portalName = if fqdn != null then "blocked.${fqdn}" else null;
+  wantPortal = fqdn != null && cfg.accessPolicies.blockPage.enable && cfg.dns.technitium.enable;
+  portalCertName = "router-portal";
+  portalGroup = "router-portal";
 
   # The certificate's name under /var/lib/acme and in its acme-* units. Route
   # certificates are named after a hostname, which always has a dot, so this
@@ -109,6 +126,22 @@ let
       owner = "Cloudflare Tunnel hostname";
     }) (optionals cfg.cloudflareTunnel.enable cfg.cloudflareTunnel.ingress);
   clashes = filter (o: o.name == fqdn) otherNames;
+  portalClashes = filter (o: o.name == portalName) otherNames;
+
+  # The certificate settings both names share: DNS-01 through Cloudflare, so
+  # neither needs a public record.
+  cloudflareCert = {
+    dnsProvider = "cloudflare";
+    dnsPropagationCheck = true;
+    # The router resolves through its own Technitium, which holds a local
+    # zone for these very names (routerNameRecords). Asked there, lego would
+    # take that zone for the Cloudflare zone and fail to find it.
+    dnsResolver = "1.1.1.1:53";
+    # Guarded so a missing path reports through the assertion below.
+    credentialFiles = optionalAttrs (acfg.cloudflare.apiTokenFile != null) {
+      CF_DNS_API_TOKEN_FILE = acfg.cloudflare.apiTokenFile;
+    };
+  };
 in
 {
   options.router.fqdn = mkOption {
@@ -118,14 +151,39 @@ in
     description = ''
       The router's own domain name. Cockpit then serves a Let's Encrypt
       certificate for it at https://<fqdn>:9090, and the router's DNS answers
-      it with the LAN address. The certificate is issued through the Cloudflare
-      DNS challenge (router.acme and its cloudflare.apiTokenFile), so the name
+      it with the LAN address. While the block page is on, blocked.<fqdn> gets
+      a certificate too, for the block page's HTTPS portal that the browser
+      extension uses. The certificates are issued through the Cloudflare DNS
+      challenge (router.acme and its cloudflare.apiTokenFile), so the name
       must be in a Cloudflare zone but needs no public record. Like every
-      certificate, it is listed in public Certificate Transparency logs.
+      certificate, they are listed in public Certificate Transparency logs.
     '';
   };
 
+  # What the portal's consumers (dns-technitium.nix, reporting.nix,
+  # firewall.nix, the Cockpit plugin) need to know about it.
+  options.router._portal = mkOption {
+    type = types.attrs;
+    internal = true;
+    readOnly = true;
+    description = "The HTTPS portal's name, origin and certificate (router-logd, for the browser extension).";
+  };
+
   config = mkMerge [
+    {
+      router._portal = {
+        enable = wantPortal;
+        name = portalName;
+        port = cfg.reporting.logd.tlsPort;
+        origin =
+          if wantPortal then "https://${portalName}:${toString cfg.reporting.logd.tlsPort}" else null;
+        certName = portalCertName;
+        certDir = "/var/lib/acme/${portalCertName}";
+        certUnit = "acme-${portalCertName}.service";
+        group = portalGroup;
+      };
+    }
+
     (mkIf (fqdn != null) {
       assertions = [
         {
@@ -139,32 +197,28 @@ in
           } — the router's own name must be a name of its own";
         }
         {
-          assertion = !wantCert || acfg.cloudflare.apiTokenFile != null;
-          message = "router.fqdn: Cockpit's certificate uses the dns-cloudflare challenge, but router.acme.cloudflare.apiTokenFile is not set";
+          assertion = !wantPortal || portalClashes == [ ];
+          message = "router.fqdn: ${portalName}, the block page's HTTPS name, is also used by ${
+            concatMapStringsSep ", " (c: c.owner) portalClashes
+          } — it must be a name of its own";
+        }
+        {
+          assertion = !(wantCert || wantPortal) || acfg.cloudflare.apiTokenFile != null;
+          message = "router.fqdn: the certificates under it use the dns-cloudflare challenge, but router.acme.cloudflare.apiTokenFile is not set";
         }
       ];
 
       warnings =
         optional (!cfg.cockpit.enable)
-          "router.fqdn is set but Cockpit is disabled, so no certificate is requested; the name only resolves to the router on the LAN."
+          "router.fqdn is set but Cockpit is disabled, so no certificate is requested for it; the name only resolves to the router on the LAN."
         ++
           optional (!cfg.dns.technitium.enable)
             "router.fqdn: Technitium is disabled, so the router's DNS does not answer ${fqdn} — LAN clients need their own record for it.";
     })
 
     (mkIf wantCert {
-      security.acme.certs.${certName} = {
+      security.acme.certs.${certName} = cloudflareCert // {
         domain = fqdn;
-        dnsProvider = "cloudflare";
-        dnsPropagationCheck = true;
-        # The router resolves through its own Technitium, which holds a local
-        # zone for this very name (routerNameRecords). Asked there, lego would
-        # take that zone for the Cloudflare zone and fail to find it.
-        dnsResolver = "1.1.1.1:53";
-        # Guarded so a missing path reports through the assertion above.
-        credentialFiles = optionalAttrs (acfg.cloudflare.apiTokenFile != null) {
-          CF_DNS_API_TOKEN_FILE = acfg.cloudflare.apiTokenFile;
-        };
         reloadServices = [ "cockpit.service" ];
       };
 
@@ -172,6 +226,17 @@ in
         "https://${fqdn}"
         "https://${fqdn}:${toString cfg.cockpit.port}"
       ];
+    })
+
+    # router-logd reads the key through this group; a renewal reloads it
+    # (SIGHUP), which keeps its plain-HTTP side and the query log running.
+    (mkIf wantPortal {
+      security.acme.certs.${portalCertName} = cloudflareCert // {
+        domain = portalName;
+        group = portalGroup;
+        reloadServices = [ "router-logd.service" ];
+      };
+      users.groups.${portalGroup} = { };
     })
 
     # Defined whenever Cockpit is, so clearing router.fqdn also removes the

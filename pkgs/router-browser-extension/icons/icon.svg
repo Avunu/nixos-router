@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- nixos-router Block Page icon: a shield carrying a "no entry" bar.
+       Original artwork for this repository. Render the PNGs with:
+         for s in 16 32 48 128; do rsvg-convert -w $s -h $s icon.svg -o icon-$s.png; done -->
+  <path d="M64 6 L114 23 V58 C114 91 93 113 64 123 C35 113 14 91 14 58 V23 Z" fill="#e2e8f0"/>
+  <path d="M64 14 L106 28.5 V58 C106 86 88.5 105 64 114 C39.5 105 22 86 22 58 V28.5 Z" fill="#475569"/>
+  <rect x="36" y="53" width="56" height="18" rx="5" fill="#ffffff"/>
+</svg>

@@ -97,8 +97,8 @@ let
 
   # Host ports something else in this repo already binds. Cross-checked against
   # every module: sshd, Technitium (:53 and its :5380 console), the networkd
-  # DHCP server, the Technitium block page on :80/:443, Avahi, router-logd and
-  # Cockpit.
+  # DHCP server, the Technitium block page on :80/:443, Avahi, router-logd
+  # (plain HTTP and the HTTPS portal) and Cockpit.
   reservedHostPorts = [
     22
     53
@@ -108,6 +108,7 @@ let
     5353
     5380
     8067
+    8068
     9090
   ];
   publishedPorts = lib.concatMap (

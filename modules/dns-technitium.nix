@@ -123,20 +123,32 @@ let
   # and the contact address as a whole JavaScript string literal, with `<`
   # escaped too so it cannot close the <script> element. The page is served on
   # the origin of every blocked domain, so markup in a setting would run there.
-  blockPageWwwroot =
+  #
+  # The same template is rendered a second time for router-logd's HTTPS portal
+  # (blockPagePortalTemplate): there the form posts back to its own origin, and
+  # router-logd fills the per-response placeholders (CSP nonce, the confirmed
+  # host, the reason line), which the Block Page app's copy leaves empty.
+  blockPageTexts =
     let
       bp = cfg.accessPolicies.blockPage;
       jsString = s: replaceStrings [ "<" ">" "&" ] [ "\\u003c" "\\u003e" "\\u0026" ] (builtins.toJSON s);
     in
+    {
+      template = routerDnsTools.passthru.blockPageTemplate;
+      title = escapeXML bp.title;
+      heading = escapeXML bp.heading;
+      message = escapeXML bp.message;
+      contactEmail = jsString bp.contactEmail;
+    };
+
+  blockPageWwwroot =
     pkgs.runCommand "router-blockpage-wwwroot"
-      {
-        template = routerDnsTools.passthru.blockPageTemplate;
-        title = escapeXML bp.title;
-        heading = escapeXML bp.heading;
-        message = escapeXML bp.message;
-        contactEmail = jsString bp.contactEmail;
-        portalUrl = "http://${lanGW}:${toString cfg.reporting.logd.port}";
-      }
+      (
+        blockPageTexts
+        // {
+          portalUrl = "http://${lanGW}:${toString cfg.reporting.logd.port}";
+        }
+      )
       ''
         mkdir -p $out
         substitute $template $out/index.html \
@@ -144,8 +156,42 @@ let
           --replace-fail "@HEADING@" "$heading" \
           --replace-fail "@MESSAGE@" "$message" \
           --replace-fail "@CONTACT@" "$contactEmail" \
-          --replace-fail "@PORTAL_URL@" "$portalUrl"
+          --replace-fail "@PORTAL_URL@" "$portalUrl" \
+          --replace-fail "@NONCE_ATTR@" "" \
+          --replace-fail "@HEAD_EXTRA@" "" \
+          --replace-fail "@DETAILS@" ""
       '';
+
+  blockPagePortalTemplate = pkgs.runCommand "router-blockpage-portal.html" blockPageTexts ''
+    substitute $template $out \
+      --replace-fail "@TITLE@" "$title" \
+      --replace-fail "@HEADING@" "$heading" \
+      --replace-fail "@MESSAGE@" "$message" \
+      --replace-fail "@CONTACT@" "$contactEmail" \
+      --replace-fail "@PORTAL_URL@" ""
+  '';
+
+  # ── HTTPS portal (router-logd, for the browser extension) ─
+  # modules/cockpit-cert.nix owns the name and certificate (router._portal).
+  # The oracle zone is where router-logd asks the Router Live DNS app whether
+  # a name is blocked for a given client (RouterLiveDnsApp ProcessBlockCheckAsync).
+  # Under .internal, which ICANN reserves for private use, so it can never
+  # shadow a real name.
+  portal = cfg._portal;
+  blockCheckZone = "blockcheck.nixos-router.internal";
+  portalOn = tcfg.enable && portal.enable;
+
+  # The reason line on the portal's block page, keyed by the list URL Advanced
+  # Blocking reports (blockListUrl=…). Custom lists, the policy's own domains
+  # and regexes have no entry, and the page then shows no reason at all.
+  # Categories go by their id, as Cockpit's category picker names them.
+  blockListNames =
+    mapAttrs' (_: f: nameValuePair f.url "List: ${f.name}") catalog.standardFilters
+    // listToAttrs (
+      map (
+        id: nameValuePair (catalog.utCapitole.urlFor id) "Category: ${replaceStrings [ "_" ] [ " " ] id}"
+      ) catalog.utCapitole.categories
+    );
 
   # ── Unified runtime config for the router-dns-tools CLIs ─
   # One Nix-generated JSON drives reconcile, policy-push, logd, directory
@@ -270,6 +316,13 @@ let
             interface = brLAN;
             queryTimeoutMs = 1200;
           };
+          # The oracle behind router-logd's /portal/check. An empty zone
+          # turns it off. Its timeout sits inside router-logd's (dnsTimeoutMs
+          # below), which sits inside the browser extension's.
+          blockCheck = {
+            zone = if portalOn then blockCheckZone else "";
+            timeoutMs = 1000;
+          };
         };
       };
 
@@ -301,6 +354,30 @@ let
         directoryState = "/var/lib/router-directory/directory.json";
         retentionDays = cfg.reporting.retentionDays;
         portalRateLimitPerHour = 10;
+        # The oracle's own lookups reach the Log Exporter like any query;
+        # they are router-logd talking to itself, not client traffic.
+        ignoreQnameSuffixes = [ blockCheckZone ];
+        # The HTTPS portal the browser extension talks to, on the certificate
+        # for router._portal.name (modules/cockpit-cert.nix). Absent while
+        # there is no such name; router-logd then serves plain HTTP only.
+        portal =
+          if portalOn then
+            {
+              inherit (portal) name origin;
+              # What /portal/info reports, for the extension's options page.
+              routerName = cfg.hostName;
+              tlsPort = cfg.reporting.logd.tlsPort;
+              certFile = "${portal.certDir}/fullchain.pem";
+              keyFile = "${portal.certDir}/key.pem";
+              template = blockPagePortalTemplate;
+              inherit blockCheckZone;
+              dnsPort = 53;
+              dnsTimeoutMs = 1500;
+              checkRatePerMinute = 60;
+              listNames = blockListNames;
+            }
+          else
+            null;
       };
 
       directory = {
@@ -442,23 +519,29 @@ let
   # where something else already answers it: an explicit override (the admin's
   # entry wins), the router's own Primary zone (already the gateway), or a
   # forward zone, which hands its whole subtree elsewhere (warned below).
+  #
+  # The HTTPS portal's name (blocked.<fqdn>, router._portal) is answered the
+  # same way, for the same clients, while the portal is on.
   routerName = if cfg.fqdn != null then toLower cfg.fqdn else null;
   routerNameForwarded = routerName != null && any (isUnderZone routerName) forwardZoneNames;
+  routerOwnNames = optional (routerName != null) routerName ++ optional portalOn portal.name;
   routerNameRecords =
-    optional
-      (
-        routerName != null
-        && !(elem routerName overrideNames)
-        && routerName != toLower localZone
-        && !routerNameForwarded
-      )
-      {
-        name = routerName;
+    map
+      (name: {
+        inherit name;
         type = "A";
         value = lanGW;
         ttl = 300;
         ptr = false;
-      };
+      })
+      (
+        filter (
+          name:
+          !(elem name overrideNames)
+          && name != toLower localZone
+          && !(any (isUnderZone name) forwardZoneNames)
+        ) routerOwnNames
+      );
 
   localDnsRecords = overrideRecords ++ hostRecords ++ publicHostRecords ++ routerNameRecords;
 
@@ -537,6 +620,17 @@ let
       type = "Primary";
       forwarders = [ ];
       appRecords = [ (routerLiveDnsAppRecord "local") ];
+    }
+    ++ optional portalOn {
+      # Primary with no public upstream: the name exists only for the Router
+      # Live DNS app's block-check oracle. Query access Deny refuses everyone
+      # but the router itself (loopback is always allowed), before the app is
+      # even asked.
+      zone = blockCheckZone;
+      type = "Primary";
+      forwarders = [ ];
+      appRecords = [ (routerLiveDnsAppRecord blockCheckZone) ];
+      options.queryAccess = "Deny";
     }
     ++ map (r: {
       zone = r;

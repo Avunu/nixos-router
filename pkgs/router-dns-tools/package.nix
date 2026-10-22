@@ -33,14 +33,22 @@ python3Packages.buildPythonApplication {
     "--prefix PATH : ${lib.makeBinPath [ typst ]}"
   ];
 
-  # No upstream tests; the technitium-vm NixOS test exercises everything
-  # end-to-end (reconcile, compile, logd ingest/query, portal, report).
-  doCheck = false;
+  # Unit tests cover the HTTPS portal's block check (tests/test_portal.py:
+  # the DNS wire format and the oracle's answers, against a fake server on
+  # loopback). The technitium-vm NixOS test exercises everything end to end
+  # (reconcile, compile, logd ingest/query, portal, report).
+  nativeCheckInputs = [ python3Packages.unittestCheckHook ];
+  unittestFlags = [
+    "-s"
+    "tests"
+    "-v"
+  ];
 
   pythonImportsCheck = [
     "router_dns_tools.compile_policies"
     "router_dns_tools.technitium_api"
     "router_dns_tools.local_dns"
+    "router_dns_tools.portal"
     "router_dns_tools.directory_sync.sssd"
     "router_dns_tools.ddns"
     "router_dns_tools.cloudflare"

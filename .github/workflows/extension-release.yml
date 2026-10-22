@@ -1,0 +1,80 @@
+# Publishes the browser extension (pkgs/router-browser-extension) to the Chrome
+# Web Store and Firefox Add-ons (AMO) when a tag `extension-v<version>` is
+# pushed, where <version> is package.json's.
+#
+# Only a later version: each store's first listing is created by hand, since
+# the Chrome Web Store assigns the extension's id then and both stores want a
+# listing written by a person. After that, fill in the Chrome id in
+# pkgs/cockpit-router/src/browser-extension.ts (EXTENSION_IDS).
+#
+# Nothing reaches a store from a merge, only from a tag. The `extension-stores`
+# environment holds the secrets, and can require an approval in the repository
+# settings before a run may use them:
+#   CWS_EXTENSION_ID, CWS_PUBLISHER_ID, CWS_CLIENT_ID, CWS_CLIENT_SECRET,
+#   CWS_REFRESH_TOKEN   Chrome Web Store API (OAuth client + refresh token)
+#   AMO_JWT_ISSUER, AMO_JWT_SECRET   addons.mozilla.org API credentials
+name: extension release
+
+on:
+  push:
+    tags: ["extension-v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: extension-release
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: publish to the stores
+    runs-on: ubuntu-latest
+    environment: extension-stores
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        with:
+          determinate: false
+
+      - name: The tag names package.json's version
+        run: |
+          want="extension-v$(jq -r .version pkgs/router-browser-extension/package.json)"
+          if [ "$GITHUB_REF_NAME" != "$want" ]; then
+            echo "tag $GITHUB_REF_NAME does not match package.json ($want)" >&2
+            exit 1
+          fi
+
+      # The same checks CI runs, then the packages the stores get.
+      - name: Check and build
+        run: |
+          nix build --no-link -L '.#checks.x86_64-linux.router-browser-extension'
+          nix build -L -o ext '.#packages.x86_64-linux.router-browser-extension'
+
+      # AMO asks for the source of bundled code, to rebuild and compare it.
+      - name: Source archive for Firefox Add-ons review
+        run: git archive --format=zip -o extension-source.zip HEAD pkgs/router-browser-extension
+
+      - name: Chrome Web Store
+        env:
+          EXTENSION_ID: ${{ secrets.CWS_EXTENSION_ID }}
+          PUBLISHER_ID: ${{ secrets.CWS_PUBLISHER_ID }}
+          CLIENT_ID: ${{ secrets.CWS_CLIENT_ID }}
+          CLIENT_SECRET: ${{ secrets.CWS_CLIENT_SECRET }}
+          REFRESH_TOKEN: ${{ secrets.CWS_REFRESH_TOKEN }}
+        # Pinned: this step holds the store credentials.
+        run: nix shell nixpkgs#nodejs -c npx -y chrome-webstore-upload-cli@4.0.1 --source ext/chrome.zip
+
+      - name: Firefox Add-ons
+        env:
+          AMO_JWT_ISSUER: ${{ secrets.AMO_JWT_ISSUER }}
+          AMO_JWT_SECRET: ${{ secrets.AMO_JWT_SECRET }}
+        run: |
+          nix run nixpkgs#web-ext -- sign \
+            --channel listed \
+            --source-dir ext/firefox \
+            --artifacts-dir web-ext-artifacts \
+            --upload-source-code extension-source.zip \
+            --api-key "$AMO_JWT_ISSUER" \
+            --api-secret "$AMO_JWT_SECRET"

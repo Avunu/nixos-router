@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    // The options page and the background context (a Chrome service worker, a
+    // Firefox event page) share one program; the DOM lib covers fetch,
+    // AbortSignal and the page. `chrome` types the extension APIs; `node` is for
+    // the unit tests only.
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "types": ["chrome", "node"],
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    // Unit tests run the sources directly under `node --test`, whose type
+    // stripping needs explicit `.ts` import extensions, `import type` for
+    // type-only imports, and no TS-only runtime syntax (enums, parameter
+    // properties, namespaces). These three flags make tsc enforce exactly that.
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "erasableSyntaxOnly": true,
+
+    "strict": true,
+    "exactOptionalPropertyTypes": true,
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noUncheckedIndexedAccess": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true
+  },
+  "include": ["src"]
+}

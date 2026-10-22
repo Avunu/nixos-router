@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>nixos-router Block Page</title>
+    <link rel="stylesheet" href="options.css" />
+    <script src="options.js" defer></script>
+  </head>
+  <body>
+    <main>
+      <header class="masthead">
+        <img src="icons/icon-48.png" alt="" width="48" height="48" />
+        <h1>nixos-router Block Page</h1>
+      </header>
+
+      <p class="intro">
+        When your nixos-router blocks a secure site, this extension shows the router's block page
+        instead of a certificate error. It needs the router's own domain name to be set up, which
+        gives the block page a trusted certificate.
+        <a
+          href="https://avunu.github.io/nixos-router/docs/access-policies/browser-extension/"
+          target="_blank"
+          rel="noopener noreferrer"
+          >Learn more</a
+        >
+      </p>
+
+      <section aria-labelledby="routers-title">
+        <h2 id="routers-title">Routers</h2>
+        <p id="no-routers" class="empty" hidden>No routers yet. Add yours below.</p>
+        <ul id="routers" class="routers"></ul>
+      </section>
+
+      <section aria-labelledby="add-title">
+        <h2 id="add-title">Add a router</h2>
+        <form id="add-form" novalidate>
+          <label for="address">Block page address</label>
+          <p id="address-hint" class="hint">
+            The router's <code>blocked.</code> name, followed by the port if it isn't 8068.
+          </p>
+          <div class="add-row">
+            <input
+              id="address"
+              name="address"
+              type="text"
+              inputmode="url"
+              autocomplete="off"
+              autocapitalize="off"
+              spellcheck="false"
+              placeholder="blocked.gw.example.com:8068"
+              aria-describedby="address-hint add-status"
+              required
+            />
+            <button id="add-button" type="submit">Add router</button>
+          </div>
+          <p id="add-status" class="status" role="status" aria-live="polite"></p>
+        </form>
+      </section>
+    </main>
+  </body>
+</html>

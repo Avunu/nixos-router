@@ -30,6 +30,7 @@
         { "path": "access-policies/policies", "label": "Build a policy" },
         { "path": "access-policies/assignments", "label": "Assign policies" },
         { "path": "access-policies/block-page", "label": "Block page and exceptions" },
+        { "path": "access-policies/browser-extension", "label": "Browser extension" },
         { "path": "access-policies/dns-enforcement", "label": "DNS enforcement" },
         { "path": "access-policies/directory", "label": "Directory groups" },
         { "path": "access-policies/reports", "label": "Reports" },

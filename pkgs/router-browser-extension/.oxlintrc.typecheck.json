@@ -1,0 +1,27 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // Type-aware pass — `npm run lint:typecheck`. As in pkgs/cockpit-router, every
+  // category is off and we opt IN to the promise-soundness + no-unsafe-`any`
+  // set: the extension's event handlers are fire-and-forget by nature, so a
+  // floating promise here is a swallowed error or an unhandled rejection.
+  "categories": {
+    "correctness": "off",
+    "nursery": "off",
+    "pedantic": "off",
+    "perf": "off",
+    "restriction": "off",
+    "style": "off",
+    "suspicious": "off"
+  },
+  "ignorePatterns": ["dist", "node_modules", "**/*.map"],
+  "plugins": ["typescript"],
+  "rules": {
+    "typescript/no-floating-promises": "error",
+    "typescript/await-thenable": "error",
+    "typescript/no-misused-promises": "error",
+    "typescript/no-unsafe-assignment": "error",
+    "typescript/no-unsafe-call": "error",
+    "typescript/no-unsafe-member-access": "error",
+    "typescript/no-unsafe-argument": "error"
+  }
+}

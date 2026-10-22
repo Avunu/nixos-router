@@ -247,6 +247,41 @@
                 touch $out
               '';
 
+          # The browser extension's checks: the same npm gate as the Cockpit
+          # plugin (build, format, lint, type-aware lint, tsc, node --test),
+          # then Mozilla's linter over the Firefox build — what AMO runs on
+          # upload. web-ext lint fails on errors; warnings are printed only.
+          #   nix build .#checks.<system>.router-browser-extension
+          router-browser-extension =
+            let
+              pkgs = nixpkgs.legacyPackages.${system};
+            in
+            pkgs.runCommand "router-browser-extension-checks"
+              {
+                nativeBuildInputs = [
+                  pkgs.nodejs
+                  pkgs.web-ext
+                ];
+              }
+              ''
+                cp -r ${./pkgs/router-browser-extension} extension
+                chmod -R u+w extension
+                cd extension
+                # A real directory of symlinks, as in the cockpit-router check,
+                # so oxlint --type-aware resolves types through it.
+                cp -r ${
+                  pkgs.importNpmLock.buildNodeModules {
+                    npmRoot = ./pkgs/router-browser-extension;
+                    inherit (pkgs) nodejs;
+                  }
+                }/node_modules node_modules
+                chmod -R u+w node_modules
+                export HOME=$TMPDIR
+                npm run check
+                web-ext lint --source-dir dist/firefox --self-hosted=false
+                touch $out
+              '';
+
           # Eval-only guard that the DNS apps and the DNS server that loads
           # them stay on the same version. The apps' input is pinned to a tag
           # that never moves while nixpkgs advances, so dependency automation
@@ -539,6 +574,29 @@
               fi
             '';
           };
+
+          # ── Browser extension shell ─────────────────────────────────────────
+          #   cd pkgs/router-browser-extension && nix develop ../..#router-browser-extension
+          #
+          # As the Cockpit plugin shell, minus pkg/lib: node_modules resolved
+          # from package-lock.json and linked in, plus web-ext for `web-ext lint`
+          # and `web-ext run --source-dir dist/firefox`.
+          router-browser-extension = pkgs.mkShell {
+            packages = [
+              pkgs.nodejs
+              pkgs.web-ext
+              pkgs.importNpmLock.hooks.linkNodeModulesHook
+            ];
+            npmDeps = pkgs.importNpmLock.buildNodeModules {
+              npmRoot = ./pkgs/router-browser-extension;
+              inherit (pkgs) nodejs;
+            };
+            postShellHook = ''
+              if [ ! -f package.json ] || [ ! -f build.js ]; then
+                echo "router-browser-extension shell: run this from pkgs/router-browser-extension." >&2
+              fi
+            '';
+          };
         }
       );
 
@@ -555,6 +613,8 @@
         in
         {
           cockpit-router = pkgs.callPackage ./pkgs/cockpit-router/package.nix { };
+          # The Block Page browser extension's store zips (not part of any router).
+          router-browser-extension = pkgs.callPackage ./pkgs/router-browser-extension/package.nix { };
           inherit (routerPkgs)
             technitium-dns-apps
             router-dns-tools

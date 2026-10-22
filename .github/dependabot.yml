@@ -1,17 +1,21 @@
 version: 2
 
 updates:
-  # Nix flake inputs.
+  # Nix flake inputs. One PR per input, deliberately: nixpkgs moves often and
+  # is the bump routers depend on, while `technitium-dns` is a source input
+  # that should move rarely and by hand. Grouping them made one PR carry both,
+  # so a slow-moving input rode along with every nixpkgs bump.
   #
-  # Grouped into one PR deliberately: nixpkgs and the `technitium-dns` source
-  # input have to move together, because the DNS apps are compiled from that
-  # input and loaded by nixpkgs' technitium-dns-server. Separate PRs would each
-  # look fine in isolation and desync the pair on merge.
+  # Dependabot cannot give each input its own schedule, so the frequency comes
+  # from the input itself: `technitium-dns` is pinned to a TAG in flake.nix,
+  # which never moves, so Dependabot has nothing to propose for it. Bumping it
+  # means editing the ref in flake.nix by hand and running
+  # `nix run .#update-deps`.
   #
-  # Note that Dependabot cannot fix that drift by itself — `technitium-dns` is
-  # pinned to a TAG in flake.nix, which never moves, so a nixpkgs bump leaves it
-  # behind. The `technitium-version` check fails the PR when that happens; the
-  # fix is to bump the ref in flake.nix by hand and run `nix run .#update-deps`.
+  # A nixpkgs bump can still leave the technitium-dns ref behind (the DNS apps
+  # are compiled from that source and loaded by nixpkgs' technitium-dns-server).
+  # The `technitium-version` check fails that PR, so it does not auto-merge
+  # until the ref is bumped to match.
   #
   # Daily, because this lock is now what routers run: a router's host flake
   # follows nixos-router/nixpkgs (local/flake.nix), so its nightly upgrade
@@ -28,9 +32,6 @@ updates:
       interval: daily
     commit-message:
       prefix: chore
-    groups:
-      nix:
-        patterns: ["*"]
 
   # The Cockpit plugin's npm dependencies.
   #
@@ -61,6 +62,25 @@ updates:
       prefix: chore
     groups:
       npm:
+        patterns: ["*"]
+
+  # The browser extension's npm dependencies: build and check tools only
+  # (esbuild, oxlint, TypeScript), none of which ship in the extension itself.
+  # Same importNpmLock build as the plugin, and the same `fast` CI job runs its
+  # checks. The cooldown matters as much here: esbuild writes the bundle. A
+  # bump never reaches browsers by merging: publishing to the stores is a
+  # separate, deliberate step.
+  - package-ecosystem: npm
+    directory: /pkgs/router-browser-extension
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 5
+      semver-major-days: 14
+    commit-message:
+      prefix: chore
+    groups:
+      npm-extension:
         patterns: ["*"]
 
   # The reverse proxy's Rust dependencies (Pingora above all).

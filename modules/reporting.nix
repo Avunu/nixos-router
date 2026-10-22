@@ -7,7 +7,10 @@
 #     them with device/group/policy attribution, serves log search + SQL
 #     aggregates to Cockpit and the report generator, handles the block-page
 #     exception-request portal, and prunes by retentionDays. Always on while
-#     Technitium is enabled — dashboards and the portal depend on it.
+#     Technitium is enabled — dashboards and the portal depend on it. With
+#     router.fqdn set and the block page on, it also serves the portal over
+#     HTTPS at blocked.<fqdn> (modules/cockpit-cert.nix) for the browser
+#     extension.
 #
 #   • router-report-<name> timers — one per reporting.schedules entry; each
 #     renders a Typst PDF (+ CSV) into /var/lib/router-reports and optionally
@@ -22,8 +25,20 @@ with lib;
 let
   cfg = config.router;
   rcfg = cfg.reporting;
+  portal = cfg._portal;
 
   technitiumStateDir = "/var/lib/router-technitium";
+
+  # Ports the router already listens on, which the HTTPS portal must not take:
+  # DNS, the block page, Technitium's API, Cockpit and router-logd's own HTTP.
+  reservedPorts = [
+    53
+    80
+    443
+    cfg.dns.technitium.webPort
+    rcfg.logd.port
+  ]
+  ++ optional cfg.cockpit.enable cfg.cockpit.port;
 
   onCalendarFor =
     schedule:
@@ -123,6 +138,18 @@ in
       '';
     };
 
+    logd.tlsPort = mkOption {
+      type = types.port;
+      default = 8068;
+      description = ''
+        router-logd HTTPS port for the block page's portal at
+        https://blocked.<fqdn>:<port>, which the browser extension uses to show
+        the block page for blocked HTTPS sites. Only open while router.fqdn is
+        set and the block page is on. Serves the block page, the check and the
+        exception-request form only, never the data endpoints.
+      '';
+    };
+
     schedules = mkOption {
       type = types.listOf scheduleType;
       default = [ ];
@@ -155,6 +182,12 @@ in
           assertion = length (unique (map (s: s.name) rcfg.schedules)) == length rcfg.schedules;
           message = "router.reporting.schedules: duplicate schedule name(s)";
         }
+        {
+          assertion = !portal.enable || !(elem rcfg.logd.tlsPort reservedPorts);
+          message = "router.reporting.logd.tlsPort: ${toString rcfg.logd.tlsPort} is already taken by the router (${
+            concatMapStringsSep ", " toString reservedPorts
+          } are in use)";
+        }
       ];
 
       users.groups.router-data = { };
@@ -163,13 +196,20 @@ in
       systemd.services.router-logd = {
         description = "Router query-log store and exception portal";
         wantedBy = [ "multi-user.target" ];
-        after = [ "router-dns-secrets.service" ];
+        # acme-router-portal.service leaves a self-signed placeholder until
+        # the first real order lands, so the certificate files exist once it
+        # has run. router-logd keeps serving plain HTTP whatever state they are
+        # in, and a renewal is a reload (reloadServices, SIGHUP).
+        wants = optional portal.enable portal.certUnit;
+        after = [ "router-dns-secrets.service" ] ++ optional portal.enable portal.certUnit;
         requires = [ "router-dns-secrets.service" ];
         restartTriggers = [ cfg._dnsToolsConfig ];
         serviceConfig = {
           ExecStart = "${cfg._dnsToolsPackage}/bin/router-logd --config ${cfg._dnsToolsConfig}";
+          ExecReload = "${pkgs.coreutils}/bin/kill -HUP $MAINPID";
           DynamicUser = true;
-          SupplementaryGroups = [ "router-data" ]; # read directory.json (0640)
+          # directory.json (0640), and the portal's certificate key (0640)
+          SupplementaryGroups = [ "router-data" ] ++ optional portal.enable portal.group;
           StateDirectory = "router-logd";
           LoadCredential = [
             "ingest-token:${technitiumStateDir}/logd-ingest.token"

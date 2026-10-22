@@ -71,7 +71,7 @@ Each key is an address or range, and each value a policy name. A device with a w
 
 ## The block page shows a certificate warning
 
-That's expected for HTTPS sites: the block page can only offer the router's own self-signed certificate, and sites that use HSTS never show the page at all. The router has no setting that avoids it. Plain HTTP requests show the page directly. See [HTTPS sites show a certificate warning](/docs/access-policies/block-page/#https-sites-show-a-certificate-warning).
+That's expected for HTTPS sites: the block page can only offer the router's own self-signed certificate, and sites that use HSTS never show the page at all. Plain HTTP requests show the page directly. The [browser extension](/docs/access-policies/browser-extension/) shows the page for HTTPS sites instead; see its [troubleshooting](/docs/access-policies/browser-extension/#troubleshooting) when it doesn't. See [HTTPS sites show a certificate warning](/docs/access-policies/block-page/#https-sites-show-a-certificate-warning).
 
 If even plain HTTP requests show no page, check that the client's policy uses **Blocking address** rather than **NXDOMAIN**, that **Serve a block page** is on and applied, and that the Block Page app bound ports 80 and 443:
 

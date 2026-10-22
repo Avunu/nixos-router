@@ -1,0 +1,128 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  // Same stance as pkgs/cockpit-router: every category at error except "nursery"
+  // (unstable rules), and each opt-out below carries its justification. Fix the
+  // code, not the config.
+  "categories": {
+    "correctness": "error",
+    "nursery": "off",
+    "pedantic": "error",
+    "perf": "error",
+    "restriction": "error",
+    "style": "error",
+    "suspicious": "error"
+  },
+  "ignorePatterns": ["dist", "node_modules", "**/*.map"],
+  "plugins": ["import", "unicorn", "oxc", "typescript"],
+  "overrides": [
+    {
+      // Ambient declaration files are intentionally module-less.
+      "files": ["**/*.d.ts"],
+      "rules": {
+        "import/unambiguous": "off"
+      }
+    },
+    {
+      // Unit tests run under `node --test`; node:test / node:assert are the point.
+      "files": ["**/*.test.ts"],
+      "rules": {
+        "import/no-nodejs-modules": "off"
+      }
+    },
+    {
+      // build.js is a Node build script; node: imports and console are its job.
+      "files": ["build.js"],
+      "rules": {
+        "import/no-nodejs-modules": "off",
+        "no-console": "off"
+      }
+    }
+  ],
+  "rules": {
+    // ─── Configured ───────────────────────────────────────────────────────────
+    // `== null` is the deliberate null-or-undefined check; everything else strict.
+    "eqeqeq": ["error", "always", { "null": "ignore" }],
+    // Intentional no-op catches are allowed: a closed tab, a missing policy.
+    "eslint/no-empty": ["error", { "allowEmptyCatch": true }],
+    "eslint/no-empty-function": ["error", { "allow": ["arrowFunctions"] }],
+    "eslint/no-plusplus": ["error", { "allowForLoopAfterthoughts": true }],
+    // `void promise;` is the explicit fire-and-forget marker (satisfies no-floating-promises).
+    "eslint/no-void": ["error", { "allowAsStatement": true }],
+    // Function decls hoist; module-level consts referenced from closures init before use.
+    "eslint/no-use-before-define": ["error", { "functions": false, "variables": false }],
+    // The build-time constant esbuild's `define` replaces (build.js, globals.d.ts).
+    "eslint/no-underscore-dangle": ["error", { "allow": ["__FIREFOX__"] }],
+
+    // ─── Off: style rules that fight how the repo's TypeScript reads ─────────
+    // One declaration per binding keeps diffs local (same as cockpit-router).
+    "eslint/one-var": "off",
+
+    // ─── Off: redundant with the TypeScript compiler ──────────────────────────
+    // tsc (strict) owns undefined-identifier checking; `chrome` and
+    // `__FIREFOX__` are ambient.
+    "eslint/no-undef": "off",
+    "typescript/explicit-function-return-type": "off",
+    "typescript/explicit-module-boundary-types": "off",
+    // Interfaces for extensible shapes, type aliases for unions — both are needed.
+    "typescript/consistent-type-definitions": "off",
+    // Catch params are named `e`, matching cockpit-router.
+    "unicorn/catch-error-name": "off",
+    // Can't tell prose from identifiers in comments (`net::ERR_*`, `about:certerror`).
+    "eslint/capitalized-comments": "off",
+
+    // ─── Off: TypeScript idiom ────────────────────────────────────────────────
+    // `!` asserts DOM invariants (elements options.html always has).
+    "typescript/no-non-null-assertion": "off",
+    // null is a first-class value in the router's JSON ("reason": null).
+    "unicorn/no-null": "off",
+
+    // ─── Off: contradicts an enabled rule or the formatter ────────────────────
+    "eslint/no-eq-null": "off",
+    "import/prefer-default-export": "off",
+    "import/no-named-export": "off",
+    "no-duplicate-imports": "off",
+    "unicorn/number-literal-case": "off",
+
+    // ─── Off: deliberate architecture ─────────────────────────────────────────
+    // Relative "./x.ts" imports are the only module layout in this small package.
+    "import/no-relative-parent-imports": "off",
+    "no-await-in-loop": "off",
+    "eslint/require-await": "off",
+    "unicorn/consistent-function-scoping": "off",
+    // The options page targets the browser; window/document are intentional.
+    "unicorn/prefer-global-this": "off",
+    "no-undefined": "off",
+
+    // ─── Off: style preferences that would force churn without correctness value ─
+    "func-style": "off",
+    "id-length": "off",
+    "complexity": "off",
+    "max-depth": "off",
+    "max-lines": "off",
+    "max-lines-per-function": "off",
+    "max-params": "off",
+    "max-statements": "off",
+    "no-magic-numbers": "off",
+    "no-continue": "off",
+    "no-inline-comments": "off",
+    "no-negated-condition": "off",
+    "unicorn/no-negated-condition": "off",
+    "no-nested-ternary": "off",
+    "unicorn/no-nested-ternary": "off",
+    "no-ternary": "off",
+    "init-declarations": "off",
+    "sort-keys": "off",
+    "sort-imports": "off",
+    "import/exports-last": "off",
+    "import/group-exports": "off",
+    "import/max-dependencies": "off",
+    "unicorn/import-style": "off",
+    "eslint/prefer-named-capture-group": "off",
+    "eslint/require-unicode-regexp": "off",
+
+    // ─── Off: ES-downlevel restrictions (modern target) ───────────────────────
+    "oxc/no-async-await": "off",
+    "oxc/no-optional-chaining": "off",
+    "oxc/no-rest-spread-properties": "off"
+  }
+}

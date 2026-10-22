@@ -11,6 +11,8 @@ code:
   - pkgs/cockpit-router/build.js
   - pkgs/cockpit-router/src/schema.ts
   - pkgs/cockpit-router/src/router-settings.schema.json
+  - pkgs/router-browser-extension/package.json
+  - pkgs/router-browser-extension/build.js
   - site/package.json
   - site/scripts/lint-docs.ts
   - docs/nav.json
@@ -31,7 +33,7 @@ This page is for people changing nixos-router itself: the NixOS modules, the Coc
 | `flake.nix` | The router module (`nixosModules.router`), the settings loader (`lib`), packages, dev shells, checks and the installer outputs. |
 | `modules/` | One module per area, such as `network.nix`, `firewall.nix` and `dns-technitium.nix`. `topology.nix` computes the interface model the others share. |
 | `lib/settings.nix` | The settings loader and its migrations. See [Settings migrations](/docs/develop/settings-migrations/). |
-| `pkgs/` | `cockpit-router` (the web UI plugin), `router-dns-tools`, `router-proxy`, `technitium-apps` and `suricata-update-preflight`. |
+| `pkgs/` | `cockpit-router` (the web UI plugin), `router-browser-extension` (the block page's browser extension), `router-dns-tools`, `router-proxy`, `technitium-apps` and `suricata-update-preflight`. |
 | `tests/` | Evaluation checks and NixOS VM tests. |
 | `local/` | The host flake template, `deploy.sh`, and example settings. |
 | `docs/`, `site/` | These docs, and the site that publishes them. |
@@ -70,8 +72,9 @@ Run every check, including the VM tests, with `nix flake check`. The VM tests bo
 | `ddns-cloudflare`, `cloudflare-tunnel` | Sandbox | `router-ddns` and the tunnel manager against a fake Cloudflare API. |
 | `suricata-update-preflight` | Sandbox | The Suricata rule-update self-heal. |
 | `cockpit-router` | Sandbox | The plugin's formatting, lint, type checks and unit tests. |
+| `router-browser-extension` | Sandbox | The browser extension's formatting, lint, type checks and unit tests, and `web-ext lint` on the Firefox package. |
 | `router-schema-fresh` | Sandbox | The committed settings schema matches the options (x86_64 only). |
-| `technitium-vm` | VM | Filtering policies, static leases, the query log, the block page and reports. |
+| `technitium-vm` | VM | Filtering policies, static leases, the query log, the block page and its HTTPS portal, and reports. |
 | `guest-access-vm` | VM | LAN to guest works one way only, with and without Suricata, and a remote site reaches the LAN through a WireGuard tunnel. |
 | `port-forwards-vm` | VM | IPv4 DNAT, IPv6 pinholes, source restrictions and dynamic DNS on the wire. |
 | `reverse-proxy-vm` | VM | Certificate issuance, HTTPS by name, redirects, hairpin from the LAN and guest, the block page kept out of the hairpin, and reloads. |
@@ -95,6 +98,20 @@ Other scripts: `npm run build` writes the bundle to `dist/`, `npm run watch` bui
 `node_modules` is read-only in the shell, so dependency bumps (`npm run upgrade`) need a writable copy. Enter the shell with `dontLinkNodeModules=1 nix develop ../..#cockpit-router`, or run `npm install` outside it.
 
 On a router, the plugin reads a per-router `config.js` that the module generates, with the Technitium and `router-logd` ports, the host name, the flake path and the settings file path.
+
+## The browser extension
+
+The [browser extension](/docs/access-policies/browser-extension/) lives in `pkgs/router-browser-extension`: TypeScript bundled by esbuild into one package for Chrome, Edge and Brave and one for Firefox, with the same tools as the plugin. Its shell and checks work the same way:
+
+```bash
+cd pkgs/router-browser-extension
+nix develop ../..#router-browser-extension
+npm run check
+```
+
+`npm run build` writes `dist/chrome/`, `dist/firefox/` and a zip of each, which is what the stores take. The zips are reproducible, and the bundles unminified, so reviewers read the code that runs. Its README lists how to load it unpacked and what to check by hand in each browser.
+
+The extension's only server is the router's HTTPS portal in `router-logd` (`pkgs/router-dns-tools/router_dns_tools/portal.py`), whose unit tests run with the `router-dns-tools` package build. The `technitium-vm` test covers the portal end to end.
 
 ## The settings schema
 
@@ -147,7 +164,7 @@ Link between pages with site-absolute paths and a trailing slash, such as `/docs
 
 `.github/workflows/checks.yml` runs on every pull request, on every push to `main`, nightly at `02:41` UTC, and on demand. It has three jobs:
 
-- **drift + build (fast):** builds the evaluation checks, the sandbox checks except `suricata-update-preflight`, the plugin's checks and the plugin package. It gives a verdict in minutes.
+- **drift + build (fast):** builds the evaluation checks, the sandbox checks except `suricata-update-preflight`, the plugin's and the browser extension's checks, and both packages. It gives a verdict in minutes.
 - **VM tests (slow):** runs `nix flake check`, which boots the VM tests.
 - **build + publish binary cache:** builds the install system and the router packages, and pushes everything cache.nixos.org doesn't have to nixos-router.cachix.org. It publishes only from `main`, never from a pull request. The `CACHIX_AUTH_TOKEN` secret belongs in Actions secrets only.
 
@@ -156,5 +173,6 @@ The other workflows:
 - **`schema-sync.yml`** regenerates a stale settings schema on pull requests, as described above.
 - **`site.yml`** builds the docs site on every pull request and deploys `main` to GitHub Pages. Its job is called **site build**.
 - **`dependabot-auto-merge.yml`** turns on auto-merge for every Dependabot pull request, Nix lock bumps included.
+- **`extension-release.yml`** publishes the browser extension to the Chrome Web Store and Firefox Add-ons when a tag `extension-v<version>` is pushed. The first listing in each store is made by hand; the workflow's comments list the secrets it needs.
 
 The workflows rely on a ruleset on `main`, set in the repository settings rather than in the code, that requires a pull request and the checks **drift + build (fast)**, **VM tests (slow)** and **site build**. It matters because there is no human review step for dependency bumps: a Dependabot pull request merges as soon as the required checks pass, and routers upgrade from `main` the next night. The tests are the gate.

@@ -64,6 +64,7 @@ When the certificate is issued, open `https://gw.example.com:9090`. Under **Doma
 - **Until then, the self-signed certificate.** Cockpit keeps its own certificate until Let's Encrypt has issued one. If ordering fails, **Certificate** shows **last renewal failed**, and `journalctl -u acme-order-renew-cockpit.service` says why.
 - **The name is public.** Every certificate is listed in public Certificate Transparency logs, so the name can be found there, even though nothing on the internet answers for it.
 - **A name of its own.** The name can't also be a reverse proxy route, a Cloudflare Tunnel hostname or a host's public hostname: on the LAN it resolves to the router, not to them. A name only for this, such as `gw.example.com`, avoids that. Dynamic DNS may still publish it.
+- **The block page's name.** While the block page is on, `blocked.<name>` gets a certificate of its own, for the [browser extension](/docs/access-policies/browser-extension/). It follows the same rules, and restarts nothing: `router-logd` loads it in place.
 - **Names Let's Encrypt won't sign.** A name under `.lan`, `.local`, `.home.arpa` or another private suffix gets the warning "is not a public domain name, so Let's Encrypt can't issue a certificate for it".
 - **Testing.** Turn on **Staging CA** in the **Certificates** card while you try it out: staging has far higher rate limits, but browsers don't trust its certificates.
 

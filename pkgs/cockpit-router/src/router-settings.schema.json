@@ -790,7 +790,7 @@
     },
     "fqdn": {
       "default": null,
-      "description": "The router's own domain name. Cockpit then serves a Let's Encrypt\ncertificate for it at https://<fqdn>:9090, and the router's DNS answers\nit with the LAN address. The certificate is issued through the Cloudflare\nDNS challenge (router.acme and its cloudflare.apiTokenFile), so the name\nmust be in a Cloudflare zone but needs no public record. Like every\ncertificate, it is listed in public Certificate Transparency logs.\n",
+      "description": "The router's own domain name. Cockpit then serves a Let's Encrypt\ncertificate for it at https://<fqdn>:9090, and the router's DNS answers\nit with the LAN address. While the block page is on, blocked.<fqdn> gets\na certificate too, for the block page's HTTPS portal that the browser\nextension uses. The certificates are issued through the Cloudflare DNS\nchallenge (router.acme and its cloudflare.apiTokenFile), so the name\nmust be in a Cloudflare zone but needs no public record. Like every\ncertificate, they are listed in public Certificate Transparency logs.\n",
       "type": [
         "string",
         "null"
@@ -1145,6 +1145,13 @@
             "port": {
               "default": 8067,
               "description": "router-logd HTTP port. Bound on all interfaces: the block page's\nexception-request form posts here from client browsers; data endpoints\nrequire a bearer token.\n",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "tlsPort": {
+              "default": 8068,
+              "description": "router-logd HTTPS port for the block page's portal at\nhttps://blocked.<fqdn>:<port>, which the browser extension uses to show\nthe block page for blocked HTTPS sites. Only open while router.fqdn is\nset and the block page is on. Serves the block page, the check and the\nexception-request form only, never the data endpoints.\n",
               "maximum": 65535,
               "minimum": 0,
               "type": "integer"

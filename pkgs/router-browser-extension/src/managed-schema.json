@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "properties": {
+    "routers": {
+      "title": "Routers",
+      "description": "Block page addresses of the nixos-router portals this browser should use, e.g. blocked.gw.example.com:8068. HTTPS only; the port defaults to 8068. Users see these as set by their administrator and cannot remove them, but must still grant the extension access to each one.",
+      "type": "array",
+      "items": {
+        "description": "One router portal address: blocked.<router domain name>, optionally followed by :<port>.",
+        "type": "string"
+      }
+    }
+  }
+}

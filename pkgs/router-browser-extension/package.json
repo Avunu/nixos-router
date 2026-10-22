@@ -1,0 +1,29 @@
+{
+  "name": "router-browser-extension",
+  "version": "0.1.0",
+  "description": "Browser extension that shows a nixos-router's block page instead of a certificate error for blocked HTTPS sites",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "build": "node build.js",
+    "format": "oxfmt src build.js",
+    "format:check": "oxfmt --check src build.js",
+    "lint": "oxlint src",
+    "lint:fix": "oxlint --fix src",
+    "lint:typecheck": "oxlint --type-aware -c .oxlintrc.typecheck.json src",
+    "typecheck": "tsc",
+    "test": "node --test 'src/**/*.test.ts'",
+    "check": "npm run build && npm run format:check && npm run lint && npm run lint:typecheck && npm run typecheck && npm test",
+    "upgrade": "npx npm-check-updates -u && npm install && npm audit fix"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.3.4",
+    "@types/node": "^26.6.2",
+    "esbuild": "^0.28.2",
+    "oxfmt": "0.70.0",
+    "oxlint": "1.85.0",
+    "oxlint-tsgolint": "7.0.2002",
+    "typescript": "^7.0.2"
+  }
+}

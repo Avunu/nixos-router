@@ -23,6 +23,9 @@ namespace RouterLiveDns
         public int NeighborRefreshIntervalSeconds = 20;
         public string MdnsInterface = "br-lan";
         public int MdnsQueryTimeoutMs = 1200;
+        // Empty while no block-check zone is configured: the oracle then never answers.
+        public string BlockCheckZone = string.Empty;
+        public int BlockCheckTimeoutMs = 1000;
 
         public static Config Parse(JsonElement root)
         {
@@ -57,6 +60,15 @@ namespace RouterLiveDns
 
                 if (mdns.TryGetProperty("queryTimeoutMs", out JsonElement timeout) && (timeout.ValueKind == JsonValueKind.Number))
                     config.MdnsQueryTimeoutMs = timeout.GetInt32();
+            }
+
+            if (root.TryGetProperty("blockCheck", out JsonElement blockCheck) && (blockCheck.ValueKind == JsonValueKind.Object))
+            {
+                if (blockCheck.TryGetProperty("zone", out JsonElement zone))
+                    config.BlockCheckZone = (zone.GetString() ?? string.Empty).TrimEnd('.');
+
+                if (blockCheck.TryGetProperty("timeoutMs", out JsonElement timeout) && (timeout.ValueKind == JsonValueKind.Number))
+                    config.BlockCheckTimeoutMs = timeout.GetInt32();
             }
 
             return config;
