@@ -1091,12 +1091,49 @@ in
       # the trusted interfaces too (modules/firewall.nix).
       services.avahi = {
         enable = true;
-        allowInterfaces = [ brLAN ];
-        publish = {
-          enable = true;
-          addresses = true;
-          workstation = true;
+        openFirewall = false; # 5353/udp is admitted by nftables (firewall.nix)
+        settings = {
+          server = {
+            allow-interfaces = [ brLAN ];
+            # Upstream's sample avahi-daemon.conf rate-limits responses; the
+            # NixOS-generated file does not unless asked.
+            ratelimit-interval-usec = 1000000;
+            ratelimit-burst = 1000;
+            # Must stay off: the resolveMdns resolver shares :5353 with
+            # avahi-daemon via SO_REUSEPORT, which this would revoke.
+            disallow-other-stacks = false;
+          };
+          publish = {
+            disable-publishing = false;
+            publish-addresses = true;
+            publish-workstation = true;
+          };
         };
+        # DNS-SD records so Bonjour browsers find the admin UI (and SSH)
+        # without knowing the port. %h is the host name Avahi publishes.
+        extraServiceFiles =
+          let
+            serviceFile = name: type: port: txt: ''
+              <?xml version="1.0" standalone='no'?>
+              <!DOCTYPE service-group SYSTEM "avahi-service.dtd">
+              <service-group>
+                <name replace-wildcards="yes">${name}</name>
+                <service>
+                  <type>${type}</type>
+                  <port>${toString port}</port>${txt}
+                </service>
+              </service-group>
+            '';
+          in
+          optionalAttrs config.services.cockpit.enable {
+            cockpit =
+              serviceFile "%h Cockpit" "_https._tcp" config.services.cockpit.port
+                "\n    <txt-record>path=/</txt-record>";
+          }
+          # Not the stock ssh.service: it hardcodes port 22.
+          // optionalAttrs config.services.openssh.enable {
+            ssh = serviceFile "%h" "_ssh._tcp" (head config.services.openssh.ports) "";
+          };
       };
 
       # Expose the runtime config path to sibling modules (reporting units).
