@@ -97,20 +97,33 @@ def _reconcile_cockpit_token(client: TechnitiumClient, cfg: dict) -> None:
         client.grant_user_view(section, cockpit["user"])
 
     token_file = Path(cockpit["tokenFile"])
-    # A createToken session is non-expiring; reuse the stored token if it still
-    # authenticates, otherwise mint a fresh one.
-    if token_file.exists():
-        probe = TechnitiumClient(client.base_url, token=token_file.read_text().strip())
-        try:
-            probe._call("/api/user/session/get")
-            return
-        except TechnitiumError:
-            pass
-    token = client.create_api_token(cockpit["user"], password, cockpit["tokenName"])
-    token_file.parent.mkdir(parents=True, exist_ok=True)
-    token_file.write_text(token)
-    token_file.chmod(0o600)
-    print("provisioned cockpit API token", file=sys.stderr)
+    # A createToken session is non-expiring, so the stored token is reused while
+    # it authenticates AS THE COCKPIT USER. Authenticating is not enough: routers
+    # provisioned before this check hold a token minted under the admin session
+    # (see create_api_token), which authenticates fine and is not read-only.
+    stored = token_file.read_text().strip() if token_file.exists() else ""
+    if client.token_owner(stored) != cockpit["user"]:
+        token = client.create_api_token(cockpit["user"], password, cockpit["tokenName"])
+        token_file.parent.mkdir(parents=True, exist_ok=True)
+        token_file.write_text(token)
+        token_file.chmod(0o600)
+        print("provisioned cockpit API token", file=sys.stderr)
+
+    # Revoke any token of this name that belongs to someone else — the admin
+    # tokens older reconciles minted. Only after the replacement is in place, so
+    # the Cockpit plugin never finds the file holding a dead token.
+    for session in client.list_sessions():
+        if (
+            session.get("type") == "ApiToken"
+            and session.get("tokenName") == cockpit["tokenName"]
+            and session.get("username") != cockpit["user"]
+            and not session.get("isCurrentSession")
+        ):
+            client.delete_session(session["partialToken"])
+            print(
+                f"revoked {session.get('username')}-owned token {cockpit['tokenName']!r}",
+                file=sys.stderr,
+            )
 
 
 def main() -> None:

@@ -425,6 +425,32 @@ pkgs.testers.runNixOSTest {
   testScript = ''
     import json
     import re
+    import shlex
+
+    def technitium_api(path, token, **params):
+        """GET a Technitium API path as `token`; the parsed JSON body.
+
+        Most replies nest their data under "response"; the session ones
+        (login, createToken, session/get) are flat.
+        """
+        query = " ".join(
+            f"--data-urlencode {shlex.quote(f'{k}={v}')}" for k, v in params.items()
+        )
+        return json.loads(
+            router.succeed(
+                f"curl -sS --get -H 'Authorization: Bearer {token}' {query} "
+                f"'http://127.0.0.1:5380{path}'"
+            )
+        )
+
+    def admin_token():
+        """A session as the managed admin account, with the password the router keeps."""
+        password = router.succeed("cat /var/lib/router-technitium/admin.pass").strip()
+        out = router.succeed(
+            "curl -sS --get http://127.0.0.1:5380/api/user/login "
+            f"--data-urlencode user=admin --data-urlencode {shlex.quote('pass=' + password)}"
+        )
+        return json.loads(out)["token"]
 
     start_all()
     router.wait_for_unit("multi-user.target")
@@ -474,6 +500,47 @@ pkgs.testers.runNixOSTest {
             "/var/lib/router-technitium/logd-query.token",
         ]:
             assert router.succeed(f"stat -c %a {f}").strip() == "600", f
+
+    with subtest("the cockpit token is the read-only cockpit user's, not an admin's"):
+        # createToken issues the token for the SESSION's user whenever the
+        # request carries one, so a token minted from the admin-logged-in
+        # reconcile client used to be an admin token: it authenticated and
+        # looked fine, and could change settings and delete zones.
+        cockpit_token = router.succeed("cat /var/lib/cockpit-router/technitium-token").strip()
+        session = technitium_api("/api/user/session/get", cockpit_token)
+        assert session["username"] == "cockpit", session
+        # What the Cockpit dashboards call.
+        for path, params in [
+            ("/api/dashboard/stats/get", {"type": "LastHour", "utc": "true"}),
+            (
+                "/api/dashboard/stats/getTop",
+                {"type": "LastHour", "statsType": "TopClients", "limit": 10},
+            ),
+        ]:
+            reply = technitium_api(path, cockpit_token, **params)
+            assert reply["status"] == "ok", (path, reply)
+        # And what it must not be able to do.
+        reply = technitium_api("/api/settings/get", cockpit_token)
+        assert reply["status"] != "ok", reply
+        reply = technitium_api("/api/zones/create", cockpit_token, zone="cockpit-must-not.vmtest", type="Primary")
+        assert reply["status"] != "ok", reply
+        zones = technitium_api("/api/zones/list", admin_token())["response"]["zones"]
+        assert "cockpit-must-not.vmtest" not in [z["name"] for z in zones], zones
+
+    with subtest("an admin-owned token left by an older reconcile is replaced and revoked"):
+        # What routers provisioned before the fix hold: a token for the
+        # reconcile's own admin session, in the file Cockpit reads.
+        admin = admin_token()
+        stale = technitium_api("/api/user/createToken", admin, tokenName="cockpit-router")["token"]
+        assert technitium_api("/api/user/session/get", stale)["username"] == "admin"
+        router.succeed(f"printf %s {stale} > /var/lib/cockpit-router/technitium-token")
+        router.succeed("systemctl restart technitium-reconcile.service")
+        fresh = router.succeed("cat /var/lib/cockpit-router/technitium-token").strip()
+        assert fresh != stale, "the admin-owned token was kept"
+        assert technitium_api("/api/user/session/get", fresh)["username"] == "cockpit"
+        assert technitium_api("/api/user/session/get", stale)["status"] != "ok", (
+            "the admin-owned token still authenticates"
+        )
 
     # ── netns LAN clients ────────────────────────────────────
     def add_client(name, ip):
@@ -787,8 +854,11 @@ pkgs.testers.runNixOSTest {
         assert "NXDOMAIN" not in out, out
 
         # And the zone really is a forwarder carrying the global upstreams,
-        # rather than something that merely behaves like one today.
-        token = router.succeed("cat /var/lib/cockpit-router/technitium-token").strip()
+        # rather than something that merely behaves like one today. Read as the
+        # admin: the read-only Cockpit user is not meant to see zones, and this
+        # used to read them with the cockpit token only because that was an
+        # admin token.
+        token = admin_token()
         zones = json.loads(
             router.succeed(
                 f"curl -sS -H 'Authorization: Bearer {token}' "
