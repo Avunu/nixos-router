@@ -9,7 +9,7 @@
 #
 # This is exactly what dependency automation breaks: the input is pinned to a
 # TAG, which never moves, while nixpkgs advances freely. A bot bumping nixpkgs
-# therefore silently desyncs the pair. `nix run .#update-deps` printed a warning
+# therefore silently desyncs the pair. `nix develop -c update-deps` printed a warning
 # about this, but a warning in an interactive helper cannot gate a pull request.
 {
   pkgs,
@@ -70,7 +70,7 @@ pkgs.runCommand "router-technitium-version" { } (
       echo "  The apps are compiled from the technitium-dns input and loaded by" >&2
       echo "  nixpkgs' technitium-dns-server; a mismatch fails at runtime inside" >&2
       echo "  the DNS server, not at build time. Bump the input ref in flake.nix" >&2
-      echo "  to match, then run 'nix run .#update-deps' to refresh nuget-deps." >&2
+      echo "  to match, then run 'nix develop -c update-deps' to refresh nuget-deps." >&2
       exit 1
     ''
 )

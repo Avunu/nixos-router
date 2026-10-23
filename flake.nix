@@ -55,7 +55,7 @@
   #            pkgs/technitium-apps. Its ref MUST equal the version of nixpkgs'
   #            technitium-dns-server so the app DLLs stay ABI-compatible with the
   #            running server — bump both together, and let
-  #            `nix run .#update-deps` verify the match rather than trusting a
+  #            `nix develop -c update-deps` verify the match rather than trusting a
   #            version number written out here (this comment already went stale
   #            once, across 15.2.0 → 15.4.0).
   inputs = {
@@ -74,7 +74,7 @@
       inputs.disko.follows = "disko";
     };
     technitium-dns = {
-      url = "github:TechnitiumSoftware/DnsServer/v15.6.0";
+      url = "github:TechnitiumSoftware/DnsServer/v15.6.2";
       flake = false;
     };
   };
