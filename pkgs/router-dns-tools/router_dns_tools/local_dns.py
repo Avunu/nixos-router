@@ -11,7 +11,7 @@ with the per-type parameter Technitium expects, and reaping what an admin
 removed.
 
 Reaping needs memory: Technitium cannot tell a record the router wrote from
-one an operator added in its web console, so anything this module created is
+one an operator added through its API, so anything this module created is
 recorded in its own managed-state file (`localDns.managedFile`) and only
 those entries are ever deleted. SafeSearch keeps its separate
 `managedZonesFile` — the two reapers must not be able to eat each other's

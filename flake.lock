@@ -184,7 +184,8 @@
         "git-hooks": "git-hooks",
         "nixos-install-helper": "nixos-install-helper",
         "nixpkgs": "nixpkgs",
-        "technitium-dns": "technitium-dns"
+        "technitium-dns": "technitium-dns",
+        "technitium-library": "technitium-library"
       }
     },
     "technitium-dns": {
@@ -201,6 +202,23 @@
         "owner": "TechnitiumSoftware",
         "ref": "v15.6.2",
         "repo": "DnsServer",
+        "type": "github"
+      }
+    },
+    "technitium-library": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1792228722,
+        "narHash": "sha256-fb5o4AlKFU/oPypD7T3sNoUdY7nHS4skGovDSLNzpI0=",
+        "owner": "TechnitiumSoftware",
+        "repo": "TechnitiumLibrary",
+        "rev": "4a5a530ac6c4114e72216e0b9c74208a7a5e3fa0",
+        "type": "github"
+      },
+      "original": {
+        "owner": "TechnitiumSoftware",
+        "ref": "dns-server-v15.6.2",
+        "repo": "TechnitiumLibrary",
         "type": "github"
       }
     },

@@ -613,10 +613,10 @@ const Resolver = () => {
             />
           </FormGroup>
           <FormGroup
-            label={_("Web console port")}
+            label={_("API port")}
             fieldId="dnsWebPort"
             labelHelp={hint(
-              _("Port of the DNS server's own web console, which the router pages use too."),
+              _("Local port of the DNS server's API, which the router pages and services use."),
             )}
           >
             <PortInput
@@ -624,7 +624,7 @@ const Resolver = () => {
               value={s.valueOf<number>("dns.technitium.webPort", 5380)}
               isDisabled={s.lockedOf("dns.technitium.webPort")}
               onChange={(v) => s.setLeaf("dns.technitium.webPort", v)}
-              ariaLabel={_("Web console port")}
+              ariaLabel={_("API port")}
             />
           </FormGroup>
         </Form>

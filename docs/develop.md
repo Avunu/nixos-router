@@ -31,7 +31,7 @@ This page is for people changing nixos-router itself: the NixOS modules, the Coc
 | `flake.nix` | The router module (`nixosModules.router`), the settings loader (`lib`), packages, dev shells, checks and the installer outputs. |
 | `modules/` | One module per area, such as `network.nix`, `firewall.nix` and `dns-technitium.nix`. `topology.nix` computes the interface model the others share. |
 | `lib/settings.nix` | The settings loader and its migrations. See [Settings migrations](/docs/develop/settings-migrations/). |
-| `pkgs/` | `cockpit-router` (the web UI plugin), `router-dns-tools`, `router-proxy`, `technitium-apps` and `suricata-update-preflight`. |
+| `pkgs/` | `cockpit-router` (the web UI plugin), `router-dns-tools`, `router-proxy`, `suricata-update-preflight`, and the Technitium packages built from source: `technitium-dns-server`, `technitium-library` and `technitium-apps`. |
 | `tests/` | Evaluation checks and NixOS VM tests. |
 | `local/` | The host flake template, `deploy.sh`, and example settings. |
 | `docs/`, `site/` | These docs, and the site that publishes them. |
@@ -44,7 +44,9 @@ nix develop
 
 The shell provides `nixd`, `nixfmt`, `prek` and `update-deps`, and installs a pre-commit hook that formats `.nix` files with nixfmt. With direnv, `.envrc` enters it for you.
 
-`update-deps` refreshes the pins in one go. It runs `nix flake update`, checks that the Technitium DNS apps input still matches the Technitium server version in nixpkgs, and regenerates `pkgs/technitium-apps/nuget-deps.json`. When the versions have drifted, bump the `technitium-dns` input's tag in `flake.nix` by hand and run it again.
+`update-deps` refreshes the pins in one go. It moves the two Technitium source inputs, `technitium-dns` and `technitium-library`, to the latest upstream release together, runs `nix flake update`, checks that the two refs are one release, and regenerates the NuGet locks of the three packages built from them: `pkgs/technitium-library`, `pkgs/technitium-dns-server` and `pkgs/technitium-apps`. Pass `--keep-technitium` to refresh the locks without changing the release.
+
+The DNS server is compiled from those inputs, not taken from nixpkgs, so it moves independently of nixpkgs. See [Technitium DNS Server build](#the-technitium-dns-server-build) for what the build changes.
 
 ## Checks and VM tests
 
@@ -66,9 +68,10 @@ Run every check, including the VM tests, with `nix flake check`. The VM tests bo
 | `dns-overrides` | Evaluation | Split-horizon DNS: which zone each record lands in. |
 | `wireless-eval` | Evaluation | The UniFi and OpenWISP controllers' wiring. |
 | `suricata-eval` | Evaluation | Suricata's config file and log rotation, suppression addresses, and the build-time rule test failing on a broken rule and turning off with `checkRulesAtBuild`. |
-| `technitium-version` | Evaluation | The Technitium apps input matches the DNS server in nixpkgs. |
+| `technitium-version` | Evaluation | The `technitium-dns` and `technitium-library` refs are one release. |
 | `ddns-cloudflare`, `cloudflare-tunnel` | Sandbox | `router-ddns` and the tunnel manager against a fake Cloudflare API. |
 | `suricata-update-preflight` | Sandbox | The Suricata rule-update self-heal. |
+| `technitium-server` | Sandbox | The compiled DNS server and apps are ReadyToRun images, carry the runtime feature switches, and ship no web console. |
 | `cockpit-router` | Sandbox | The plugin's formatting, lint, type checks and unit tests. |
 | `router-schema-fresh` | Sandbox | The committed settings schema matches the options (x86_64 only). |
 | `technitium-vm` | VM | Filtering policies, static leases, the query log, the block page and reports. |
@@ -77,6 +80,38 @@ Run every check, including the VM tests, with `nix flake check`. The VM tests bo
 | `reverse-proxy-vm` | VM | Certificate issuance, HTTPS by name, redirects, hairpin from the LAN and guest, the block page kept out of the hairpin, and reloads. |
 | `suricata-vm` | VM | The IPS inline end to end. |
 | `wireless-podman-vm` | VM | The container network survives an nftables reload. |
+
+## The Technitium DNS Server build
+
+The router compiles the DNS server from source instead of taking nixpkgs' package, so it can run a Technitium release that nixpkgs doesn't carry yet. Three packages are built from two flake inputs:
+
+| Package | Built from |
+| --- | --- |
+| `technitium-dns-server-library` (`pkgs/technitium-library`) | The `technitium-library` input: TechnitiumLibrary at `dns-server-vX.Y.Z`. |
+| `technitium-dns-server` (`pkgs/technitium-dns-server`) | The `technitium-dns` input: DnsServer at `vX.Y.Z`. |
+| `technitium-dns-apps` (`pkgs/technitium-apps`) | The same `technitium-dns` tree, plus the router's own Router Live DNS app. |
+
+The router overlay replaces nixpkgs' `technitium-dns-server` and `technitium-dns-server-library` with these, so nothing from nixpkgs' Technitium package reaches a router. The version is read from the source's own project file. The two refs must name one release: `technitium-version` fails when they don't, and `update-deps` moves them together.
+
+The build options are in `pkgs/technitium-dns-server/build-options.nix` and apply to the server and the apps alike:
+
+| Option | What it does |
+| --- | --- |
+| ReadyToRun | Ships precompiled native code beside the IL. The server restarts whenever its closure changes, and LAN clients have no DNS until it is back. On a test machine limited to four cores it took its first API call about 17% sooner (396 to 328 ms), answered its first query in 1 ms instead of 4, and served the first zone and record API calls 2.5 to 4 times faster. Throughput at saturation is the same within run-to-run noise: the unoptimised build was ahead by 1 to 3% in the median of three runs, while a single build varied by 10% from one run to the next. |
+| No EventSource, no Meters | Nothing here collects runtime telemetry, so the providers are off in `runtimeconfig.json`. |
+| Invariant globalization | libicu is never loaded and string handling no longer depends on the process locale. It saves about 10 MB of resident memory. The cost is that converting non-ASCII names to punycode through the API can differ from the ICU result (an upper-case `BÜCHER.de`, for example). The router only sends ASCII names, and names on the wire are already punycode. |
+
+The web console is left out. `www/` (the console) and `dohwww/` (the DNS-over-HTTPS landing page) are emptied after the build, not removed, because the web service fails to start without the directories. The HTTP API is separate from those files and is what the router and Cockpit use. Without the console, nothing calls the server's update check either. The start-up banner in the journal still says to open the web console in a browser; that text is hard-coded upstream, and patching it would make each release bump fragile.
+
+`technitium-server` guards all of this in the build output: every assembly is a ReadyToRun image, the feature switches are in `runtimeconfig.json`, and no web file is left beside the daemon. It fails if any of them stops being true.
+
+Some options were tried or considered and left alone:
+
+- **Trimming and NativeAOT** can't work: the server loads the apps by reflection at run time.
+- **Self-contained publishing** would freeze the .NET runtime in the closure. It now comes from nixpkgs and is updated with the system.
+- **Server garbage collection** gave no reliable throughput gain in testing (runs ranged from 194k to 257k queries per second) and raised peak memory by about 10 MB. The upstream project file sets `ServerGarbageCollection` in a class library, which never reaches the server's own `runtimeconfig.json`, so the shipped server has always used workstation GC.
+- **Non-concurrent GC** raised peak memory, from about 134 MB to 182 MB, for no speed.
+- **Turning tiered PGO off** starts about 27 ms sooner and loses about 5% of throughput.
 
 ## The Cockpit plugin
 

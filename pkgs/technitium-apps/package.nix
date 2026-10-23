@@ -5,9 +5,11 @@
 # zips. Router Live DNS is NOT part of upstream Technitium: its source lives in
 # ./RouterLiveDnsApp and is copied into the build tree below.
 #
-# Built exactly like nixpkgs' technitium-dns-server: buildDotnetModule with the
-# ASP.NET Core 10 runtime (Block Page uses it) and the TechnitiumLibrary DLLs
-# staged from `technitium-dns-server-library` (the same package the server uses).
+# Built from the same tree, with the same options and against the same library
+# as the server (../technitium-dns-server): buildDotnetModule with the ASP.NET
+# Core 10 runtime (Block Page uses it) and the TechnitiumLibrary DLLs staged from
+# `technitium-dns-server-library`. Being one release by construction is what
+# lets the apps link DnsServerCore.ApplicationCommon without an ABI mismatch.
 #
 # Output layout matches what the DNS server expects under <state>/apps/: one
 # folder per app, named as Technitium names it (folder name == app name), each
@@ -20,15 +22,16 @@
   dotnetCorePackages,
   technitium-dns-server-library,
   technitiumSrc,
+  technitiumVersion,
 }:
+let
+  buildOptions = import ../technitium-dns-server/build-options.nix;
+in
 buildDotnetModule (finalAttrs: {
   pname = "technitium-dns-apps";
-  # Tracks the SERVER these apps are ABI-matched to, rather than repeating the
-  # `technitium-dns` input's tag here — a hand-written copy silently went stale
-  # when the server moved 15.2.0 → 15.4.0. `nix develop -c update-deps` is what
-  # enforces that the input's ref equals this version; given that, the two are
-  # the same number and this one cannot drift.
-  inherit (technitium-dns-server-library) version;
+  # The release of the source tree these are compiled from — the same number
+  # the server carries, since both read it from the one `technitium-dns` input.
+  version = technitiumVersion;
 
   src = technitiumSrc;
 
@@ -36,6 +39,8 @@ buildDotnetModule (finalAttrs: {
   dotnet-runtime = dotnetCorePackages.aspnetcore_10_0;
 
   nugetDeps = ./nuget-deps.json;
+
+  inherit (buildOptions) dotnetFlags;
 
   projectFile = [
     "Apps/AdvancedBlockingApp/AdvancedBlockingApp.csproj"
@@ -66,7 +71,10 @@ buildDotnetModule (finalAttrs: {
 
   # Publish each app into its own store folder named as Technitium expects.
   # Packages are already restored (buildDotnetModule's configure step), so
-  # publish with --no-restore.
+  # publish with --no-restore. This phase replaces the hook's, which would
+  # publish every project into one folder, so the options and the runtime id
+  # the hook would have supplied are passed here: ReadyToRun compiles only for
+  # a known runtime, and publish must see the same properties restore did.
   installPhase = ''
     runHook preInstall
 
@@ -74,7 +82,9 @@ buildDotnetModule (finalAttrs: {
       local proj="$1" name="$2"
       dotnet publish "$proj" \
         --configuration Release --no-restore --no-self-contained \
+        --runtime "$dotnetRuntimeIds" \
         -p:UseAppHost=false \
+        ${lib.escapeShellArgs buildOptions.dotnetFlags} \
         --output "$out/$name"
     }
 

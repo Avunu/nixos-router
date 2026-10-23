@@ -777,7 +777,7 @@
             },
             "webPort": {
               "default": 5380,
-              "description": "Web console / HTTP API port (bound to localhost).",
+              "description": "HTTP API port (bound to localhost). The router pages and services configure the DNS server through it; there is no web console.",
               "maximum": 65535,
               "minimum": 0,
               "type": "integer"

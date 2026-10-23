@@ -1,8 +1,9 @@
 # CI for pull requests — in particular Dependabot's.
 #
 # Split into two jobs on purpose. `fast` covers what a dependency bump breaks
-# silently — above all the Technitium apps drifting away from the DNS server
-# that loads them, which fails at runtime rather than at build — and compiles
+# silently — above all the two Technitium source inputs (server and library)
+# drifting apart, which fails at runtime rather than at build, and the compiled
+# server losing its ReadyToRun images or its web-console strip — and compiles
 # the Cockpit plugin so npm bumps get a real tsc/oxlint/rollup verdict rather
 # than only an eval. `vm` boots real routers and is minutes; it catches the
 # rest, but is too slow to be the only signal on a bot PR.
@@ -17,8 +18,8 @@
 # that from inside the repo.
 #
 # A third job, `cache`, fills the project's binary cache (nixos-router.cachix.org)
-# with what cache.nixos.org cannot serve: the Technitium DNS apps (a .NET build
-# from source), router-dns-tools, suricata-update-preflight, router-proxy (a
+# with what cache.nixos.org cannot serve: the Technitium DNS server and apps
+# (.NET builds from source), router-dns-tools, suricata-update-preflight, router-proxy (a
 # Rust build of Pingora), the Cockpit plugin
 # bundle, and the NixOS system derivations. A router's host flake follows this
 # repository's nixpkgs (local/flake.nix), so once a lock bump is published here
@@ -105,10 +106,11 @@ jobs:
       # Listed individually rather than via `nix flake check` so a dependency
       # bump gets the drift verdict in under a minute, without waiting on the
       # VM tests in the other job.
-      - name: Technitium version drift, DNS coverage, port forwards, ingress, Suricata config, WireGuard, settings loader, DDNS, tunnel, schema
+      - name: Technitium version pair and build output, DNS coverage, port forwards, ingress, Suricata config, WireGuard, settings loader, DDNS, tunnel, schema
         run: |
           nix build --no-link -L \
             '.#checks.x86_64-linux.technitium-version' \
+            '.#checks.x86_64-linux.technitium-server' \
             '.#checks.x86_64-linux.dns-fallback' \
             '.#checks.x86_64-linux.dns-overrides' \
             '.#checks.x86_64-linux.wireless-eval' \
@@ -181,7 +183,7 @@ jobs:
           determinate: false
           # flake.nix declares the project cache in `nixConfig`; accepting it
           # lets a run PULL what an earlier revision already published (the
-          # Technitium apps, mostly) instead of rebuilding it.
+          # Technitium server and apps, mostly) instead of rebuilding it.
           extra-conf: |
             accept-flake-config = true
             # This job exists to notice when something stops being cached;
@@ -227,7 +229,7 @@ jobs:
         run: |
           df -h / | tail -1
           nix build -L -o result .#nixosConfigurations.install.config.system.build.toplevel
-          for p in technitium-dns-apps router-dns-tools suricata-update-preflight router-proxy cockpit-router; do
+          for p in technitium-dns-server technitium-dns-apps router-dns-tools suricata-update-preflight router-proxy cockpit-router; do
             nix build -L -o "result-$p" ".#packages.x86_64-linux.$p"
           done
           df -h / | tail -1
