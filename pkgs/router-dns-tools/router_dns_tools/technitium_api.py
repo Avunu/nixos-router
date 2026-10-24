@@ -24,12 +24,18 @@ class TechnitiumClient:
         self.timeout = timeout
 
     # ── transport ────────────────────────────────────────────
-    def _call(self, path: str, params: dict | None = None, post: bool = False) -> dict:
+    def _call(
+        self,
+        path: str,
+        params: dict | None = None,
+        post: bool = False,
+        authenticated: bool = True,
+    ) -> dict:
         params = {k: v for k, v in (params or {}).items() if v is not None}
         query = urllib.parse.urlencode(params)
         url = f"{self.base_url}{path}"
         headers = {}
-        if self.token:
+        if self.token and authenticated:
             headers["Authorization"] = f"Bearer {self.token}"
         if post:
             req = urllib.request.Request(
@@ -80,11 +86,31 @@ class TechnitiumClient:
         )
 
     def create_api_token(self, user: str, password: str, token_name: str) -> str:
+        """Mint a non-expiring API token that authenticates as `user`.
+
+        Sent WITHOUT this client's session on purpose. When the request carries a
+        valid session, Technitium ignores `user` and `pass` and issues the token
+        for the SESSION's user (WebServiceAuthApi.CreateToken), so a client logged
+        in as admin would get an admin token whatever `user` says. POST keeps the
+        password out of the URL.
+        """
         resp = self._call(
             "/api/user/createToken",
             {"user": user, "pass": password, "tokenName": token_name},
+            post=True,
+            authenticated=False,
         )
         return resp["token"]
+
+    def token_owner(self, token: str) -> str | None:
+        """The user an API token authenticates as, or None if it does not work."""
+        try:
+            resp = TechnitiumClient(self.base_url, token=token, timeout=self.timeout)._call(
+                "/api/user/session/get"
+            )
+        except TechnitiumError:
+            return None
+        return resp.get("username")
 
     # ── settings / zones / apps ──────────────────────────────
     def get_settings(self) -> dict:
