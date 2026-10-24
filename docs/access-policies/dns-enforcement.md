@@ -101,7 +101,7 @@ These settings are on **DNS → Resolver**. Change them there and choose **Save 
 | SafeSearch | **Enforce SafeSearch** | `dns.technitium.safeSearch` | off |
 | DoH blocking | **Block public DoH resolvers** | `dns.technitium.blockDoHProviders` | on |
 | Local names for reserved devices | **Publish static hosts** | `dns.registerStaticHosts` | on |
-| Technitium console port | **Web console port** | `dns.technitium.webPort` | 5380 |
+| Technitium API port | **API port** | `dns.technitium.webPort` | 5380 |
 
 The router forwards queries it can't answer to the upstream servers over DNS-over-HTTPS, queries them concurrently and validates DNSSEC. It answers recursive queries only from the LAN, guest and WireGuard networks, and the firewall drops port 53 from the WAN.
 
@@ -182,7 +182,7 @@ The router groups records into zones like this:
 2. A record goes into the longest declared zone its name ends with.
 3. A record under no declared zone gets a zone named exactly after itself, so neighboring names are unaffected.
 
-The router's own zone stays an ordinary zone and isn't touched. The router records every zone and record it creates in `/var/lib/router-technitium/managed-local-dns.json`, and deletes only those when you remove them from the settings. A zone you created by hand in Technitium's console is left alone.
+The router's own zone stays an ordinary zone and isn't touched. The router records every zone and record it creates in `/var/lib/router-technitium/managed-local-dns.json`, and deletes only those when you remove them from the settings. A zone you created by hand through Technitium's API is left alone.
 
 ### In the settings file
 

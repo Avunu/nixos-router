@@ -129,16 +129,16 @@ sudo systemctl restart technitium-reconcile
 
 | Symptom | Cause and fix |
 | --- | --- |
-| An override doesn't answer | Check that the zone exists and is a forwarder zone in Technitium's console. An override inside a forward zone never applies, and the build rejects that combination. |
+| An override doesn't answer | Check that the zone exists and is a forwarder zone; [Inspect Technitium](#inspect-technitium) shows how to list zones. An override inside a forward zone never applies, and the build rejects that combination. |
 | A device has no name under the LAN domain | Only devices with a static IP get a published record, and only while **Publish static hosts** is on. A registered device without one is looked up live, so it resolves only while the router sees it on the network. Check the last apply for a warning that two device names reduce to the same label; both are skipped. |
-| Every name in a domain returns "not found" | A zone for that domain exists as an ordinary (primary) zone, probably made by hand in Technitium's console. The router leaves zones it didn't create alone. Delete the zone in the console, then run `sudo systemctl restart technitium-reconcile`. |
+| Every name in a domain returns "not found" | A zone for that domain exists as an ordinary (primary) zone that the router didn't create, for example one made through the API by hand, or one left from before the router's Technitium build dropped its web console. The router leaves zones it didn't create alone. Delete it with the API call under [Inspect Technitium](#inspect-technitium), then run `sudo systemctl restart technitium-reconcile`. |
 | Only the router's own name resolves under the LAN domain | The LAN domain is a special-use name such as `local` or `test`, which Technitium answers itself before any policy or zone applies. The build warns about it. Use an ordinary domain such as `lan`. |
 
 See [Split-horizon DNS](/docs/access-policies/dns-enforcement/#split-horizon-dns) for how the zones are built.
 
 ## Reset the Technitium admin password
 
-The router manages Technitium's admin password in `/var/lib/router-technitium/admin.pass`. To recreate Technitium's accounts from that file, for example after someone changed the password in the console:
+The router manages Technitium's admin password in `/var/lib/router-technitium/admin.pass`. To recreate Technitium's accounts from that file, for example after someone changed the password through the API:
 
 ```bash
 sudo systemctl stop technitium-dns-server
@@ -159,15 +159,22 @@ sudo systemctl restart technitium-reconcile
 
 The reconcile recreates the Cockpit dashboard account and its token.
 
-## Open the Technitium console
+## Inspect Technitium
 
-You rarely need Technitium's own web console, but it helps to inspect zones and app settings. It listens only on the router's loopback address, on port 5380 by default. Forward it over SSH from your workstation, using your SSH user on the router:
+The router's Technitium build has no web console. Everything that manages the DNS server, the router's own services and Cockpit alike, uses its HTTP API, which listens only on the router's loopback address, port 5380 by default. Run this on the router. It signs in as `admin` with the password the router manages, lists the zones and prints the server settings:
 
 ```bash
-ssh -L 5380:127.0.0.1:5380 admin@192.168.1.1
+sudo sh -c '
+  api=http://127.0.0.1:5380/api
+  token=$(curl -s --get $api/user/login \
+    --data-urlencode user=admin \
+    --data-urlencode "pass=$(cat /var/lib/router-technitium/admin.pass)" | jq -r .token)
+  curl -s --get $api/zones/list --data-urlencode "token=$token" | jq -r ".response.zones[].name"
+  curl -s --get $api/settings/get --data-urlencode "token=$token" | jq .response
+'
 ```
 
-Then browse to `http://localhost:5380` and log in as `admin` with the password from `sudo cat /var/lib/router-technitium/admin.pass`. The router reapplies its settings, app configurations and managed zones on every reconcile, so make lasting changes in Cockpit or the settings file, not in the console.
+To delete a zone, swap in a request to `$api/zones/delete` with `--data-urlencode zone=example.com`. The apps' configurations are plain files, readable without the API: see `/var/lib/technitium-dns-server/apps/*/dnsApp.config`. The router reapplies its settings, app configurations and managed zones on every reconcile, so make lasting changes in Cockpit or the settings file, not through the API.
 
 ## Useful commands
 

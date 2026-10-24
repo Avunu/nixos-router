@@ -17,6 +17,10 @@
 #      compiled Advanced Blocking policy config), and the read-only Cockpit
 #      API token via the HTTP API.
 #
+# The daemon itself is compiled from source too (pkgs/technitium-dns-server)
+# and ships without Technitium's web console: all of the above drives the HTTP
+# API, which is separate from the console's static files.
+#
 # Split-horizon DNS (router.dns.overrides / forwardZones /
 # registerStaticHosts) rides on phase 3: the desired zones and records are
 # grouped in Nix and reconciled through the same API client, with their own
@@ -46,11 +50,12 @@ let
 
   catalog = import ./filter-catalog.nix;
 
-  # Apply the router overlay locally (it closes over the technitium-dns flake
-  # input) rather than via nixpkgs.overlays, which conflicts when a consumer
-  # supplies nixpkgs.pkgs. router-dns-tools re-exposes the from-source
-  # Technitium apps via passthru.
-  routerDnsTools = (pkgs.extend routerOverlay).router-dns-tools;
+  # Apply the router overlay locally (it closes over the technitium-dns and
+  # technitium-library flake inputs) rather than via nixpkgs.overlays, which
+  # conflicts when a consumer supplies nixpkgs.pkgs. router-dns-tools
+  # re-exposes the from-source Technitium apps via passthru.
+  routerPkgs = pkgs.extend routerOverlay;
+  routerDnsTools = routerPkgs.router-dns-tools;
 
   stateDir = "/var/lib/router-technitium";
   technitiumStateDir = "/var/lib/technitium-dns-server";
@@ -822,9 +827,15 @@ in
       };
       package = mkOption {
         type = types.package;
-        default = pkgs.technitium-dns-server;
-        defaultText = literalExpression "pkgs.technitium-dns-server";
-        description = "Technitium DNS Server package.";
+        default = routerPkgs.technitium-dns-server;
+        defaultText = literalExpression "pkgs.technitium-dns-server (the router overlay's, built from the flake inputs)";
+        description = ''
+          Technitium DNS Server package. The default is compiled from the
+          `technitium-dns` flake input, not taken from nixpkgs, and ships
+          without Technitium's web console. A replacement must still be the
+          same release as the apps in pkgs/technitium-apps, which are loaded
+          into it.
+        '';
       };
       # Retired: the listeners are fixed at :53 (listenEndpoints). Kept, hidden
       # and inert, only because routers installed before lib.settingsModule
@@ -846,7 +857,7 @@ in
       webPort = mkOption {
         type = types.port;
         default = 5380;
-        description = "Web console / HTTP API port (bound to localhost).";
+        description = "HTTP API port (bound to localhost). The router pages and services configure the DNS server through it; there is no web console.";
       };
       safeSearch = mkOption {
         type = types.bool;

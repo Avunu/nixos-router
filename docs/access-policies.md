@@ -63,11 +63,11 @@ Policies are a filter, not access control. The router identifies a device by its
 
 Technitium keeps its main configuration in a binary file, so the router can't generate it directly. Setup happens in three phases:
 
-1. **First boot:** environment variables seed the configuration with the admin password from `/var/lib/router-technitium/admin.pass`, the upstream forwarders and the web console port. Technitium reads them only while it has no configuration yet.
+1. **First boot:** environment variables seed the configuration with the admin password from `/var/lib/router-technitium/admin.pass`, the upstream forwarders and the API port. Technitium reads them only while it has no configuration yet.
 2. **App seeding:** before the DNS server starts, the router copies the DNS apps into `/var/lib/technitium-dns-server/apps/`. The apps are Advanced Blocking, Log Exporter, Block Page and the router's own Router Live DNS app, all built from source with the router. Filtering is therefore active from the first second. The Block Page app also gets the branded page generated from your settings.
 3. **Reconcile:** `technitium-reconcile.service` sets the server settings and the router's own zone. It also creates the [split-horizon](/docs/access-policies/dns-enforcement/#split-horizon-dns) and SafeSearch zones, sets each app's configuration (including the compiled policies), and creates the read-only API token the Cockpit dashboards use. It is idempotent and retries on failure.
 
-Technitium's own web console listens on `127.0.0.1` only, port 5380 by default. You don't need it for day-to-day work. [Troubleshooting](/docs/access-policies/troubleshooting/#open-the-technitium-console) explains how to reach it.
+The router builds Technitium from source without its web console, so there is nothing to open in a browser. The API that the router and Cockpit manage it through listens on `127.0.0.1` only, port 5380 by default. [Troubleshooting](/docs/access-policies/troubleshooting/#inspect-technitium) shows how to query it.
 
 Setting `dns.technitium.enable` to `false` turns off filtering, not DNS. See [When Technitium is off](/docs/access-policies/dns-enforcement/#when-technitium-is-off).
 
