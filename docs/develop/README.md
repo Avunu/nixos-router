@@ -189,7 +189,7 @@ The site's [guide to writing documentation](https://docs.avunu.net/site-docs/doc
 - **A colon directly followed by a letter or digit starts a directive,** which deletes the text after it, with no warning and a passing build. So a host and port such as `vpn.example.com:51820`, a time such as `03:00`, or an IPv6 address always goes in inline code or a code block. A colon followed by a space is fine.
 - **Reference-style links and footnotes do not render.** Write inline links.
 
-The `docs-lint` check enforces the front matter, the colon rule and the alt text, because the site cannot: it does not know this repository's paths, and it builds a page with a deleted word or an empty `alt` without complaint. It runs in CI's fast job, with the other sandbox checks. Everything else about a page is checked by the site.
+The `docs-lint` check enforces the front matter, the colon rule and the alt text, because the site cannot: it does not know this repository's paths, and it builds a page with a deleted word or an empty `alt` without complaint. It runs in CI's fast job, with the other sandbox checks. Everything else about a page is checked by the site, and `docs.yml` runs that same check on every pull request.
 
 ## Branches and releases
 
@@ -206,7 +206,7 @@ The release pull request is refreshed on every push to `develop`, and once a day
 Four things live in the repository settings rather than in the code. Each is set once:
 
 - **Auto-merge** is allowed under Settings → General → Pull Requests. Merging is squash-only, with the pull request title as the commit subject.
-- **A ruleset on `develop`** requires a pull request and the checks **drift + build (fast)**, **VM tests (slow)** and **pr title**.
+- **A ruleset on `develop`** requires a pull request and the checks **drift + build (fast)**, **VM tests (slow)**, **docs / Check** and **pr title**.
 - **A ruleset on `main`** blocks deletion, force pushes and direct pushes. The owner of the release token is on its bypass list. Create it before `develop` becomes the default branch.
 - **The `RELEASE_TOKEN` secret** is a fine-grained personal access token for this repository, with write access to contents, pull requests, issues and workflows. The default `GITHUB_TOKEN` cannot do this job: the pull requests it opens get no checks, it cannot bypass a ruleset, and its pushes start no workflows.
 
@@ -222,6 +222,7 @@ The other workflows:
 
 - **`schema-sync.yml`** regenerates a stale settings schema on pull requests, as described above.
 - **`dependabot-auto-merge.yml`** turns on auto-merge for every Dependabot pull request, Nix lock bumps included.
+- **`docs.yml`** checks the pull request's `docs/` the way the shared site will build it, by calling site-docs's `check-docs.yml` pinned to a commit. It has no `paths:` filter, so the required check reports on every pull request. To move to a newer check, change the pinned commit.
 - **`release.yml`** and **`pr-title.yml`** are described under Branches and releases above.
 
-The workflows rely on a ruleset on `develop`, set in the repository settings rather than in the code, that requires a pull request and the checks **drift + build (fast)**, **VM tests (slow)** and **pr title**. It matters because there is no human review step for dependency bumps: a Dependabot pull request merges as soon as the required checks pass, and routers upgrade from `main` once a release carries the change there. The tests are the gate.
+The workflows rely on a ruleset on `develop`, set in the repository settings rather than in the code, that requires a pull request and the checks **drift + build (fast)**, **VM tests (slow)**, **docs / Check** and **pr title**. It matters because there is no human review step for dependency bumps: a Dependabot pull request merges as soon as the required checks pass, and routers upgrade from `main` once a release carries the change there. The tests are the gate.
