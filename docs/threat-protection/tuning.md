@@ -1,6 +1,7 @@
 ---
 title: Tune the rules
 description: Triage Suricata events, then disable, suppress or drop signatures, set actions per rule category, and add your own local rules.
+order: 2
 code:
   - modules/threat-protection.nix
   - pkgs/cockpit-router/src/suricata.tsx
@@ -13,7 +14,7 @@ code:
 
 # Tune the rules
 
-The downloaded rule sets are written for every network, so some rules will fire on traffic that's normal on yours. Tuning means working through the events Suricata reports in IDS mode, silencing the false positives, and choosing what to drop before you [switch to IPS mode](/docs/threat-protection/setup/#switch-to-ips-mode). Most of the work starts from a single event.
+The downloaded rule sets are written for every network, so some rules will fire on traffic that's normal on yours. Tuning means working through the events Suricata reports in IDS mode, silencing the false positives, and choosing what to drop before you [switch to IPS mode](setup.md#switch-to-ips-mode). Most of the work starts from a single event.
 
 ## The triage workflow
 
@@ -130,9 +131,9 @@ Keep these rules in mind:
 
 - **Pick unused SIDs.** SIDs 1000000 to 1999999 are the conventional range for local rules. The built-in rules use 1000001 to 1000011, so start yours at 1000100 or above.
 - **Start each rule at the beginning of its line.** Suricata skips a line that starts with a space or tab, as it does a `#` comment. To split a long rule, end the line with `\` and carry on below.
-- **A broken rule fails the apply.** As you type, the box flags common mistakes: lines that aren't rules, rules without a SID, SIDs used twice and the built-in SIDs. When you apply, Suricata tests the local rules before anything changes. A rule that doesn't parse, or a SID that's already loaded, ends the apply with `router.suricata: Suricata rejected the configuration.`; the lines above it in the log name the rule. Suricata keeps running on the rules it had until you fix it. The test doesn't load the downloaded rules, so a clash with one of their SIDs still shows up only when Suricata starts; see [Events and logs](/docs/threat-protection/monitoring/#suricata-wont-start-or-is-slow-to-start).
-- **A rule that reads a file needs that test turned off.** The test loads the local rules from the Nix store, not from `/etc/suricata/rules`, and it can't see `/var/lib`. So a rule that loads its own list, such as a `filemd5` or `filesha256` file or a `dataset` with `load`, fails it even when the file is on the router: the log shows `opening hash file` or `failed to set up dataset`. The web UI has no switch for this. Set `router.suricata.checkRulesAtBuild = false;` in Nix, where you ship the file too, for example with `environment.etc."suricata/rules/md5-blocklist.txt"`; see [Nix overrides the file](/docs/start/settings-file/#nix-overrides-the-file). With the test off, a broken rule no longer fails the apply. Suricata keeps running when it reloads the rules, but the broken rule stops it the next time it starts, such as after a reboot or a system update; the **Extra local rules** help text says so. Suppression hosts are still checked.
-- **`$HOME_NET` holds no IPv6 LAN or guest prefix.** A rule keyed on it won't match your hosts' IPv6 traffic; see [What counts as your network](/docs/threat-protection/#what-counts-as-your-network).
+- **A broken rule fails the apply.** As you type, the box flags common mistakes: lines that aren't rules, rules without a SID, SIDs used twice and the built-in SIDs. When you apply, Suricata tests the local rules before anything changes. A rule that doesn't parse, or a SID that's already loaded, ends the apply with `router.suricata: Suricata rejected the configuration.`; the lines above it in the log name the rule. Suricata keeps running on the rules it had until you fix it. The test doesn't load the downloaded rules, so a clash with one of their SIDs still shows up only when Suricata starts; see [Events and logs](monitoring.md#suricata-wont-start-or-is-slow-to-start).
+- **A rule that reads a file needs that test turned off.** The test loads the local rules from the Nix store, not from `/etc/suricata/rules`, and it can't see `/var/lib`. So a rule that loads its own list, such as a `filemd5` or `filesha256` file or a `dataset` with `load`, fails it even when the file is on the router: the log shows `opening hash file` or `failed to set up dataset`. The web UI has no switch for this. Set `router.suricata.checkRulesAtBuild = false;` in Nix, where you ship the file too, for example with `environment.etc."suricata/rules/md5-blocklist.txt"`; see [Nix overrides the file](../start/settings-file.md#nix-overrides-the-file). With the test off, a broken rule no longer fails the apply. Suricata keeps running when it reloads the rules, but the broken rule stops it the next time it starts, such as after a reboot or a system update; the **Extra local rules** help text says so. Suppression hosts are still checked.
+- **`$HOME_NET` holds no IPv6 LAN or guest prefix.** A rule keyed on it won't match your hosts' IPv6 traffic; see [What counts as your network](README.md#what-counts-as-your-network).
 - **`$HTTP_PORTS` is port 80 only.**
 
 The router writes the built-in rules, then yours, to `/etc/suricata/rules/local.rules`.
@@ -151,7 +152,7 @@ What to expect from them:
 
 - The firewall drops port 853 from the LAN and guest networks before Suricata sees it, so 1000001 fires only for WireGuard clients.
 - The SafeSearch rules see plain HTTP only. Searches over HTTPS are encrypted, so these rarely fire.
-- Blocking DoH providers is done in DNS; see [DNS enforcement](/docs/access-policies/dns-enforcement/). These rules only report attempts.
+- Blocking DoH providers is done in DNS; see [DNS enforcement](../access-policies/dns-enforcement.md). These rules only report attempts.
 - Policies can't disable them. If one is noisy, suppress it for the host or subnet.
 
 ## In the settings file
@@ -207,4 +208,4 @@ group:emerging-malware.rules
 suppress gen_id 1, sig_id 2100498, track by_src, ip 192.168.1.5
 ```
 
-Signatures with the action `alert` appear in none of them. `suricata-update` applies the disable and drop lists when it builds `/var/lib/suricata/rules/suricata.rules`. It runs on every apply and daily; see [Rule updates](/docs/threat-protection/setup/#rule-updates).
+Signatures with the action `alert` appear in none of them. `suricata-update` applies the disable and drop lists when it builds `/var/lib/suricata/rules/suricata.rules`. It runs on every apply and daily; see [Rule updates](setup.md#rule-updates).

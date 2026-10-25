@@ -1,6 +1,7 @@
 ---
 title: Install a router
 description: Install nixos-router over SSH with local/deploy.sh or from an installer USB stick, set up the host flake, and finish the first-boot checklist.
+order: 1
 code:
   - local/deploy.sh
   - local/flake.nix
@@ -69,7 +70,7 @@ At a minimum, set these keys:
 - **`stateVersion`** is the NixOS release you install with. Set it once and never change it.
 - **`adminUser.initialPassword`** is what Cockpit and `sudo` take until you change it. Without one, the admin account has no password: SSH keys still sign you in, but you can neither sign in to Cockpit nor use `sudo`.
 
-Everything else, such as the guest network, VLANs and filtering, can wait until the router runs. [The settings file](/docs/start/settings-file/) describes every top-level key, and [Networks and VLANs](/docs/network/) covers the network keys.
+Everything else, such as the guest network, VLANs and filtering, can wait until the router runs. [The settings file](settings-file.md) describes every top-level key, and [Networks and VLANs](../network/README.md) covers the network keys.
 
 ## Network install
 
@@ -97,9 +98,8 @@ The script then:
 
 When it finishes, the script prints the SSH command for the admin account and the Cockpit address.
 
-:::doc-tip
-The router starts on exactly the inputs in `local/flake.lock`. To start on the newest nixos-router instead, run `nix flake update --flake ./local` before you deploy. The router updates itself every night anyway.
-:::
+> [!TIP]
+> The router starts on exactly the inputs in `local/flake.lock`. To start on the newest nixos-router instead, run `nix flake update --flake ./local` before you deploy. The router updates itself every night anyway.
 
 ## Installer USB stick
 
@@ -117,9 +117,8 @@ The wizard first collects settings, then asks how to deploy:
 
 The guided ISO, a generic image that asks for its settings on the box, is turned off: a router cannot be installed without knowing its WAN and LAN ports.
 
-:::doc-warning
-Use `local/deploy.sh` for network installs, not the wizard's **Network install** or the `deploy` app. Those install the system but leave `/etc/nixos` empty, so the router has no host flake to rebuild from: Cockpit cannot apply changes and the nightly upgrade fails.
-:::
+> [!WARNING]
+> Use `local/deploy.sh` for network installs, not the wizard's **Network install** or the `deploy` app. Those install the system but leave `/etc/nixos` empty, so the router has no host flake to rebuild from: Cockpit cannot apply changes and the nightly upgrade fails.
 
 You can also build the image without the wizard. It then uses `local/install-settings.json`:
 
@@ -159,7 +158,7 @@ modules = [
 ];
 ```
 
-Always load the settings through `nixos-router.lib.settingsModule`, not `builtins.fromJSON`. The loader upgrades settings written for an older version of nixos-router, so an upgrade never fails on an old option shape. See [The settings file](/docs/start/settings-file/#automatic-migrations).
+Always load the settings through `nixos-router.lib.settingsModule`, not `builtins.fromJSON`. The loader upgrades settings written for an older version of nixos-router, so an upgrade never fails on an old option shape. See [The settings file](settings-file.md#automatic-migrations).
 
 ### Why nixpkgs follows nixos-router
 
@@ -181,13 +180,13 @@ The `/main` in the block matters on its own. It keeps the router on the release 
 ## First-boot checklist
 
 1. **Connect to the LAN.** Plug a computer into a LAN port. It gets an address from the DHCP pool, such as `192.168.1.100`.
-2. **Open Cockpit** at `https://192.168.1.1:9090`, your `lan.address`, or at `https://router.lan:9090` (`<hostName>.<lan.domain>`). The certificate is self-signed, so your browser warns once; accept it. To get a trusted certificate later, see [A trusted certificate](/docs/start/cockpit/#a-trusted-certificate).
-3. **Sign in** as `admin` with the initial password. See [The web UI](/docs/start/cockpit/).
+2. **Open Cockpit** at `https://192.168.1.1:9090`, your `lan.address`, or at `https://router.lan:9090` (`<hostName>.<lan.domain>`). The certificate is self-signed, so your browser warns once; accept it. To get a trusted certificate later, see [A trusted certificate](cockpit.md#a-trusted-certificate).
+3. **Sign in** as `admin` with the initial password. See [The web UI](cockpit.md).
 4. **Change the password** on Cockpit's **Accounts** page, or with `passwd` over SSH. It is also your `sudo` password.
 5. **Clear the initial password.** On **System → Settings**, empty **Initial password**, then choose **Save and apply** from the **Save** menu. The initial password only matters when the account is created, and until you clear it, it sits readable in the settings file and the Nix store.
 6. **Check the WAN.** On **Network → Diagnostics**, pick **ping** as the **Tool**, enter `1.1.1.1` as the **Target** and press **Run**. Then try **dig** with `example.com`.
 7. **Check for unapplied changes.** A warning icon on the **System** entry in Cockpit's menu means the settings file differs from the running system; **System → Operations** lists the differences. After a fresh install there should be none.
-8. **Register your devices** on the **Hosts** page, and give servers a static IP. Most features build on that; see [Hosts and host groups](/docs/network/hosts/).
+8. **Register your devices** on the **Hosts** page, and give servers a static IP. Most features build on that; see [Hosts and host groups](../network/hosts.md).
 
 ## Troubleshooting
 

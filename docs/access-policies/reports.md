@@ -1,6 +1,7 @@
 ---
 title: Reports
 description: DNS dashboards, the searchable query log with device and policy attribution, and scheduled PDF and CSV reports emailed through Cloudflare.
+order: 6
 code:
   - modules/reporting.nix
   - modules/dns-technitium.nix
@@ -58,7 +59,7 @@ A schedule generates a PDF report and a CSV file on a timer, and can email the P
 
 ### Before you start
 
-To email reports, you need a Cloudflare account set up to send email for the domain of your sender address, and an API token with the permission [Cloudflare API tokens](/docs/reference/cloudflare-tokens/) lists for report email. The router keeps the token in a root-only file, like any other secret. To keep reports on the router only, you need neither.
+To email reports, you need a Cloudflare account set up to send email for the domain of your sender address, and an API token with the permission [Cloudflare API tokens](../reference/cloudflare-tokens.md) lists for report email. The router keeps the token in a root-only file, like any other secret. To keep reports on the router only, you need neither.
 
 ### Set up email delivery
 

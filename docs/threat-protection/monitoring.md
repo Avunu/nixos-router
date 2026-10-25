@@ -1,6 +1,7 @@
 ---
 title: Events and logs
 description: Read Suricata's events in Cockpit, the journal and the log files, check that inspection is running, and fix common problems.
+order: 3
 code:
   - modules/threat-protection.nix
   - modules/firewall.nix
@@ -12,7 +13,7 @@ code:
 
 # Events and logs
 
-Suricata's events appear in three places: the **Threat Protection** tabs in Cockpit, the `suricata` journal namespace those tabs read, and log files under `/var/log/suricata`. This page covers each one, the commands that show whether inspection is working, and fixes for common problems. To act on an event, see [Tune the rules](/docs/threat-protection/tuning/).
+Suricata's events appear in three places: the **Threat Protection** tabs in Cockpit, the `suricata` journal namespace those tabs read, and log files under `/var/log/suricata`. This page covers each one, the commands that show whether inspection is working, and fixes for common problems. To act on an event, see [Tune the rules](tuning.md).
 
 ## Overview tab
 
@@ -119,7 +120,7 @@ If `nft list table inet ips` shows the table but `/proc/net/netfilter/nfnetlink_
 **Cause and fix:**
 
 - **Slow hardware.** Before starting, Suricata runs a configuration test that loads every rule, which takes about 2 minutes on low-power hardware. Then it loads them again. The service allows 300 seconds to start. If `systemctl status suricata.service` reports a timeout, the router is too slow for the full rule set. Set categories you don't need to **Disable** to shrink it.
-- **A rule that doesn't parse, or a duplicate SID.** Applying tests the local rules with Suricata before it changes anything, so a broken rule fails the rebuild and Suricata keeps running on the rules it had. The rebuild's log (**View log** in the changes panel) shows `router.suricata: Suricata rejected the configuration.`, and the lines above it name the rule: `error parsing signature` or `Duplicate signature`, then `Loading signatures failed.` A duplicate is often one of the built-in SIDs, 1000001 to 1000011. Fix or remove the line in **Extra local rules** and apply again. The test doesn't load the downloaded rules, so a local SID that clashes with one of theirs still stops Suricata when it starts; read its messages with `sudo journalctl --namespace suricata -b -o cat | grep -v '^{'`. If the rule reads a file, such as a `filemd5` list or a `dataset` with `load`, and the log shows `opening hash file` or `failed to set up dataset`, the rule may be fine: the test can't see that file. See [Extra local rules](/docs/threat-protection/tuning/#extra-local-rules) for turning the test off.
+- **A rule that doesn't parse, or a duplicate SID.** Applying tests the local rules with Suricata before it changes anything, so a broken rule fails the rebuild and Suricata keeps running on the rules it had. The rebuild's log (**View log** in the changes panel) shows `router.suricata: Suricata rejected the configuration.`, and the lines above it name the rule: `error parsing signature` or `Duplicate signature`, then `Loading signatures failed.` A duplicate is often one of the built-in SIDs, 1000001 to 1000011. Fix or remove the line in **Extra local rules** and apply again. The test doesn't load the downloaded rules, so a local SID that clashes with one of theirs still stops Suricata when it starts; read its messages with `sudo journalctl --namespace suricata -b -o cat | grep -v '^{'`. If the rule reads a file, such as a `filemd5` list or a `dataset` with `load`, and the log shows `opening hash file` or `failed to set up dataset`, the rule may be fine: the test can't see that file. See [Extra local rules](tuning.md#extra-local-rules) for turning the test off.
 - **A bad suppression.** A suppression whose host isn't an IP address or prefix fails the build with `router.suricata.suppressions: SID <sid> has an invalid host '<host>' — use an IPv4 or IPv6 address or CIDR prefix`. The **Policies** tab marks the entry; remove it, add it again with a valid host, and apply.
 
 While Suricata is down, forwarded traffic passes uninspected.
@@ -131,7 +132,7 @@ While Suricata is down, forwarded traffic passes uninspected.
 **Cause and fix:**
 
 - **Suricata isn't inspecting yet.** Check for `Engine started` with the commands above.
-- **The traffic isn't forwarded.** Traffic to the router itself and traffic between devices on the same network is never inspected; see [What it doesn't do](/docs/threat-protection/#what-it-doesnt-do).
+- **The traffic isn't forwarded.** Traffic to the router itself and traffic between devices on the same network is never inspected; see [What it doesn't do](README.md#what-it-doesnt-do).
 - **Nothing has matched.** To test the path end to end, add a temporary rule in **Extra local rules**, apply, and ping an internet IPv4 address from a LAN host, for example `ping -c 5 9.9.9.9`:
 
   ```text
@@ -156,7 +157,7 @@ To stop all drops at once while you investigate, turn off **Drop high-risk packe
 
 ### IPv6 inbound traffic doesn't match `$HOME_NET` rules
 
-**Symptom:** an [IPv6 port forward](/docs/ingress/port-forwards/) gets no alerts where the same service over IPv4 does.
+**Symptom:** an [IPv6 port forward](../ingress/port-forwards.md) gets no alerts where the same service over IPv4 does.
 
 **Cause:** `$HOME_NET` holds the IPv4 LAN and guest subnets and the WireGuard addresses and Allowed IPs, but not the IPv6 prefix your ISP delegates. Your hosts' IPv6 addresses count as external, so rules keyed on `$HOME_NET` don't match. Rules written with `any` still do.
 

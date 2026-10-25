@@ -1,6 +1,7 @@
 ---
 title: The settings file
 description: What /etc/nixos/router-settings.json holds, how Nix reads it, where secrets and the effective config live, and how old settings are upgraded.
+order: 3
 code:
   - lib/settings.nix
   - local/flake.nix
@@ -28,25 +29,25 @@ The file is a single JSON object. Each top-level key is one of the router module
 | Key | What it holds | Guide |
 | --- | --- | --- |
 | `hostName`, `timeZone` | The router's name and time zone. | **System → Settings** |
-| `fqdn` | The router's domain name, for Cockpit's Let's Encrypt certificate. | [The web UI](/docs/start/cockpit/#a-trusted-certificate) |
-| `adminUser` | The admin account: `name`, `sshKeys`, `initialPassword`. | [Install a router](/docs/start/install/) |
-| `stateVersion`, `diskDevice`, `bootMode` | Install-time values. Don't change them on a running router. | [Install a router](/docs/start/install/) |
-| `wan`, `lan`, `guest`, `trunkInterfaces` | Networks, interfaces and VLANs. | [Networks and VLANs](/docs/network/) |
-| `wireguard` | WireGuard tunnels, keyed by interface name. | [WireGuard](/docs/wireguard/) |
-| `hosts`, `hostGroups` | The device registry and device groups. | [Hosts and host groups](/docs/network/hosts/) |
+| `fqdn` | The router's domain name, for Cockpit's Let's Encrypt certificate. | [The web UI](cockpit.md#a-trusted-certificate) |
+| `adminUser` | The admin account: `name`, `sshKeys`, `initialPassword`. | [Install a router](install.md) |
+| `stateVersion`, `diskDevice`, `bootMode` | Install-time values. Don't change them on a running router. | [Install a router](install.md) |
+| `wan`, `lan`, `guest`, `trunkInterfaces` | Networks, interfaces and VLANs. | [Networks and VLANs](../network/README.md) |
+| `wireguard` | WireGuard tunnels, keyed by interface name. | [WireGuard](../wireguard/README.md) |
+| `hosts`, `hostGroups` | The device registry and device groups. | [Hosts and host groups](../network/hosts.md) |
 | `dns` | Technitium DNS, local overrides and forward zones. | **DNS** page |
-| `accessPolicies`, `directory`, `reporting` | Filtering policies, the directory connection, reports. | [Access policies](/docs/access-policies/) |
-| `suricata` | The IPS. | [Threat protection](/docs/threat-protection/) |
-| `upnp`, `portForwards` | UPnP and static port forwards. | [Port forwards](/docs/ingress/port-forwards/) |
-| `ddns` | Cloudflare dynamic DNS. | [Dynamic DNS](/docs/dynamic-dns/) |
-| `acme`, `reverseProxy`, `cloudflareTunnel` | Certificates, the reverse proxy, the Cloudflare Tunnel. | [Ingress](/docs/ingress/) |
+| `accessPolicies`, `directory`, `reporting` | Filtering policies, the directory connection, reports. | [Access policies](../access-policies/README.md) |
+| `suricata` | The IPS. | [Threat protection](../threat-protection/README.md) |
+| `upnp`, `portForwards` | UPnP and static port forwards. | [Port forwards](../ingress/port-forwards.md) |
+| `ddns` | Cloudflare dynamic DNS. | [Dynamic DNS](../dynamic-dns/README.md) |
+| `acme`, `reverseProxy`, `cloudflareTunnel` | Certificates, the reverse proxy, the Cloudflare Tunnel. | [Ingress](../ingress/README.md) |
 | `wireless` | The UniFi and OpenWISP controllers. | **Wireless** page |
 
 A key you leave out takes the option's default. Unknown keys are rejected: the web UI refuses to save a file with a key the schema doesn't know, and the build fails on an option that doesn't exist.
 
 Cockpit writes the file with two-space indentation. You can edit it by hand as root; the changes panel on **System → Operations** then lists what you changed, and applying checks the file against the schema before it builds.
 
-Every save replaces the whole file, so the web UI only saves on top of a file it has read. A missing or empty file counts as an empty object. A file it can't read is an error on the page, never an empty form: the page shows why and offers no **Save** until it can read the file again. That happens when only root can read the file and Cockpit has Limited access (see [The web UI](/docs/start/cockpit/#sign-in)), or when a hand edit left it invalid JSON, which the page reports as "/etc/nixos/router-settings.json is not valid JSON".
+Every save replaces the whole file, so the web UI only saves on top of a file it has read. A missing or empty file counts as an empty object. A file it can't read is an error on the page, never an empty form: the page shows why and offers no **Save** until it can read the file again. That happens when only root can read the file and Cockpit has Limited access (see [The web UI](cockpit.md#sign-in)), or when a hand edit left it invalid JSON, which the page reports as "/etc/nixos/router-settings.json is not valid JSON".
 
 ## How the build reads it
 
@@ -80,7 +81,7 @@ Then apply from Cockpit, or rebuild from a shell:
 sudo nixos-rebuild switch --flake /etc/nixos#default --impure
 ```
 
-The web UI then shows that field as locked; see [The web UI](/docs/start/cockpit/#fields-locked-in-nix). Use this for settings that must not change from the UI.
+The web UI then shows that field as locked; see [The web UI](cockpit.md#fields-locked-in-nix). Use this for settings that must not change from the UI.
 
 Some settings exist only in Nix and never appear in the file:
 
@@ -111,7 +112,7 @@ sudo sh -c 'umask 077 && install -d -m 700 /etc/router/secrets && cat > /etc/rou
 
 Paste the token, press Enter, then Ctrl+D. Then enter the path in the matching field.
 
-`adminUser.initialPassword` is the one exception: it sits in the file in plain text. It only matters when the account is first created, so change the password after installing and clear the field. See the [first-boot checklist](/docs/start/install/#first-boot-checklist).
+`adminUser.initialPassword` is the one exception: it sits in the file in plain text. It only matters when the account is first created, so change the password after installing and clear the field. See the [first-boot checklist](install.md#first-boot-checklist).
 
 ## The effective config
 
@@ -149,7 +150,7 @@ Register the device on the **Hosts** page with that static IP, then apply again.
 | 2026-09 | `dns.technitium.listenPort` is removed. The resolver always listens on port 53. |
 | 2026-09 | An empty `reporting.email.apiTokenFile`, `directory.sssd.bindPasswordFile`, `tlsCaCertFile`, `tlsClientCertFile`, `tlsClientKeyFile` or `adminUser.initialPassword` becomes `null`. Older versions of the web UI saved `""` when you cleared one of these fields, which the build took for a value. |
 
-Maintainers add migrations as described in [Settings migrations](/docs/develop/settings-migrations/).
+Maintainers add migrations as described in [Settings migrations](../develop/settings-migrations.md).
 
 ### Routers installed before the loader
 

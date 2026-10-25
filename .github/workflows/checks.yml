@@ -106,11 +106,12 @@ jobs:
       # Listed individually rather than via `nix flake check` so a dependency
       # bump gets the drift verdict in under a minute, without waiting on the
       # VM tests in the other job.
-      - name: Technitium version pair and build output, DNS coverage, port forwards, ingress, Suricata config, WireGuard, settings loader, DDNS, tunnel, schema
+      - name: Technitium version pair and build output, docs lint, DNS coverage, port forwards, ingress, Suricata config, WireGuard, settings loader, DDNS, tunnel, schema
         run: |
           nix build --no-link -L \
             '.#checks.x86_64-linux.technitium-version' \
             '.#checks.x86_64-linux.technitium-server' \
+            '.#checks.x86_64-linux.docs-lint' \
             '.#checks.x86_64-linux.dns-fallback' \
             '.#checks.x86_64-linux.dns-overrides' \
             '.#checks.x86_64-linux.wireless-eval' \

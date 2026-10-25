@@ -1,6 +1,7 @@
 ---
 title: WireGuard
 description: Join another site's LAN to yours, or let laptops and phones reach it from anywhere, with WireGuard tunnels set up under Network → WireGuard.
+order: 7
 code:
   - modules/network.nix
   - modules/firewall.nix
@@ -42,29 +43,28 @@ Allowed IPs does two jobs at once:
 
 So a peer's Allowed IPs hold its own tunnel address as a `/32`, plus every subnet behind it that should reach your network. An address range can belong to only one peer of a tunnel; if two peers list the same range, only one of them gets its traffic.
 
-:::doc-warning
-Never put `0.0.0.0/0` or `::/0` in a peer's **Allowed IPs** on the router. The router would send its own default traffic into the tunnel instead of out of the WAN, cutting off its internet connection and the tunnel itself.
-:::
+> [!WARNING]
+> Never put `0.0.0.0/0` or `::/0` in a peer's **Allowed IPs** on the router. The router would send its own default traffic into the tunnel instead of out of the WAN, cutting off its internet connection and the tunnel itself.
 
 ## Site-to-site or remote access
 
-- **Site-to-site** joins two networks. Each router lists the other site's LAN in its peer's Allowed IPs, and devices at both sites talk to each other directly. [Site-to-site VPN](/docs/wireguard/site-to-site/) walks through two nixos-routers. [Other WireGuard peers](/docs/wireguard/third-party-peer/) covers a Linux server, a cloud VM or another vendor's router.
-- **Remote access** connects single devices. Each laptop or phone is a peer with one `/32` address. It reaches your LAN, and optionally the internet, through the router. See [Remote access](/docs/wireguard/remote-access/).
+- **Site-to-site** joins two networks. Each router lists the other site's LAN in its peer's Allowed IPs, and devices at both sites talk to each other directly. [Site-to-site VPN](site-to-site.md) walks through two nixos-routers. [Other WireGuard peers](third-party-peer.md) covers a Linux server, a cloud VM or another vendor's router.
+- **Remote access** connects single devices. Each laptop or phone is a peer with one `/32` address. It reaches your LAN, and optionally the internet, through the router. See [Remote access](remote-access.md).
 
 ## What the router does for each tunnel
 
-- **Opens the listen port** on the WAN, for UDP over IPv4 and IPv6. Nothing else about the tunnel is reachable from the internet. [Ports and services](/docs/reference/ports/) lists every open port.
+- **Opens the listen port** on the WAN, for UDP over IPv4 and IPv6. Nothing else about the tunnel is reachable from the internet. [Ports and services](../reference/ports.md) lists every open port.
 - **Routes each peer's Allowed IPs** into the tunnel.
 - **Forwards between the LAN and the tunnel**, in both directions.
 - **Forwards from the tunnel to the internet.** Traffic that leaves by the WAN is masqueraded behind the WAN's IPv4 address, like LAN traffic. Replies come back in, but the internet can't open new connections into the tunnel.
-- **Trusts the tunnel like the LAN.** Anything that comes out of the tunnel can reach every service on the router, including Cockpit, SSH and DNS. Cockpit accepts logins at the router's tunnel address as well as its LAN address; see [Open Cockpit over the tunnel](/docs/wireguard/remote-access/#open-cockpit-over-the-tunnel).
-- **Counts the tunnel as an internal network.** The tunnel address and every peer's Allowed IPs join Suricata's home networks ([Threat protection](/docs/threat-protection/)), may use the router's DNS resolver, and make up the **WireGuard** network that you can assign an access policy to.
+- **Trusts the tunnel like the LAN.** Anything that comes out of the tunnel can reach every service on the router, including Cockpit, SSH and DNS. Cockpit accepts logins at the router's tunnel address as well as its LAN address; see [Open Cockpit over the tunnel](remote-access.md#open-cockpit-over-the-tunnel).
+- **Counts the tunnel as an internal network.** The tunnel address and every peer's Allowed IPs join Suricata's home networks ([Threat protection](../threat-protection/README.md)), may use the router's DNS resolver, and make up the **WireGuard** network that you can assign an access policy to.
 
 The router doesn't translate addresses inside the tunnel. Devices on your LAN reach the other side with their own addresses, and devices over there arrive with theirs. That's why both ends need each other's subnets in their Allowed IPs.
 
 ## Set up a tunnel
 
-The steps are the same for every kind of peer. [Site-to-site VPN](/docs/wireguard/site-to-site/) and [Remote access](/docs/wireguard/remote-access/) give the values to use.
+The steps are the same for every kind of peer. [Site-to-site VPN](site-to-site.md) and [Remote access](remote-access.md) give the values to use.
 
 1. In Cockpit, open **Network → WireGuard**.
 2. Type a name in the box next to **Add tunnel** (it shows `wg0` as a placeholder) and click **Add tunnel**. The name becomes the interface name: 1 to 15 letters, digits, `_`, `.` or `-`. The new tunnel is selected in the tunnel list and its settings open below.
@@ -83,9 +83,8 @@ The steps are the same for every kind of peer. [Site-to-site VPN](/docs/wireguar
    **Remove peer** deletes that peer.
 6. Choose **Save and apply** from the **Save** menu.
 
-:::doc-warning
-Click **Generate keypair** before **Save and apply**. If the private key file doesn't exist when the configuration is applied, systemd-networkd, the service that manages every network interface on the router, can't start. The apply fails, and among other things the LAN's DHCP server stops. To recover, click **Generate keypair** and then run `sudo systemctl restart systemd-networkd` on the router, or delete the tunnel and apply again.
-:::
+> [!WARNING]
+> Click **Generate keypair** before **Save and apply**. If the private key file doesn't exist when the configuration is applied, systemd-networkd, the service that manages every network interface on the router, can't start. The apply fails, and among other things the LAN's DHCP server stops. To recover, click **Generate keypair** and then run `sudo systemctl restart systemd-networkd` on the router, or delete the tunnel and apply again.
 
 **Delete tunnel** removes the selected tunnel and its peers when you save and apply. The key file stays on the router. So does the interface, without its address or firewall rules, until the next reboot; `sudo ip link delete wg0` removes it at once.
 
@@ -162,16 +161,16 @@ Peers can't connect between steps 2 and 3, so do them close together.
 
 - **No routing between tunnels, or between the peers of one tunnel.** The router forwards only between each tunnel and the LAN, and from each tunnel to the internet. Two branches can't reach each other through HQ (hub and spoke), and a laptop connected to HQ can't reach the branch. Give each pair of sites that must talk a direct tunnel of their own.
 - **No NAT inside the tunnel.** The far side must route your LAN into its tunnel and list your LAN in its Allowed IPs, or replies never come back.
-- **LAN subnets can't overlap.** The two ends need different LAN subnets. Renumber one side under **Network → LAN** ([Networks and VLANs](/docs/network/)).
+- **LAN subnets can't overlap.** The two ends need different LAN subnets. Renumber one side under **Network → LAN** ([Networks and VLANs](../network/README.md)).
 - **The guest network is cut off.** Guest devices can't reach any tunnel, and tunnels can't reach the guest network.
 - **A tunnel is as trusted as the LAN.** Every device behind a peer can reach Cockpit, SSH and DNS on the router, and every device on your LAN. SSH accepts only keys unless you've let directory administrators in with passwords, and Cockpit asks for a password, but there are no per-peer firewall rules. Connect only networks and devices you would let onto your LAN.
-- **DNS isn't enforced on tunnels.** On the LAN and guest networks the router redirects DNS to its own resolver and drops DNS over TLS and IPv6 DNS ([DNS enforcement](/docs/access-policies/dns-enforcement/)). It does none of this on tunnels, so a device behind a tunnel gets an access policy only if it uses the router as its DNS server.
+- **DNS isn't enforced on tunnels.** On the LAN and guest networks the router redirects DNS to its own resolver and drops DNS over TLS and IPv6 DNS ([DNS enforcement](../access-policies/dns-enforcement.md)). It does none of this on tunnels, so a device behind a tunnel gets an access policy only if it uses the router as its DNS server.
 - **One address per tunnel, and IPv4 NAT only.** **Address (CIDR)** holds a single address, and internet traffic from a tunnel is masqueraded over IPv4 only.
 - **Endpoint names are looked up once.** The router resolves a peer's endpoint name when the tunnel comes up and doesn't look it up again. If the name moves to a new address, the tunnel can stay down until you reboot or run `sudo wg set wg0 peer <public key> endpoint <host:port>` with the peer's key and endpoint.
 - **No preshared keys.** Peers have no preshared-key setting. If the other side requires one, turn it off there.
 - **No MTU setting.** Tunnels use WireGuard's default MTU of 1420 bytes.
 - **Listen ports aren't checked for clashes.** Nothing stops two tunnels from using the same port, but only one of them can have it.
-- **A listen port can't be forwarded.** The build refuses an IPv4 UDP [port forward](/docs/ingress/port-forwards/) of a tunnel's listen port.
+- **A listen port can't be forwarded.** The build refuses an IPv4 UDP [port forward](../ingress/port-forwards.md) of a tunnel's listen port.
 - **Peers have no names.** Keep a note of which key and address belong to which site or device.
 
 ## Troubleshooting
@@ -183,4 +182,4 @@ When an apply fails, the log under **Apply failed.** shows the reason. These com
 - **`router.portForwards: forward 'wg' forwards a WireGuard listen port (UDP 51820); its DNAT would capture the tunnel's own traffic`.** A port forward uses a tunnel's listen port. Remove the forward, or give the tunnel another **Listen port**.
 - **`warning: the following units failed: systemd-networkd.service`.** The private key file is missing. See the warning under [Set up a tunnel](#set-up-a-tunnel).
 
-For a tunnel that applies cleanly but doesn't pass traffic, see [Troubleshooting](/docs/wireguard/site-to-site/#troubleshooting) on the site-to-site page.
+For a tunnel that applies cleanly but doesn't pass traffic, see [Troubleshooting](site-to-site.md#troubleshooting) on the site-to-site page.

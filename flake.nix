@@ -272,6 +272,17 @@
             inherit technitiumVersion;
           };
 
+          # Sandbox lint of the docs for what only this repository can check:
+          # front matter and the source paths a page's `code` list names, a
+          # colon that Jx turns into a directive and uses to delete text, and
+          # images with no alt text. The shared documentation site checks the
+          # rest of a page.
+          #   nix build .#checks.<system>.docs-lint
+          docs-lint = import ./tests/docs-lint.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            src = self;
+          };
+
           # What the compiled server and apps actually contain: ReadyToRun
           # images, the runtime feature switches, and no web console — all of
           # which fail silently if a flag stops applying or upstream moves a

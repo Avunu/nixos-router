@@ -1,6 +1,8 @@
 ---
 title: Networks and VLANs
 description: How the router's WAN, LAN and guest networks work, how guest isolation is enforced, and how to carry networks as VLANs over trunk ports.
+nav_title: Networking
+order: 2
 code:
   - modules/network.nix
   - modules/topology.nix
@@ -21,13 +23,12 @@ The router has three networks: the **WAN** towards your internet provider, the *
 | **WAN** | The WAN's untagged interface (read-only; assign it on **Interfaces**) and its **VLAN id**. |
 | **LAN** | **Addressing**, **VLAN** and **DHCP** for the LAN. |
 | **Guest** | **Enable guest network**, then the same sections as the LAN. |
-| **WireGuard** | VPN tunnels. See [WireGuard](/docs/wireguard/). |
-| **Dynamic DNS** | Cloudflare records for the router's addresses. See [Dynamic DNS](/docs/dynamic-dns/). |
+| **WireGuard** | VPN tunnels. See [WireGuard](../wireguard/README.md). |
+| **Dynamic DNS** | Cloudflare records for the router's addresses. See [Dynamic DNS](../dynamic-dns/README.md). |
 | **Diagnostics** | `ping`, `traceroute`, `dig` and `mtr`, run from the router. |
 
-:::doc-warning
-Reassigning interfaces or changing the LAN address can cut off the computer you manage the router from. Use **Save** to stage the changes, then apply them when you're ready: choose **Apply saved changes** from the **Save** menu, or **Apply changes** on **System → Operations**. If the router becomes unreachable, see [Recover from the boot menu](/docs/start/upgrades/#recover-from-the-boot-menu).
-:::
+> [!WARNING]
+> Reassigning interfaces or changing the LAN address can cut off the computer you manage the router from. Use **Save** to stage the changes, then apply them when you're ready: choose **Apply saved changes** from the **Save** menu, or **Apply changes** on **System → Operations**. If the router becomes unreachable, see [Recover from the boot menu](../start/upgrades.md#recover-from-the-boot-menu).
 
 ## WAN
 
@@ -35,7 +36,7 @@ The WAN is always a DHCP client. There is no setting for a static WAN address or
 
 - **IPv4:** the router takes its address and default route from your provider's DHCP server, and masquerades all outbound traffic behind that address. It sends its host name, and ignores the DNS servers and domain the provider offers.
 - **IPv6:** the router accepts router advertisements, runs a DHCPv6 client and asks for a delegated prefix of `/60`. From that prefix it gives one `/64` to the LAN and another to the guest network. IPv6 is routed without NAT.
-- **Inbound:** the firewall admits only replies to outbound connections, rate-limited ping, the required ICMPv6 messages, DHCPv6 replies, WireGuard's ports, and whatever you publish through [Ingress](/docs/ingress/). Everything else from the WAN is dropped.
+- **Inbound:** the firewall admits only replies to outbound connections, rate-limited ping, the required ICMPv6 messages, DHCPv6 replies, WireGuard's ports, and whatever you publish through [Ingress](../ingress/README.md). Everything else from the WAN is dropped.
 
 Select the WAN's port on **Network → Interfaces** by setting its **Untagged network** to **WAN**. If your provider hands the internet over as a tagged VLAN, leave the WAN without an untagged port, set its **VLAN id** on the **WAN** tab, and mark the port that carries it as a trunk. The router then runs its DHCP client on a bridge, `br-wan`, fed by the VLAN sub-interface. The WAN's tag is carried on trunk ports only.
 
@@ -50,9 +51,9 @@ Select the WAN's port on **Network → Interfaces** by setting its **Untagged ne
 
 The LAN's ports are joined into one bridge, `br-lan`, with the router's **Gateway address** on it. The router serves the LAN with:
 
-- **DHCP.** The pool starts **Pool offset** addresses above the **Network address** and holds **Pool size** addresses: with offset 100 and size 150 on `192.168.1.0/24`, that is `192.168.1.100` to `192.168.1.249`. Leases last **Lease time**, `24h` by default. Devices with a static IP on the [Hosts](/docs/network/hosts/) page get a reservation.
+- **DHCP.** The pool starts **Pool offset** addresses above the **Network address** and holds **Pool size** addresses: with offset 100 and size 150 on `192.168.1.0/24`, that is `192.168.1.100` to `192.168.1.249`. Leases last **Lease time**, `24h` by default. Devices with a static IP on the [Hosts](hosts.md) page get a reservation.
 - **Gateway and DNS.** DHCP hands out the gateway address as both the router and the DNS server, and the **Local domain** (`lan` by default) as the search domain, so `nas` resolves as `nas.lan`.
-- **IPv6.** The router advertises the LAN's `/64` for SLAAC. It advertises no IPv6 DNS server, and drops IPv6 DNS queries, so every client uses the router's IPv4 resolver, where filtering policies apply. See [DNS enforcement](/docs/access-policies/dns-enforcement/).
+- **IPv6.** The router advertises the LAN's `/64` for SLAAC. It advertises no IPv6 DNS server, and drops IPv6 DNS queries, so every client uses the router's IPv4 resolver, where filtering policies apply. See [DNS enforcement](../access-policies/dns-enforcement.md).
 - **Forced DNS.** Every IPv4 DNS query from the LAN goes to the router's resolver, whichever server the client asked.
 
 LAN devices can reach the router, the internet, WireGuard peers and the guest network.
@@ -154,4 +155,4 @@ The Network page lists broken rules under "Network configuration is invalid" and
 - The WAN supports DHCP only: no static address, no PPPoE, and only one WAN.
 - Guest isolation is at layer 3. Guest devices on the same switch or access point see each other.
 - There is one LAN and one guest network. More networks, for example for cameras or IoT devices, are not supported.
-- Filtering policies anchor devices to their IPv4 address, which is why IPv6 DNS is dropped. See [Access policies](/docs/access-policies/).
+- Filtering policies anchor devices to their IPv4 address, which is why IPv6 DNS is dropped. See [Access policies](../access-policies/README.md).

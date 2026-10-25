@@ -1,6 +1,7 @@
 ---
 title: Reverse proxy
 description: Publish LAN web apps by hostname on the router's ports 80 and 443, with a Let's Encrypt certificate for each route.
+order: 2
 code:
   - modules/reverse-proxy.nix
   - modules/acme.nix
@@ -21,14 +22,14 @@ code:
 
 The reverse proxy publishes web apps on your LAN under their own hostnames, such as `nas.example.com` and `wiki.example.com`, all on the router's ports 80 and 443. The router gets a Let's Encrypt certificate for each route, ends TLS, and passes each request to the route's host. Many apps can share one public IPv4 address, and an app that speaks plain HTTP on the LAN gets HTTPS without changes.
 
-For a step-by-step example, see [Walkthrough: publish a web app](/docs/ingress/walkthrough/).
+For a step-by-step example, see [Walkthrough: publish a web app](walkthrough.md).
 
 ## Before you start
 
-- **A registered host with a static IP** for each app. See [Hosts and host groups](/docs/network/hosts/).
-- **Names that resolve to the router.** With **Publish hostnames** on (the default), [dynamic DNS](/docs/dynamic-dns/) publishes them, so dynamic DNS must be on, with its Cloudflare token set. Otherwise, create the DNS records yourself.
+- **A registered host with a static IP** for each app. See [Hosts and host groups](../network/hosts.md).
+- **Names that resolve to the router.** With **Publish hostnames** on (the default), [dynamic DNS](../dynamic-dns/README.md) publishes them, so dynamic DNS must be on, with its Cloudflare token set. Otherwise, create the DNS records yourself.
 - **For the HTTP challenge,** the router's WAN tcp port 80 must be reachable from the internet.
-- **For the Cloudflare DNS challenge or a wildcard name,** a Cloudflare API token with **Zone → Zone → Read** and **Zone → DNS → Edit**. See [Cloudflare API tokens](/docs/reference/cloudflare-tokens/).
+- **For the Cloudflare DNS challenge or a wildcard name,** a Cloudflare API token with **Zone → Zone → Read** and **Zone → DNS → Edit**. See [Cloudflare API tokens](../reference/cloudflare-tokens.md).
 - **No IPv4 port forward of tcp 80 or 443.** The proxy owns those ports.
 
 ## Turn it on
@@ -66,7 +67,7 @@ The token itself never goes into the settings file, only the path to it.
 - **If dynamic DNS already has a token,** click **Use the DDNS token**. It points the field at the dynamic DNS token file, which has exactly the scopes the DNS challenge needs. The button appears only when a dynamic DNS token is set and the field names a different file.
 - **Otherwise,** click **Set token…**. If the field is empty, it fills in `/etc/router/secrets/cloudflare-acme.token`. Paste the token into **API token** and click **Save token**. The token is written to that file, readable by root only.
 
-Create the token under **My Profile → API Tokens** in the Cloudflare dashboard. See [Cloudflare API tokens](/docs/reference/cloudflare-tokens/).
+Create the token under **My Profile → API Tokens** in the Cloudflare dashboard. See [Cloudflare API tokens](../reference/cloudflare-tokens.md).
 
 ## Add a route
 
@@ -148,7 +149,7 @@ Applying a change to a route's hostnames or to the **Staging CA** switch starts 
 
 `router-proxy.service` runs `router-proxy`, a small program built on Cloudflare's Pingora library, as the unprivileged `router-proxy` user. It listens on tcp 10080 for HTTP and 10443 for HTTPS, over IPv4 and IPv6.
 
-It doesn't listen on 80 and 443 because the Technitium [block page](/docs/access-policies/block-page/) already holds those ports on every router address. See [Ports and services](/docs/reference/ports/).
+It doesn't listen on 80 and 443 because the Technitium [block page](../access-policies/block-page.md) already holds those ports on every router address. See [Ports and services](../reference/ports.md).
 
 ### Ports and hairpin
 
@@ -272,13 +273,13 @@ These don't stop the build, but print a warning:
 
 ## Limits
 
-- HTTP and HTTPS only. For other protocols, use a [port forward](/docs/ingress/port-forwards/).
+- HTTP and HTTPS only. For other protocols, use a [port forward](port-forwards.md).
 - Plain HTTP is never proxied, only redirected to HTTPS.
 - A wildcard covers exactly one extra label, and needs the Cloudflare DNS challenge.
 - While the proxy is on, IPv4 tcp 80 and 443 can't be port-forwarded.
 - The proxy has no access control of its own. Anyone who reaches a name reaches the app, so the app's own login has to protect it.
-- [Threat protection](/docs/threat-protection/) doesn't inspect proxied requests, because they end at the router instead of being forwarded.
-- Behind CGNAT, IPv4 clients can't reach the proxy. Use [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/) instead.
+- [Threat protection](../threat-protection/README.md) doesn't inspect proxied requests, because they end at the router instead of being forwarded.
+- Behind CGNAT, IPv4 clients can't reach the proxy. Use [Cloudflare Tunnel](cloudflare-tunnel.md) instead.
 - If the ISP gives the WAN no global IPv6 address, the router's AAAA record is its LAN address. A LAN client that connects to that address over IPv6 reaches the block page instead of the proxy, because the address belongs to the interface the client is on.
 - Let's Encrypt limits how many certificates you can order. Use **Staging CA** while you experiment.
 

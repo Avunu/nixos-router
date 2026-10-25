@@ -1,6 +1,7 @@
 ---
 title: Other WireGuard peers
 description: Connect the router's LAN to a WireGuard endpoint that isn't a nixos-router, such as a Linux gateway with wg-quick, a cloud VM or another vendor's router.
+order: 2
 code:
   - modules/network.nix
   - modules/firewall.nix
@@ -9,7 +10,7 @@ code:
 
 # Other WireGuard peers
 
-The router speaks standard WireGuard, so the far end of a site-to-site tunnel doesn't have to be another nixos-router. It can be a Linux machine running wg-quick, a cloud VM or another vendor's router. This page covers what that far end must do, gives a wg-quick configuration for a Linux site gateway, and shows the matching entry on the router. The steps on the router are the same as in [Site-to-site VPN](/docs/wireguard/site-to-site/).
+The router speaks standard WireGuard, so the far end of a site-to-site tunnel doesn't have to be another nixos-router. It can be a Linux machine running wg-quick, a cloud VM or another vendor's router. This page covers what that far end must do, gives a wg-quick configuration for a Linux site gateway, and shows the matching entry on the router. The steps on the router are the same as in [Site-to-site VPN](site-to-site.md).
 
 ## The example
 
@@ -26,7 +27,7 @@ The router doesn't translate addresses inside the tunnel. Your LAN devices arriv
 - **Route your LAN into its tunnel.** wg-quick adds a route for every AllowedIPs entry by itself. Other products may need a static route to `192.168.1.0/24` through the WireGuard interface.
 - **Forward between its LAN and the tunnel.** IP forwarding must be on, and its firewall must allow traffic between the WireGuard interface and its LAN.
 - **Get replies back to the gateway.** If the gateway isn't its LAN's default router, that LAN's router needs a static route: `192.168.1.0/24` via the gateway's LAN address.
-- **Route rather than NAT.** If the far side masquerades its LAN into the tunnel, connections still work, since everything then arrives from its tunnel address, which is in the router's Allowed IPs for it. But the router sees every device over there as one address, so logs, [threat protection](/docs/threat-protection/) events and access policies can't tell them apart.
+- **Route rather than NAT.** If the far side masquerades its LAN into the tunnel, connections still work, since everything then arrives from its tunnel address, which is in the router's Allowed IPs for it. But the router sees every device over there as one address, so logs, [threat protection](../threat-protection/README.md) events and access policies can't tell them apart.
 
 ## A wg-quick gateway
 
@@ -67,7 +68,7 @@ If the gateway runs a firewall, allow forwarding between `wg0` and its LAN inter
 
 ## The matching entry on the router
 
-On the router, open **Network → WireGuard** and set up the tunnel as in [Set up a tunnel](/docs/wireguard/#set-up-a-tunnel):
+On the router, open **Network → WireGuard** and set up the tunnel as in [Set up a tunnel](README.md#set-up-a-tunnel):
 
 1. Add the tunnel `wg0` with **Address (CIDR)** `10.100.2.1/30` and **Listen port** 51820.
 2. Click **Generate keypair** and copy the public key for the gateway's `[Peer]` section.
@@ -113,6 +114,6 @@ If the far side has the fixed public address, such as a cloud VM at `vpn.example
 - **The far side's firewall.** The side that gets dialed must allow its UDP listen port in from the internet. The far side must also allow forwarding from the tunnel to its LAN, which some products block by default.
 - **Other vendors' names.** Router products label the same settings differently: AllowedIPs may appear as allowed IPs, remote subnets or networks, and some also need a separate static route or a firewall rule for the WireGuard interface.
 - **IPv6 endpoints** go in brackets: `[2001:db8::10]:51820`.
-- **No internet through the far side.** Don't put `0.0.0.0/0` in the router's Allowed IPs for the peer to send your internet traffic through it; the router would lose its own connection. See [What Allowed IPs does](/docs/wireguard/#what-allowed-ips-does).
+- **No internet through the far side.** Don't put `0.0.0.0/0` in the router's Allowed IPs for the peer to send your internet traffic through it; the router would lose its own connection. See [What Allowed IPs does](README.md#what-allowed-ips-does).
 
-For checking the tunnel and fixing problems, see [Check the tunnel](/docs/wireguard/site-to-site/#check-the-tunnel) and [Troubleshooting](/docs/wireguard/site-to-site/#troubleshooting) on the site-to-site page. On the Linux gateway, `sudo wg show` gives the same view.
+For checking the tunnel and fixing problems, see [Check the tunnel](site-to-site.md#check-the-tunnel) and [Troubleshooting](site-to-site.md#troubleshooting) on the site-to-site page. On the Linux gateway, `sudo wg show` gives the same view.

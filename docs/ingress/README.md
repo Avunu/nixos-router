@@ -1,6 +1,8 @@
 ---
 title: Choose an ingress
 description: Compare port forwards, the reverse proxy and Cloudflare Tunnel for reaching LAN services from the internet, and pick the right one.
+nav_title: Ingress
+order: 6
 code:
   - modules/firewall.nix
   - modules/reverse-proxy.nix
@@ -17,13 +19,13 @@ code:
 
 A service on your LAN, such as a NAS web interface, a wiki or a game server, can't be reached from the internet until the router lets traffic in. The router offers three ways to do that: port forwards, a reverse proxy, and Cloudflare Tunnel. This page compares them and helps you pick one.
 
-![Three paths from an internet client to a LAN host. Port forward: the client connects to a WAN port, nftables passes it on to the host with DNAT or an IPv6 pinhole. Reverse proxy: the client connects to tcp 80 or 443, router-proxy on the router ends TLS and sends the request to the host. Cloudflare Tunnel: the client connects to Cloudflare's edge, and requests come back to cloudflared on the router over a connection the router opened outbound, then go to the host.](./images/ingress-paths.svg)
+![Three paths from an internet client to a LAN host. Port forward: the client connects to a WAN port, nftables passes it on to the host with DNAT or an IPv6 pinhole. Reverse proxy: the client connects to tcp 80 or 443, router-proxy on the router ends TLS and sends the request to the host. Cloudflare Tunnel: the client connects to Cloudflare's edge, and requests come back to cloudflared on the router over a connection the router opened outbound, then go to the host.](../images/ingress-paths.svg)
 
 ## The three options
 
-- **[Port forward](/docs/ingress/port-forwards/):** opens one or more WAN ports to a single host. Over IPv4 the router rewrites the destination to the host's static IP (DNAT). Over IPv6 it opens a pinhole to the host's own address. Any tcp or udp service works.
-- **[Reverse proxy](/docs/ingress/reverse-proxy/):** the router itself answers on the WAN's tcp ports 80 and 443. It gets a Let's Encrypt certificate for each route, ends TLS, and passes each request to the host that its hostname belongs to. Many web apps can share one public IPv4 address.
-- **[Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/):** the router keeps outbound connections open to Cloudflare. Requests for your names arrive at Cloudflare and come back down those connections. No WAN port opens.
+- **[Port forward](port-forwards.md):** opens one or more WAN ports to a single host. Over IPv4 the router rewrites the destination to the host's static IP (DNAT). Over IPv6 it opens a pinhole to the host's own address. Any tcp or udp service works.
+- **[Reverse proxy](reverse-proxy.md):** the router itself answers on the WAN's tcp ports 80 and 443. It gets a Let's Encrypt certificate for each route, ends TLS, and passes each request to the host that its hostname belongs to. Many web apps can share one public IPv4 address.
+- **[Cloudflare Tunnel](cloudflare-tunnel.md):** the router keeps outbound connections open to Cloudflare. Requests for your names arrive at Cloudflare and come back down those connections. No WAN port opens.
 
 ## Compare them
 
@@ -41,7 +43,7 @@ A service on your LAN, such as a NAS web interface, a wiki or a game server, can
 
 CGNAT (carrier-grade NAT) only takes away inbound IPv4: the router has no public IPv4 address, so nothing on the internet can open an IPv4 connection to it. If your ISP also gives you IPv6, clients that connect over IPv6 can still reach a port forward or the reverse proxy.
 
-Threat protection (Suricata) inspects traffic the router forwards between networks. Proxied and tunneled requests end at a program on the router, which then opens its own connection to the host, so neither leg is forwarded traffic. See [Threat protection](/docs/threat-protection/).
+Threat protection (Suricata) inspects traffic the router forwards between networks. Proxied and tunneled requests end at a program on the router, which then opens its own connection to the host, so neither leg is forwarded traffic. See [Threat protection](../threat-protection/README.md).
 
 ## Which one to use
 
@@ -71,17 +73,17 @@ All three are managed in Cockpit on the **Ingress** page, which has three tabs:
 
 | Tab | What it holds | Guide |
 | --- | --- | --- |
-| **Port forwards** | Static port forwards to registered hosts. | [Port forwards](/docs/ingress/port-forwards/) |
-| **Reverse proxy** | The proxy switch, **Publish hostnames**, the **Certificates** card for Let's Encrypt, and the routes with their certificate status. | [Reverse proxy](/docs/ingress/reverse-proxy/) |
-| **Tunnel** | The tunnel switch, its API token, the tunnel hostnames, and the **Tunnel status** card. | [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/) |
+| **Port forwards** | Static port forwards to registered hosts. | [Port forwards](port-forwards.md) |
+| **Reverse proxy** | The proxy switch, **Publish hostnames**, the **Certificates** card for Let's Encrypt, and the routes with their certificate status. | [Reverse proxy](reverse-proxy.md) |
+| **Tunnel** | The tunnel switch, its API token, the tunnel hostnames, and the **Tunnel status** card. | [Cloudflare Tunnel](cloudflare-tunnel.md) |
 
 The tabs share one **Save** button, pinned below them, whose menu offers **Save and apply**. **Save** writes the settings file; **Save and apply** also applies it. The Reverse proxy and Tunnel tabs check the whole configuration as you edit. When something would fail the build, they list it under **Fix these before applying**, and **Save and apply** stays disabled until you fix it.
 
-Port forwards used to live on the **Firewall** page, which now links here. UPnP and NAT-PMP stay on **Firewall → UPnP**; see [UPnP and NAT-PMP](/docs/ingress/port-forwards/#upnp-and-nat-pmp).
+Port forwards used to live on the **Firewall** page, which now links here. UPnP and NAT-PMP stay on **Firewall → UPnP**; see [UPnP and NAT-PMP](port-forwards.md#upnp-and-nat-pmp).
 
 ## Before you start: register the host
 
-Every ingress sends traffic to a registered host by name, never to a raw address. Register the device on the **Hosts** page and give it a **Static IP** (a DHCP reservation). IPv6 port forwards also need the host's **IPv6 suffix**. See [Hosts and host groups](/docs/network/hosts/).
+Every ingress sends traffic to a registered host by name, never to a raw address. Register the device on the **Hosts** page and give it a **Static IP** (a DHCP reservation). IPv6 port forwards also need the host's **IPv6 suffix**. See [Hosts and host groups](../network/hosts.md).
 
 **Add port forward**, **Add route** and **Add hostname** stay disabled until at least one host is registered.
 

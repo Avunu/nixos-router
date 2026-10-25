@@ -1,22 +1,21 @@
 ---
 title: Development
 description: Work on nixos-router itself, from the dev shell, checks and VM tests to the Cockpit plugin, the settings schema, these docs and CI.
+nav_title: Develop
+order: 9
 code:
   - flake.nix
   - .envrc
   - lib/settings.nix
   - tests
+  - tests/docs-lint.py
   - pkgs/cockpit-router/package.json
   - pkgs/cockpit-router/package.nix
   - pkgs/cockpit-router/build.js
   - pkgs/cockpit-router/src/schema.ts
   - pkgs/cockpit-router/src/router-settings.schema.json
-  - site/package.json
-  - site/scripts/lint-docs.ts
-  - docs/nav.json
   - .github/workflows/checks.yml
   - .github/workflows/schema-sync.yml
-  - .github/workflows/site.yml
   - .github/workflows/dependabot-auto-merge.yml
 ---
 
@@ -30,11 +29,11 @@ This page is for people changing nixos-router itself: the NixOS modules, the Coc
 | --- | --- |
 | `flake.nix` | The router module (`nixosModules.router`), the settings loader (`lib`), packages, dev shells, checks and the installer outputs. |
 | `modules/` | One module per area, such as `network.nix`, `firewall.nix` and `dns-technitium.nix`. `topology.nix` computes the interface model the others share. |
-| `lib/settings.nix` | The settings loader and its migrations. See [Settings migrations](/docs/develop/settings-migrations/). |
+| `lib/settings.nix` | The settings loader and its migrations. See [Settings migrations](settings-migrations.md). |
 | `pkgs/` | `cockpit-router` (the web UI plugin), `router-dns-tools`, `router-proxy`, `suricata-update-preflight`, and the Technitium packages built from source: `technitium-dns-server`, `technitium-library` and `technitium-apps`. |
 | `tests/` | Evaluation checks and NixOS VM tests. |
 | `local/` | The host flake template, `deploy.sh`, and example settings. |
-| `docs/`, `site/` | These docs, and the site that publishes them. |
+| `docs/` | These docs, in Markdown. The shared documentation site at docs.avunu.net builds and publishes them; see [Working on these docs](#working-on-these-docs). |
 
 ## The dev shell
 
@@ -72,6 +71,7 @@ Run every check, including the VM tests, with `nix flake check`. The VM tests bo
 | `ddns-cloudflare`, `cloudflare-tunnel` | Sandbox | `router-ddns` and the tunnel manager against a fake Cloudflare API. |
 | `suricata-update-preflight` | Sandbox | The Suricata rule-update self-heal. |
 | `technitium-server` | Sandbox | The compiled DNS server and apps are ReadyToRun images, carry the runtime feature switches, and ship no web console. |
+| `docs-lint` | Sandbox | The docs' front matter and the source paths a page's `code` list names, text a colon would delete, and images with no alt text. |
 | `cockpit-router` | Sandbox | The plugin's formatting, lint, type checks and unit tests. |
 | `router-schema-fresh` | Sandbox | The committed settings schema matches the options (x86_64 only). |
 | `technitium-vm` | VM | Filtering policies, static leases, the query log, the block page and reports. |
@@ -144,39 +144,52 @@ nix build .#packages.x86_64-linux.settingsSchema-router \
 
 If you forget, the `router-schema-fresh` check fails with `router-settings.schema.json is stale vs router.* options — regenerate it.` On a pull request from a branch of this repository, the `schema-sync` workflow regenerates the file and pushes the fix to your branch as `chore(schema): regenerate stale router-settings.schema.json`. Pull requests from forks have to regenerate it by hand.
 
-If the change renames, removes or reshapes an option that settings files can hold, it also needs a migration. See [Settings migrations](/docs/develop/settings-migrations/).
+If the change renames, removes or reshapes an option that settings files can hold, it also needs a migration. See [Settings migrations](settings-migrations.md).
 
 ## Working on these docs
 
-The docs are Markdown files in `docs/`, one per page. A page's address is its path under `docs/` without `.md`: `docs/network/hosts.md` is `/docs/network/hosts/`. The sidebar is `docs/nav.json`, and every page must be listed there. The site in `site/` is a [Jx](https://jxsuite.com) project that reads the pages from `docs/`.
+The docs are Markdown files in `docs/`. `docs/README.md` is the home page, a folder is a section of the sidebar, and a folder's `README.md` is that section's overview. A page's address is its path under `docs/` without `.md`: `docs/network/hosts.md` is `/nixos-router/docs/network/hosts/` on [docs.avunu.net](https://docs.avunu.net/nixos-router/docs/).
 
-Install the site's dependencies once, then preview with live reload:
+Every page opens with front matter:
+
+| Key | Meaning |
+| --- | --- |
+| `title` | The page title. Required. |
+| `description` | One sentence, shown in search results and link previews. Required. |
+| `nav_title` | A shorter name for the sidebar. On a section's `README.md` it names the section. |
+| `order` | A number: lower comes first, and pages without one come last, alphabetically. |
+| `code` | The source files the page describes. Each one must exist. |
+
+There is no separate sidebar file: the sidebar is made from the folders and these keys.
+
+The site is not built from this repository. [Avunu/site-docs](https://github.com/Avunu/site-docs) holds every Avunu project as a git submodule and builds all of their `docs/` folders into one site, with one look, one search and one project menu. It follows this project's latest release, so a docs change goes live with the next release.
+
+To preview a change, clone site-docs beside this repository and build it with your working copy in place of the submodule. You need Node 22.19 or newer:
 
 ```bash
-cd site
-bun install
-bun run dev
+git clone https://github.com/Avunu/site-docs
+cd site-docs
+npm ci --ignore-scripts
+npm run build
+node build/cli.js build --lenient --only nixos-router --source nixos-router=../nixos-router
+python3 -m http.server --directory dist 8000
 ```
 
-`bun install` also installs `oxfmt`, a development dependency the Jx dev server needs. `bun run dev` bundles the search client, which isn't committed, and then runs `jx dev`; `bunx jx dev` on its own leaves search broken. To preview a production build, run `bun run build`, then `bun run preview`.
-
-Before you push, run the checks from `site/`:
+Then open `http://localhost:8000/nixos-router/docs/`. `--lenient` prints document problems as warnings and still builds. Before you push, run the strict build that the site itself runs, which also crawls every link and anchor:
 
 ```bash
-bun run lint
-bun run check
+node build/cli.js check --only nixos-router --source nixos-router=../nixos-router
 ```
 
-`bun run lint` runs the docs linter, `scripts/lint-docs.ts`. `bun run check` runs `jx schema`, `jx validate`, the linter and the build, most of what CI's **site build** job runs.
+The site's [guide to writing documentation](https://docs.avunu.net/site-docs/docs/guide/writing-docs/) has the full conventions. The ones that matter most here:
 
-The linter checks each page's frontmatter (`title`, `description`, and that the paths listed under `code` exist), that the H1 matches the title, links and heading anchors between pages, image paths and alt text, and that `docs/nav.json` and the pages agree.
+- **Link between pages with relative file links,** such as `../ingress/reverse-proxy.md#choose-a-challenge`. The site rewrites them to addresses. Never write an address that starts with `/docs/`: it points at the root of the shared site, not at this project.
+- **Callouts use GitHub's alerts:** `> [!NOTE]`, `> [!TIP]` or `> [!WARNING]`.
+- **Diagrams are SVG files in `docs/images/`,** and every image has alt text.
+- **A colon directly followed by a letter or digit starts a directive,** which deletes the text after it, with no warning and a passing build. So a host and port such as `vpn.example.com:51820`, a time such as `03:00`, or an IPv6 address always goes in inline code or a code block. A colon followed by a space is fine.
+- **Reference-style links and footnotes do not render.** Write inline links.
 
-Two Markdown rules of Jx break pages without any warning, and the linter catches both:
-
-- **Never write a dollar sign directly followed by an opening curly brace,** anywhere in a page, code blocks included. Jx evaluates that sequence as a template expression in the browser, and there is no way to escape it. Write shell variables as `$VAR`, and show Nix without string interpolation.
-- **A colon directly followed by a letter or digit starts a directive,** which swallows the text after it. So a host and port such as `vpn.example.com:51820`, a time such as `03:00`, an IPv6 address such as `::10`, or a URL with a port always goes in inline code or a code block. A colon followed by a space is fine.
-
-Link between pages with site-absolute paths and a trailing slash, such as `/docs/ingress/reverse-proxy/`, never with relative `.md` links. Diagrams are SVG files in `docs/images/`.
+The `docs-lint` check enforces the front matter, the colon rule and the alt text, because the site cannot: it does not know this repository's paths, and it builds a page with a deleted word or an empty `alt` without complaint. It runs in CI's fast job, with the other sandbox checks. Everything else about a page is checked by the site.
 
 ## Branches and releases
 
@@ -186,14 +199,14 @@ Changes land on `develop`, the default branch. Open pull requests against `devel
 
 `main` is the release branch. Routers follow it, and nothing else is pushed to it. Until 1.0, features and breaking changes both raise the minor version, and fixes raise the patch.
 
-Dependabot pull requests target `develop` as well. Updates to the Nix inputs and to the Cockpit and Rust lockfiles are titled `fix(deps)`, so they reach routers through a release. Updates to the docs site and to the workflows are `chore`, and release nothing.
+Dependabot pull requests target `develop` as well. Updates to the Nix inputs and to the Cockpit and Rust lockfiles are titled `fix(deps)`, so they reach routers through a release. Updates to the workflows are `chore`, and release nothing.
 
 The release pull request is refreshed on every push to `develop`, and once a day at `00:30` UTC, which picks up Dependabot merges. Routers upgrade from `main` at `03:00`, so a release reaches them on the first upgrade after it passes its gate.
 
 Four things live in the repository settings rather than in the code. Each is set once:
 
 - **Auto-merge** is allowed under Settings → General → Pull Requests. Merging is squash-only, with the pull request title as the commit subject.
-- **A ruleset on `develop`** requires a pull request and the checks **drift + build (fast)**, **VM tests (slow)**, **site build** and **pr title**.
+- **A ruleset on `develop`** requires a pull request and the checks **drift + build (fast)**, **VM tests (slow)** and **pr title**.
 - **A ruleset on `main`** blocks deletion, force pushes and direct pushes. The owner of the release token is on its bypass list. Create it before `develop` becomes the default branch.
 - **The `RELEASE_TOKEN` secret** is a fine-grained personal access token for this repository, with write access to contents, pull requests, issues and workflows. The default `GITHUB_TOKEN` cannot do this job: the pull requests it opens get no checks, it cannot bypass a ruleset, and its pushes start no workflows.
 
@@ -208,8 +221,7 @@ Four things live in the repository settings rather than in the code. Each is set
 The other workflows:
 
 - **`schema-sync.yml`** regenerates a stale settings schema on pull requests, as described above.
-- **`site.yml`** builds the docs site on every pull request and deploys to GitHub Pages on every push to `main`. Its job is called **site build**.
 - **`dependabot-auto-merge.yml`** turns on auto-merge for every Dependabot pull request, Nix lock bumps included.
 - **`release.yml`** and **`pr-title.yml`** are described under Branches and releases above.
 
-The workflows rely on a ruleset on `develop`, set in the repository settings rather than in the code, that requires a pull request and the checks **drift + build (fast)**, **VM tests (slow)**, **site build** and **pr title**. It matters because there is no human review step for dependency bumps: a Dependabot pull request merges as soon as the required checks pass, and routers upgrade from `main` once a release carries the change there. The tests are the gate.
+The workflows rely on a ruleset on `develop`, set in the repository settings rather than in the code, that requires a pull request and the checks **drift + build (fast)**, **VM tests (slow)** and **pr title**. It matters because there is no human review step for dependency bumps: a Dependabot pull request merges as soon as the required checks pass, and routers upgrade from `main` once a release carries the change there. The tests are the gate.

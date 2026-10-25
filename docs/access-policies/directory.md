@@ -1,6 +1,7 @@
 ---
 title: Directory groups
 description: Connect the router to LDAP or Active Directory through SSSD so access policies follow users' directory groups, without a rebuild when membership changes.
+order: 5
 code:
   - modules/directory-sync.nix
   - modules/hosts.nix
@@ -23,7 +24,7 @@ Directory groups let a policy follow people instead of devices. You connect the 
 1. **A device belongs to a user.** On the Hosts page, a device with a **Static IP** has its **User** field set to a directory login name, such as `jdoe`.
 2. **The router looks the user up.** `router-directory-sync` asks the operating system for the user and their groups, the same lookup `id jdoe` does on the router. SSSD answers from your directory and handles the connection, TLS, credentials and caching. The group list includes the user's primary group, which Active Directory never lists among a group's members. A policy targeting `Domain Users`, or a group made primary for a class or department, therefore works.
 3. **The result is saved.** The sync writes the users and groups it resolved to `/var/lib/router-directory/directory.json`, and its status to `status.json` in the same directory.
-4. **Policies are recompiled without a rebuild.** A path unit watches `directory.json`. When it changes, `router-policy-push.service` recompiles the policies and pushes them to the DNS server. The device's reserved address now maps to the policy of the user's highest-priority targeted group. See [Assign policies](/docs/access-policies/assignments/#tier-2-directory-group).
+4. **Policies are recompiled without a rebuild.** A path unit watches `directory.json`. When it changes, `router-policy-push.service` recompiles the policies and pushes them to the DNS server. The device's reserved address now maps to the policy of the user's highest-priority targeted group. See [Assign policies](assignments.md#tier-2-directory-group).
 
 The sync runs two minutes after boot, then every **Sync interval (minutes)** (60 by default, between 5 and 1440). It also runs when you apply a configuration change, and when you click **Sync now** on the Users page. SSSD caches each entry for 90 minutes by default, so a group change in the directory can take up to the cache time plus the sync interval to reach the router.
 
@@ -53,7 +54,7 @@ What that means in practice:
 - **A read-only service account.** An ordinary user account is enough; it needs no delegation or admin rights. Google Workspace Secure LDAP uses a client certificate instead.
 - **The CA certificate** that issued your directory servers' LDAPS certificates, if it isn't a public CA. Active Directory's usually is an internal enterprise CA.
 - **SSH access to the router** to store the secrets. Secrets are always file paths in the settings, never the values themselves.
-- **Devices registered with a static IP.** See [Hosts and host groups](/docs/network/hosts/).
+- **Devices registered with a static IP.** See [Hosts and host groups](../network/hosts.md).
 
 ## Store the secrets
 
@@ -107,7 +108,7 @@ The file holds only the password; a trailing newline is removed. Before SSSD sta
    `getent passwd jdoe` must print the user, and `id -Gn jdoe` must list the groups your policies target. `status.json` should show `"ok": true` and an empty `unresolved` list.
 
 8. Assign devices to users: on **Hosts**, edit each device, give it a **Static IP**, and type the login name in **User**. The field's help text reads "The directory login name, exactly as `id <name>` resolves it on the router."
-9. Target groups from policies: in the policy editor, type each group under **Directory groups**. See [Assign policies](/docs/access-policies/assignments/).
+9. Target groups from policies: in the policy editor, type each group under **Directory groups**. See [Assign policies](assignments.md).
 
 ### Plain LDAP and StartTLS
 
@@ -173,7 +174,7 @@ Entra ID has no LDAP endpoint. To drive policies from it, you need Microsoft Ent
 
 ### No directory
 
-If you have neither an on-premises directory nor a service with LDAP, use [host groups](/docs/network/hosts/) instead. They target sets of devices and need no directory.
+If you have neither an on-premises directory nor a service with LDAP, use [host groups](../network/hosts.md) instead. They target sets of devices and need no directory.
 
 ## The Users page
 
@@ -231,5 +232,5 @@ journalctl -u router-directory-sync -n 50
 - **"Directory sync failed".** No referenced user resolved. Check that SSSD is running and online with the commands above, and that the servers are reachable from the router. The last good data stays in use.
 - **"Some referenced names could not be resolved".** A device's **User** or a policy's directory group doesn't match the directory. Fix the spelling under **Hosts** or in the policy. Use `getent passwd <name>` or `getent group <name>` to test a spelling.
 - **A user or group is right in the directory but wrong on the router.** The entry is cached. Run `sudo sss_cache -E` to clear SSSD's cache and `sudo systemctl restart nscd` to clear the system's name cache, then click **Sync now**.
-- **A user's devices don't get the group's policy.** Check on **Access Policies → Preview** with **Directory user**. The device needs a **Static IP**, and a host group policy beats a directory group policy. See [Assign policies](/docs/access-policies/assignments/).
+- **A user's devices don't get the group's policy.** Check on **Access Policies → Preview** with **Directory user**. The device needs a **Static IP**, and a host group policy beats a directory group policy. See [Assign policies](assignments.md).
 - **The Users page is empty.** Normal until a device or policy references a directory name. See [Names are looked up on demand](#names-are-looked-up-on-demand).

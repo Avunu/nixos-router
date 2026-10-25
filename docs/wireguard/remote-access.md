@@ -1,6 +1,7 @@
 ---
 title: Remote access
 description: Let laptops and phones reach the LAN, and optionally the internet, through the router from anywhere, with one WireGuard peer per device.
+order: 3
 code:
   - modules/network.nix
   - modules/firewall.nix
@@ -18,7 +19,7 @@ WireGuard gives laptops and phones an encrypted way into your LAN from anywhere.
 
 ## Before you start
 
-- **A public name for the router,** such as `hq.example.com`, kept current by [dynamic DNS](/docs/dynamic-dns/), or a fixed public IP.
+- **A public name for the router,** such as `hq.example.com`, kept current by [dynamic DNS](../dynamic-dns/README.md), or a fixed public IP.
 - **The listen port reachable from the internet.** The router opens it on its WAN. An ISP modem in front of the router needs a UDP port forward to it. A router behind carrier-grade NAT (a WAN address in `100.64.0.0/10`) can't accept devices at all.
 - **WireGuard on each device.** There are official WireGuard apps for Windows, macOS, iOS and Android. Linux uses wg-quick or NetworkManager.
 
@@ -40,7 +41,7 @@ This page uses the tunnel `wg1` with the address `10.100.1.1/24` on UDP port 518
 4. Click **Generate keypair** and copy the key under **Public key (share with peers)**. Every device needs it.
 5. Choose **Save and apply** from the **Save** menu. A tunnel with no peers yet is fine.
 
-[Set up a tunnel](/docs/wireguard/#set-up-a-tunnel) describes every field.
+[Set up a tunnel](README.md#set-up-a-tunnel) describes every field.
 
 ## Add a device
 
@@ -123,9 +124,9 @@ This tunnel carries IPv4 only. With `0.0.0.0/0` alone, the device still sends IP
 
 ## DNS and access policies
 
-A device that uses the router's tunnel address as its DNS server sends queries from its own tunnel address. That address belongs to the **WireGuard** network, which covers every tunnel's address and every peer's Allowed IPs. To filter remote devices, edit a policy under **Access Policies** and, under **Assignments**, either check **WireGuard** under **Networks**, or add `10.100.1.0/24` under **Subnets (CIDR)** to cover only this tunnel ([Assign policies](/docs/access-policies/assignments/)). Otherwise the default policy applies.
+A device that uses the router's tunnel address as its DNS server sends queries from its own tunnel address. That address belongs to the **WireGuard** network, which covers every tunnel's address and every peer's Allowed IPs. To filter remote devices, edit a policy under **Access Policies** and, under **Assignments**, either check **WireGuard** under **Networks**, or add `10.100.1.0/24` under **Subnets (CIDR)** to cover only this tunnel ([Assign policies](../access-policies/assignments.md)). Otherwise the default policy applies.
 
-The router doesn't force tunnel devices onto its DNS the way it does LAN devices ([DNS enforcement](/docs/access-policies/dns-enforcement/)). A device set to use another DNS server gets no access policy at all.
+The router doesn't force tunnel devices onto its DNS the way it does LAN devices ([DNS enforcement](../access-policies/dns-enforcement.md)). A device set to use another DNS server gets no access policy at all.
 
 ## Open Cockpit over the tunnel
 
