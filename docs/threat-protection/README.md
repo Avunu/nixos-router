@@ -1,6 +1,7 @@
 ---
 title: Threat protection
 description: Suricata inspects the traffic the router forwards, alerts on known threats, and can drop them. How it's wired in and what it can't see.
+order: 4
 code:
   - modules/threat-protection.nix
   - modules/firewall.nix
@@ -20,11 +21,11 @@ Suricata runs in one of two modes, set on **Threat Protection → Settings**:
 - **IDS mode** (the default): Suricata raises alerts, and the router converts no rules to drop. Traffic flows as before, and you see what matched.
 - **IPS mode**: the router applies the drop actions you set per category or per signature on the **Policies** tab, and Suricata drops packets that match those rules.
 
-Both modes load the same rules and alert on the same traffic. The mode only decides whether your drop actions are applied. A rule you write yourself with the `drop` action drops in either mode; see [Extra local rules](/docs/threat-protection/tuning/#extra-local-rules).
+Both modes load the same rules and alert on the same traffic. The mode only decides whether your drop actions are applied. A rule you write yourself with the `drop` action drops in either mode; see [Extra local rules](tuning.md#extra-local-rules).
 
 ## How a packet reaches Suricata
 
-![A forwarded packet passes the main firewall chain first. Packets it drops never reach Suricata. Accepted packets go to the inet ips chain, which queues them to NFQUEUE 0. Suricata returns an accept or drop verdict. If Suricata isn't attached, the bypass flag passes the packet straight through.](./images/ips-path.svg)
+![A forwarded packet passes the main firewall chain first. Packets it drops never reach Suricata. Accepted packets go to the inet ips chain, which queues them to NFQUEUE 0. Suricata returns an accept or drop verdict. If Suricata isn't attached, the bypass flag passes the packet straight through.](../images/ips-path.svg)
 
 1. A packet the router forwards enters the nftables forward hook. That covers LAN to internet, internet to a port-forwarded host, WireGuard to LAN, and guest to internet.
 2. The main firewall chain (`inet filter`, policy drop) decides first. Anything it drops never reaches Suricata, so guest isolation and the rest of the firewall policy work the same with the IPS on or off.
@@ -41,9 +42,9 @@ Most rules are written in terms of `$HOME_NET`, the networks you protect, and `$
 - the guest subnet, when the guest network is on
 - each WireGuard interface's address, for example `10.100.0.1/24`, and every peer's allowed IPs
 
-`$EXTERNAL_NET` is everything not in `$HOME_NET`. Neither is a setting; they follow your network and [WireGuard](/docs/wireguard/) configuration.
+`$EXTERNAL_NET` is everything not in `$HOME_NET`. Neither is a setting; they follow your network and [WireGuard](../wireguard/README.md) configuration.
 
-The LAN and guest entries are IPv4 only. The IPv6 prefix your ISP delegates isn't part of `$HOME_NET`, so your hosts' IPv6 addresses count as external. Forwarded IPv6 traffic is still queued and inspected, but rules keyed on `$HOME_NET` don't match it, including inbound IPv6 [port forwards](/docs/ingress/port-forwards/).
+The LAN and guest entries are IPv4 only. The IPv6 prefix your ISP delegates isn't part of `$HOME_NET`, so your hosts' IPv6 addresses count as external. Forwarded IPv6 traffic is still queued and inspected, but rules keyed on `$HOME_NET` don't match it, including inbound IPv6 [port forwards](../ingress/port-forwards.md).
 
 ## What it doesn't do
 
@@ -53,11 +54,11 @@ The LAN and guest entries are IPv4 only. The IPv6 prefix your ISP delegates isn'
 - **It doesn't block anything in IDS mode**, apart from `drop` rules you write yourself.
 - **It doesn't protect while Suricata is down or overloaded.** Traffic passes uninspected; see above.
 - **It doesn't match `$HOME_NET` rules on IPv6.**
-- **It doesn't replace DNS filtering.** The built-in DNS-over-HTTPS rules only alert. Blocking DoH providers is the resolver's job; see [DNS enforcement](/docs/access-policies/dns-enforcement/).
+- **It doesn't replace DNS filtering.** The built-in DNS-over-HTTPS rules only alert. Blocking DoH providers is the resolver's job; see [DNS enforcement](../access-policies/dns-enforcement.md).
 - **It doesn't send notifications.** You review events in Cockpit or in the journal.
 
 ## In this section
 
-- [Turn it on](/docs/threat-protection/setup/): enable Suricata in IDS mode, what it costs, and how rules are updated.
-- [Tune the rules](/docs/threat-protection/tuning/): triage events, then disable, suppress or drop signatures, and add your own rules.
-- [Events and logs](/docs/threat-protection/monitoring/): the Overview and Statistics tabs, logs on disk, commands and troubleshooting.
+- [Turn it on](setup.md): enable Suricata in IDS mode, what it costs, and how rules are updated.
+- [Tune the rules](tuning.md): triage events, then disable, suppress or drop signatures, and add your own rules.
+- [Events and logs](monitoring.md): the Overview and Statistics tabs, logs on disk, commands and troubleshooting.

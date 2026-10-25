@@ -6,11 +6,10 @@
 # that `develop` runs, at the tag and with the Cachix push enabled. Nothing pushes to `main` by hand,
 # and nothing force-pushes it.
 #
-# WHY A PERSONAL TOKEN (RELEASE_TOKEN) AND NOT GITHUB_TOKEN. GITHUB_TOKEN cannot do three things here:
+# WHY A PERSONAL TOKEN (RELEASE_TOKEN) AND NOT GITHUB_TOKEN. GITHUB_TOKEN cannot do two things here:
 #   * a pull request it opens gets no CI, because GitHub starts no workflow for an event that
 #     GITHUB_TOKEN caused, so the release pull request's required checks would never report;
-#   * it cannot be a bypass actor on the `main` ruleset, so `main` could not be locked to releases;
-#   * its push to `main` raises no `push` event, so the docs deploy in site.yml would not run.
+#   * it cannot be a bypass actor on the `main` ruleset, so `main` could not be locked to releases.
 # The token's owner must be on the bypass list of the `main` ruleset. docs/develop.md says how.
 #
 # WHY A SCHEDULE. Dependabot merges are made with GITHUB_TOKEN, which raises no `push` event on

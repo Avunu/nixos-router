@@ -1,6 +1,8 @@
 ---
 title: Cloudflare dynamic DNS
 description: Keep A and AAAA records on Cloudflare pointed at the router's changing public addresses, for the router itself and for devices behind it.
+nav_title: Dynamic DNS
+order: 5
 code:
   - modules/ddns.nix
   - modules/hosts.nix
@@ -21,13 +23,13 @@ code:
 
 Dynamic DNS keeps public names pointed at the router's public addresses as your ISP changes them. It writes A records for the WAN IPv4 address and AAAA records for IPv6, both for the router itself and for registered devices behind it. It works only with DNS zones hosted on Cloudflare, through the Cloudflare API. Other DNS providers aren't supported.
 
-Publishing a name doesn't open anything. Traffic to the name still needs a [port forward](/docs/ingress/port-forwards/), the [reverse proxy](/docs/ingress/reverse-proxy/) or another way in. [Choose an ingress](/docs/ingress/) compares them.
+Publishing a name doesn't open anything. Traffic to the name still needs a [port forward](../ingress/port-forwards.md), the [reverse proxy](../ingress/reverse-proxy.md) or another way in. [Choose an ingress](../ingress/README.md) compares them.
 
 ## Before you start
 
 - **A domain on Cloudflare.** Every name you publish, such as `home.example.com`, must sit in an active zone of your Cloudflare account.
-- **A Cloudflare API token** with **Zone → Zone → Read** and **Zone → DNS → Edit** on those zones. [Cloudflare API tokens](/docs/reference/cloudflare-tokens/) shows how to create one.
-- **For a device name:** the device registered on the **Hosts** page with a **Public hostname**. For its IPv4 record to be useful it needs a **Static IP**; for an AAAA record it needs a stable **IPv6 suffix**. See [Hosts and host groups](/docs/network/hosts/).
+- **A Cloudflare API token** with **Zone → Zone → Read** and **Zone → DNS → Edit** on those zones. [Cloudflare API tokens](../reference/cloudflare-tokens.md) shows how to create one.
+- **For a device name:** the device registered on the **Hosts** page with a **Public hostname**. For its IPv4 record to be useful it needs a **Static IP**; for an AAAA record it needs a stable **IPv6 suffix**. See [Hosts and host groups](../network/hosts.md).
 
 ## Set up dynamic DNS
 
@@ -58,15 +60,15 @@ Each name gets an A record, an AAAA record, or both:
 | A host's **Public hostname** | The WAN IPv4 address | The host network's current delegated /64 plus the host's **IPv6 suffix**; none if the host has no suffix |
 | Each reverse proxy hostname, while **Publish hostnames** is on | The WAN IPv4 address | The router's own global IPv6 address |
 
-A device has no public IPv4 address of its own, so its A record is the router's WAN address. A client connecting over IPv4 reaches the router, which passes the traffic on only through an IPv4 [port forward](/docs/ingress/port-forwards/) to the host's **Static IP** or a [reverse proxy](/docs/ingress/reverse-proxy/) route.
+A device has no public IPv4 address of its own, so its A record is the router's WAN address. A client connecting over IPv4 reaches the router, which passes the traffic on only through an IPv4 [port forward](../ingress/port-forwards.md) to the host's **Static IP** or a [reverse proxy](../ingress/reverse-proxy.md) route.
 
-A device's AAAA record is the device's own address. The router combines the /64 that the device's network (`br-lan` or `br-guest`) currently holds from the ISP's delegated prefix with the host's **IPv6 suffix**, such as `::42`. It computes the address rather than learning it, so the device doesn't have to be online. The suffix must be one the device keeps across prefix changes: a token set on the device, or its EUI-64 identifier if it really builds its address from its MAC. Privacy, temporary and RFC 7217 "stable-privacy" addresses change with the prefix, so the record would stop matching. [Hosts and host groups](/docs/network/hosts/) explains how to pick one. The AAAA record doesn't open the firewall; the device still needs an IPv6 port forward.
+A device's AAAA record is the device's own address. The router combines the /64 that the device's network (`br-lan` or `br-guest`) currently holds from the ISP's delegated prefix with the host's **IPv6 suffix**, such as `::42`. It computes the address rather than learning it, so the device doesn't have to be online. The suffix must be one the device keeps across prefix changes: a token set on the device, or its EUI-64 identifier if it really builds its address from its MAC. Privacy, temporary and RFC 7217 "stable-privacy" addresses change with the prefix, so the record would stop matching. [Hosts and host groups](../network/hosts.md) explains how to pick one. The AAAA record doesn't open the firewall; the device still needs an IPv6 port forward.
 
 A name points one way only. It can be a router name or a device's public hostname, not both. The **Hosts** page refuses a public hostname that another device or the router already uses, with "Already used by another device or by the router.", and the build refuses the same clash (see [Validation errors and warnings](#validation-errors-and-warnings)).
 
 ## Reverse proxy hostnames
 
-When the [reverse proxy](/docs/ingress/reverse-proxy/) is enabled and its **Publish hostnames** switch is on (the default), dynamic DNS also publishes every route hostname as a name for the router, exactly like a router name. The HTTP certificate challenge depends on these records.
+When the [reverse proxy](../ingress/reverse-proxy.md) is enabled and its **Publish hostnames** switch is on (the default), dynamic DNS also publishes every route hostname as a name for the router, exactly like a router name. The HTTP certificate challenge depends on these records.
 
 - Don't add route hostnames to **Router names** as well. The build refuses the duplicate.
 - They don't appear under **Router names** or **Device names**, but they do appear in the **Last update** table.
@@ -127,7 +129,7 @@ Dynamic DNS is the `ddns` key of `/etc/nixos/router-settings.json`. A device nam
 }
 ```
 
-Reverse proxy hostnames come from `reverseProxy.routes[].hostnames` and are published while `reverseProxy.publishDns` is `true`. See [The settings file](/docs/start/settings-file/) for how the file is edited and applied.
+Reverse proxy hostnames come from `reverseProxy.routes[].hostnames` and are published while `reverseProxy.publishDns` is `true`. See [The settings file](../start/settings-file.md) for how the file is edited and applied.
 
 ## How it works
 
@@ -167,7 +169,7 @@ These rules are about records made by hand. A record tagged `managed by nixos-ro
 
 ### Names moved to or from the tunnel
 
-The [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/) tags its CNAMEs with the same comment. A name can't be in both at once, but you can move one from the tunnel to dynamic DNS, or back, in a single **Save and apply**. The two services then run in no fixed order, so for a moment the name can still hold the other one's record:
+The [Cloudflare Tunnel](../ingress/cloudflare-tunnel.md) tags its CNAMEs with the same comment. A name can't be in both at once, but you can move one from the tunnel to dynamic DNS, or back, in a single **Save and apply**. The two services then run in no fixed order, so for a moment the name can still hold the other one's record:
 
 - **Taking the name over.** Dynamic DNS deletes the tunnel's CNAME without remembering it, since it was never yours. The tunnel still remembers the record it replaced there, and puts that back itself once dynamic DNS lets go of the name.
 - **Letting the name go.** If the tunnel already holds the name when dynamic DNS goes to put your CNAME back, dynamic DNS keeps your CNAME rather than dropping it. The row shows `unchanged` with "waiting until the tunnel releases the name", and each later run tries again, including runs with dynamic DNS off. Once the name leaves the tunnel too, the next run puts your CNAME back and the row shows `created`.
@@ -236,9 +238,8 @@ Turning off **Enable dynamic DNS** deletes the router's records from Cloudflare 
 
 The tab says the same under the switch: "Turning dynamic DNS off keeps the token, so the router can delete its records and put back the CNAMEs they replaced — remove the token only after that has run." Once there's nothing left to delete, later runs do nothing. If the token file itself is gone, systemd skips the service, and nothing is deleted.
 
-:::doc-warning
-If you remove the token before the cleanup has run, the router can't delete anything. The records keep their last addresses, and replaced CNAMEs stay gone, until you fix them in the Cloudflare dashboard.
-:::
+> [!WARNING]
+> If you remove the token before the cleanup has run, the router can't delete anything. The records keep their last addresses, and replaced CNAMEs stay gone, until you fix them in the Cloudflare dashboard.
 
 ### Turned off before the upgrade
 
@@ -288,7 +289,7 @@ The rebuild stops with an error and keeps running with a warning. Both appear in
   The reverse proxy already publishes this route hostname. Remove it from **Router names**.
 - `router.cloudflareTunnel.ingress: wiki.example.com is also published by router.ddns.names — a name can only point one way`
 
-  While the [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/) is enabled, its hostnames are CNAMEs to Cloudflare and can't also be dynamic DNS names. The same message names a host (`publicHostname`) when the clash is with a device name. Remove the name from one of the two.
+  While the [Cloudflare Tunnel](../ingress/cloudflare-tunnel.md) is enabled, its hostnames are CNAMEs to Cloudflare and can't also be dynamic DNS names. The same message names a host (`publicHostname`) when the clash is with a device name. Remove the name from one of the two.
 
 A **Check every (minutes)** value outside 1 to 1440 turns the field red, and the build rejects it as the wrong type for `router.ddns.intervalMinutes`.
 
@@ -318,7 +319,7 @@ A **Check every (minutes)** value outside 1 to 1440 turns the field red, and the
 
 The **Result** is `error`, and the note shows the failed call and Cloudflare's message, such as `GET /zones/.../dns_records:` followed by an authentication error. The token is wrong, revoked or expired, or it lacks a permission on that zone.
 
-Check the token in the Cloudflare dashboard. It needs **Zone → Zone → Read** and **Zone → DNS → Edit** on the zone of every name, including reverse proxy hostnames and device names. Fix the token or create a new one, then click **Set token…**, save it, and click **Update now**. See [Cloudflare API tokens](/docs/reference/cloudflare-tokens/).
+Check the token in the Cloudflare dashboard. It needs **Zone → Zone → Read** and **Zone → DNS → Edit** on the zone of every name, including reverse proxy hostnames and device names. Fix the token or create a new one, then click **Set token…**, save it, and click **Update now**. See [Cloudflare API tokens](../reference/cloudflare-tokens.md).
 
 ### "no Cloudflare zone found for …"
 
@@ -348,7 +349,7 @@ The **Last run** label shows `no Cloudflare API token (router.ddns.cloudflare.ap
 **WAN IPv4** shows "(behind another NAT — detected via Cloudflare)". The WAN interface holds a private or CGNAT address, so the router published the public address Cloudflare saw its traffic come from.
 
 - **Behind your own modem or router** (the WAN address is in `192.168.0.0/16`, `10.0.0.0/8` or `172.16.0.0/12`): the published address is that device's public address, which is correct. Inbound traffic still stops there. Forward the ports on that device to this router's WAN address, or put it in bridge mode.
-- **Behind the ISP's CGNAT** (the WAN address is in `100.64.0.0/10`): the published address belongs to the carrier's shared NAT. Connections to it never reach your router, so IPv4 port forwards and the reverse proxy can't work. If the ISP delegates an IPv6 prefix, the AAAA records still work, and turning off **Publish IPv4 (A)** stops clients from trying the unreachable A record. Otherwise ask the ISP for a public IPv4 address, or use a [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/), which needs no inbound connection at all.
+- **Behind the ISP's CGNAT** (the WAN address is in `100.64.0.0/10`): the published address belongs to the carrier's shared NAT. Connections to it never reach your router, so IPv4 port forwards and the reverse proxy can't work. If the ISP delegates an IPv6 prefix, the AAAA records still work, and turning off **Publish IPv4 (A)** stops clients from trying the unreachable A record. Otherwise ask the ISP for a public IPv4 address, or use a [Cloudflare Tunnel](../ingress/cloudflare-tunnel.md), which needs no inbound connection at all.
 
 ### A proxied name doesn't work for SSH, WireGuard or other services
 

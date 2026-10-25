@@ -1,6 +1,7 @@
 ---
 title: DNS enforcement
 description: How the router keeps clients on its filtering resolver, what it can't enforce, SafeSearch, the resolver settings, and split-horizon DNS records.
+order: 4
 code:
   - modules/firewall.nix
   - modules/dns-technitium.nix
@@ -39,7 +40,7 @@ DHCP on the LAN hands out the LAN gateway address as the DNS server, and the gue
 - **Port 853:** the router doesn't offer DNS over TLS or DNS over QUIC, so the firewall drops TCP and UDP port 853 from the LAN and guest networks to anywhere. Android's automatic Private DNS mode falls back to ordinary DNS. A device set to a specific private DNS provider has no DNS until that setting is changed.
 - **IPv6 port 53:** the device and directory tiers of a policy are anchored to each device's IPv4 reservation, so an IPv6 query could only ever get the default policy, a bypass for any device on a stricter one. The router doesn't advertise an IPv6 DNS server, and it drops TCP and UDP port 53 over IPv6 from the LAN and guest networks, both to the router and to outside servers. Clients use IPv4 DNS instead.
 
-The drops live in their own nftables table, `inet dns_bypass`, which runs before the main firewall rules. See [Troubleshooting](/docs/access-policies/troubleshooting/#useful-commands) to inspect it.
+The drops live in their own nftables table, `inet dns_bypass`, which runs before the main firewall rules. See [Troubleshooting](troubleshooting.md#useful-commands) to inspect it.
 
 ### Blocked DoH providers
 
@@ -73,7 +74,7 @@ The router creates a small zone for each name, holding an ANAME record that poin
 
 ### Suricata alerts
 
-When [threat protection](/docs/threat-protection/) is on, Suricata loads local rules that raise alerts, without blocking, for bypass attempts from your networks:
+When [threat protection](../threat-protection/README.md) is on, Suricata loads local rules that raise alerts, without blocking, for bypass attempts from your networks:
 
 | SID | Alert |
 | --- | --- |
@@ -85,7 +86,7 @@ The DoH rules catch clients that already know a resolver's IP address, for examp
 
 ## What the router does not enforce
 
-- **WireGuard clients.** DNS arriving over WireGuard isn't redirected, and the port 853 and IPv6 drops don't apply. A WireGuard peer is filtered only if its configuration names the router as its DNS server. The router treats WireGuard peers as trusted devices. See [WireGuard](/docs/wireguard/).
+- **WireGuard clients.** DNS arriving over WireGuard isn't redirected, and the port 853 and IPv6 drops don't apply. A WireGuard peer is filtered only if its configuration names the router as its DNS server. The router treats WireGuard peers as trusted devices. See [WireGuard](../wireguard/README.md).
 - **Clients on a VPN or proxy.** A device with its own VPN sends DNS through the tunnel, out of the router's reach. The `vpn` and `redirector` categories block many VPN and proxy websites, but not a VPN that is already configured.
 - **DoH the list doesn't know.** A resolver that isn't on the list, or that the client reaches by IP address, isn't blocked. Suricata can alert on some of these.
 - **Apps with hard-coded addresses.** An app that connects by IP address never asks DNS.
@@ -166,7 +167,7 @@ Because a forward zone sends its entire subtree elsewhere, an override for a nam
 
 With **Publish static hosts** on (the default), every device on the Hosts page that has a static IP gets an `A` record named after it under the LAN domain, plus a reverse `PTR` record. The name is lowercased, and characters other than letters and digits become hyphens: a device named "Lab PC 01" becomes `lab-pc-01.lan`. DHCP hands out the LAN domain as the search domain, so a bare `lab-pc-01` resolves too.
 
-If two device names reduce to the same label, neither is published, and the build warns with that label. A device whose name matches an override, or the router's own name, is skipped as well. Registered devices without a static IP are also answered under the LAN domain, looked up live. See [Hosts and host groups](/docs/network/hosts/).
+If two device names reduce to the same label, neither is published, and the build warns with that label. A device whose name matches an override, or the router's own name, is skipped as well. Registered devices without a static IP are also answered under the LAN domain, looked up live. See [Hosts and host groups](../network/hosts.md).
 
 A device with a public hostname and a static IP is also answered with its LAN address for that public name. The router doesn't loop traffic back from its WAN address, so a LAN client given the public address couldn't reach the device.
 

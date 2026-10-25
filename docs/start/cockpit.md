@@ -1,6 +1,7 @@
 ---
 title: The web UI
 description: Sign in to Cockpit, find your way around the router pages, save and apply changes, and follow rebuilds.
+order: 2
 code:
   - modules/system.nix
   - modules/cockpit-cert.nix
@@ -37,7 +38,7 @@ Open Cockpit at `https://<router>:9090` from a computer on the LAN. Any of these
 - the router's address on a WireGuard tunnel, such as `https://10.100.0.1:9090` or `https://[fd00:100::1]:9090`, over that tunnel;
 - the router's domain name, such as `https://gw.example.com:9090`, once you set one. See [A trusted certificate](#a-trusted-certificate).
 
-Over WireGuard, the LAN gateway address works too when the client's tunnel sends the LAN subnet to the router, and so does `router.lan` if the client also resolves names through the router. See [WireGuard](/docs/wireguard/) for setting up the tunnel.
+Over WireGuard, the LAN gateway address works too when the client's tunnel sends the LAN subnet to the router, and so does `router.lan` if the client also resolves names through the router. See [WireGuard](../wireguard/README.md) for setting up the tunnel.
 
 Sign in with the admin account (`adminUser.name`, `admin` by default) and its password. After a fresh install, that is the initial password from the settings file; change it on Cockpit's **Accounts** page.
 
@@ -46,16 +47,15 @@ Sign in with the admin account (`adminUser.name`, `admin` by default) and its pa
 - **Known names only.** Cockpit accepts only the LAN gateway address, each WireGuard tunnel's address, `<hostName>.local`, `<hostName>.<lan.domain>` and the router's domain name, not the router's WAN address or any other public name. It compares them with the browser's address as written, ignoring only case, so an IPv6 tunnel address works only if **Address (CIDR)** holds it in the compressed form browsers use: `fd00:100::1/64`, not `fd00:0100:0:0::1/64`. To reach it by another name, for example through a reverse proxy, add that origin to `router.cockpit.allowedOrigins` in the host flake. Each entry is a glob, so escape an IPv6 address's brackets: `"https://\\[2001:db8::1\\]:9090"`.
 - **Slow retries.** Each failed password costs a short delay, so the login can't be guessed at network speed.
 
-:::doc-note
-The router pages need administrative access. If Cockpit's top bar shows **Limited access**, click it and enter your password. Without it, saving and applying fail. If only root can read the settings file, as after a network install (`local/deploy.sh`), the pages can't even load it: each settings form is replaced by "Administrative access is needed to read and change the router settings.", and the **System** page offers no rebuilds. A rebuild that is already running still shows. Once you switch, the pages load the settings again on their own, with no need to reload the page.
-:::
+> [!NOTE]
+> The router pages need administrative access. If Cockpit's top bar shows **Limited access**, click it and enter your password. Without it, saving and applying fail. If only root can read the settings file, as after a network install (`local/deploy.sh`), the pages can't even load it: each settings form is replaced by "Administrative access is needed to read and change the router settings.", and the **System** page offers no rebuilds. A rebuild that is already running still shows. Once you switch, the pages load the settings again on their own, with no need to reload the page.
 
 ## A trusted certificate
 
 Give the router a domain name and Cockpit serves a Let's Encrypt certificate for it, so the browser no longer warns.
 
 1. Choose a name in a zone your Cloudflare account manages, such as `gw.example.com`. It needs no DNS record: the router answers it with its LAN address for LAN and WireGuard clients, and Let's Encrypt checks it through a TXT record the router creates with the Cloudflare API.
-2. On **Ingress → Reverse proxy**, fill in the **Certificates** card: **Contact email**, the terms of service, and **Cloudflare API token file** with a token that has Zone → Zone → Read and Zone → DNS → Edit on that zone. See [Cloudflare API tokens](/docs/reference/cloudflare-tokens/).
+2. On **Ingress → Reverse proxy**, fill in the **Certificates** card: **Contact email**, the terms of service, and **Cloudflare API token file** with a token that has Zone → Zone → Read and Zone → DNS → Edit on that zone. See [Cloudflare API tokens](../reference/cloudflare-tokens.md).
 3. On **System → Settings**, enter the name in **Domain name** and choose **Save and apply** from the **Save** menu.
 
 When the certificate is issued, open `https://gw.example.com:9090`. Under **Domain name**, **Certificate** shows the certificate's state, and **Renew now** orders a new one.
@@ -74,16 +74,16 @@ The router adds these entries to Cockpit's menu, next to Cockpit's own pages suc
 | Menu entry | What it's for |
 | --- | --- |
 | **Reports** | DNS query overview, the query log, and scheduled PDF reports. |
-| **Access Policies** | DNS filtering policies, who they apply to, a preview, the block page, and exception requests from it. See [Access policies](/docs/access-policies/). |
-| **Hosts** | The device registry and device groups. See [Hosts and host groups](/docs/network/hosts/). |
+| **Access Policies** | DNS filtering policies, who they apply to, a preview, the block page, and exception requests from it. See [Access policies](../access-policies/README.md). |
+| **Hosts** | The device registry and device groups. See [Hosts and host groups](../network/hosts.md). |
 | **DNS** | Local DNS overrides, forward zones, and resolver settings. |
 | **Users** | Directory users and groups (LDAP or Active Directory) and the directory connection. |
-| **Network** | Interfaces, WAN, LAN, guest network, WireGuard, dynamic DNS and diagnostics. See [Networks and VLANs](/docs/network/). |
-| **Ingress** | Port forwards, the reverse proxy and the Cloudflare Tunnel. See [Ingress](/docs/ingress/). |
-| **Threat Protection** | The Suricata IPS: overview, events, rule policies, statistics and settings. See [Threat protection](/docs/threat-protection/). |
+| **Network** | Interfaces, WAN, LAN, guest network, WireGuard, dynamic DNS and diagnostics. See [Networks and VLANs](../network/README.md). |
+| **Ingress** | Port forwards, the reverse proxy and the Cloudflare Tunnel. See [Ingress](../ingress/README.md). |
+| **Threat Protection** | The Suricata IPS: overview, events, rule policies, statistics and settings. See [Threat protection](../threat-protection/README.md). |
 | **Firewall** | UPnP, and the active nftables rules. |
 | **Wireless** | The UniFi and OpenWISP controllers. |
-| **System** | Apply, check and update the system, roll back, and system settings. See [Upgrades and rollback](/docs/start/upgrades/). |
+| **System** | Apply, check and update the system, roll back, and system settings. See [Upgrades and rollback](upgrades.md). |
 
 ## Save and apply
 
@@ -98,9 +98,8 @@ A page's tabs share one set of edits: switching tabs keeps what you haven't save
 
 Use **Save** to stage several related edits, even across pages, for example reassigning interfaces, and apply them together.
 
-:::doc-warning
-Saved changes don't wait for you forever. The nightly upgrade at `03:00` rebuilds from the settings file, so it applies anything you saved and left unapplied.
-:::
+> [!WARNING]
+> Saved changes don't wait for you forever. The nightly upgrade at `03:00` rebuilds from the settings file, so it applies anything you saved and left unapplied.
 
 ## Unapplied changes and rebuilds
 
@@ -140,7 +139,7 @@ Changes are checked at three points:
 
 ## Fields locked in Nix
 
-A setting made in Nix, in `/etc/nixos/flake.nix` or, on a router installed from the installer image, `/etc/nixos/local.nix`, overrides the same setting in the file; see [The settings file](/docs/start/settings-file/#nix-overrides-the-file). The UI shows such a field disabled, and some pages add a banner, such as "Interface assignment is locked in the Nix configuration."
+A setting made in Nix, in `/etc/nixos/flake.nix` or, on a router installed from the installer image, `/etc/nixos/local.nix`, overrides the same setting in the file; see [The settings file](settings-file.md#nix-overrides-the-file). The UI shows such a field disabled, and some pages add a banner, such as "Interface assignment is locked in the Nix configuration."
 
 The UI finds locked fields by comparing the settings the running system was built from, `/etc/router/applied-settings.json`, with the values it actually uses, in `/etc/router/effective.json`. So a field shows as locked only once an applied value is one that Nix overrides. A locked field displays the file's value; the value in effect is the one in `/etc/router/effective.json`.
 

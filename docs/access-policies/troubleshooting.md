@@ -1,6 +1,7 @@
 ---
 title: Troubleshooting
 description: Fix common access policy problems, from wrongly blocked sites and wrong policies to certificate warnings, filtering that does nothing, and directory lookups.
+order: 7
 code:
   - modules/access-policies.nix
   - modules/dns-technitium.nix
@@ -20,7 +21,7 @@ Each section starts from what you see, then gives the likely causes and the fix.
 
 ## Find out why a site is blocked
 
-1. **Check which policy the client gets.** Open **Access Policies → Preview**, look up the device or its IP address, and read the **Resolution chain**. See [Preview a client](/docs/access-policies/assignments/#preview-a-client).
+1. **Check which policy the client gets.** Open **Access Policies → Preview**, look up the device or its IP address, and read the **Resolution chain**. See [Preview a client](assignments.md#preview-a-client).
 2. **Ask the router which rule matched.** Every policy answers a TXT query for a blocked name with a report. Run this on the affected client, or on another client that gets the same policy:
 
    ```bash
@@ -41,7 +42,7 @@ Don't test from the router itself: its own queries use an unfiltered group, so n
 | Cause | Fix |
 | --- | --- |
 | A category or list includes the domain | Add the domain to **Allow domains** in the policy, or turn off the category or list that the TXT report names. An allow rule beats every block. |
-| The user asked for an exception | Approve it on **Exception requests**, then choose **Apply saved changes** from the **Save** menu. See [Handle exception requests](/docs/access-policies/block-page/#handle-exception-requests). |
+| The user asked for an exception | Approve it on **Exception requests**, then choose **Apply saved changes** from the **Save** menu. See [Handle exception requests](block-page.md#handle-exception-requests). |
 | The site needs another domain that is blocked, such as a CDN | Find it in the query log with **Blocked only**, and allow it too. |
 | The client gets a stricter policy than you expected | See [A device gets the wrong policy](#a-device-gets-the-wrong-policy). |
 | You allowed the domain but it is still blocked | The change isn't applied yet, or the client cached the answer. Blocked answers expire after 30 seconds; the browser may hold them a little longer. |
@@ -57,8 +58,8 @@ Don't test from the router itself: its own queries use an unfiltered group, so n
 | A higher tier matches | A host group policy beats a directory group policy, which beats subnets and networks. Check the **Resolution chain**. |
 | A more specific subnet matches | In the subnet and network tier, the narrowest range wins regardless of priority. |
 | Two policies tie at the same priority | Give them different priorities. |
-| The directory user or group doesn't resolve | Check **Users** for "Some referenced names could not be resolved". See [Directory groups](/docs/access-policies/directory/#troubleshooting). |
-| The client uses IPv6 or WireGuard | Device tiers are IPv4 only, and WireGuard peers get network or subnet policies only. See [Limits](/docs/access-policies/assignments/#limits). |
+| The directory user or group doesn't resolve | Check **Users** for "Some referenced names could not be resolved". See [Directory groups](directory.md#troubleshooting). |
+| The client uses IPv6 or WireGuard | Device tiers are IPv4 only, and WireGuard peers get network or subnet policies only. See [Limits](assignments.md#limits). |
 | The Preview disagrees with what the client gets | The Preview reads the saved settings, which may not be applied yet. Choose **Apply saved changes** from the **Save** menu. |
 
 If the result in the Preview is right but the client still behaves differently, check the compiled mapping of addresses to policies on the router:
@@ -71,7 +72,7 @@ Each key is an address or range, and each value a policy name. A device with a w
 
 ## The block page shows a certificate warning
 
-That's expected for HTTPS sites: the block page can only offer the router's own self-signed certificate, and sites that use HSTS never show the page at all. The router has no setting that avoids it. Plain HTTP requests show the page directly. See [HTTPS sites show a certificate warning](/docs/access-policies/block-page/#https-sites-show-a-certificate-warning).
+That's expected for HTTPS sites: the block page can only offer the router's own self-signed certificate, and sites that use HSTS never show the page at all. The router has no setting that avoids it. Plain HTTP requests show the page directly. See [HTTPS sites show a certificate warning](block-page.md#https-sites-show-a-certificate-warning).
 
 If even plain HTTP requests show no page, check that the client's policy uses **Blocking address** rather than **NXDOMAIN**, that **Serve a block page** is on and applied, and that the Block Page app bound ports 80 and 443:
 
@@ -84,10 +85,10 @@ sudo sh -c 'grep -h "Web server" /var/lib/technitium-dns-server/logs/*.log | tai
 | Cause | Check and fix |
 | --- | --- |
 | You're testing from the router | The router's own queries are never filtered. Test from a client. |
-| Technitium is turned off | The last build warned `router.dns.technitium.enable is false`. Set `dns.technitium.enable` back to `true`. See [When Technitium is off](/docs/access-policies/dns-enforcement/#when-technitium-is-off). |
+| Technitium is turned off | The last build warned `router.dns.technitium.enable is false`. Set `dns.technitium.enable` back to `true`. See [When Technitium is off](dns-enforcement.md#when-technitium-is-off). |
 | The configuration didn't reach Technitium | Check `systemctl status technitium-reconcile` and its journal. See [The reconcile failed](#the-reconcile-failed). |
 | The lists haven't downloaded | Look for `failed to download` in Technitium's log with the command below. Check that the router can reach the list hosts. A custom list filed under the wrong kind blocks nothing. |
-| The client bypasses the router's DNS | A VPN, a DoH resolver the router doesn't know, or a WireGuard peer that doesn't use the router for DNS. See [What the router does not enforce](/docs/access-policies/dns-enforcement/#what-the-router-does-not-enforce). |
+| The client bypasses the router's DNS | A VPN, a DoH resolver the router doesn't know, or a WireGuard peer that doesn't use the router for DNS. See [What the router does not enforce](dns-enforcement.md#what-the-router-does-not-enforce). |
 | The policy has no filters | Check the policy's **Filters** counts on the Policies tab. |
 
 Technitium logs each list download:
@@ -109,7 +110,7 @@ id -Gn jdoe
 journalctl -u router-directory-sync -n 50
 ```
 
-`getent passwd` with no name returning no directory users is expected. A name that is right in the directory but wrong on the router is usually cached: run `sudo sss_cache -E` and `sudo systemctl restart nscd`, then click **Sync now** on the Users page. Policies keep working on the last good data; a missing or stale directory only affects the directory group tier. [Directory groups](/docs/access-policies/directory/#troubleshooting) covers each message.
+`getent passwd` with no name returning no directory users is expected. A name that is right in the directory but wrong on the router is usually cached: run `sudo sss_cache -E` and `sudo systemctl restart nscd`, then click **Sync now** on the Users page. Policies keep working on the last good data; a missing or stale directory only affects the directory group tier. [Directory groups](directory.md#troubleshooting) covers each message.
 
 ## The reconcile failed
 
@@ -134,7 +135,7 @@ sudo systemctl restart technitium-reconcile
 | Every name in a domain returns "not found" | A zone for that domain exists as an ordinary (primary) zone that the router didn't create, for example one made through the API by hand, or one left from before the router's Technitium build dropped its web console. The router leaves zones it didn't create alone. Delete it with the API call under [Inspect Technitium](#inspect-technitium), then run `sudo systemctl restart technitium-reconcile`. |
 | Only the router's own name resolves under the LAN domain | The LAN domain is a special-use name such as `local` or `test`, which Technitium answers itself before any policy or zone applies. The build warns about it. Use an ordinary domain such as `lan`. |
 
-See [Split-horizon DNS](/docs/access-policies/dns-enforcement/#split-horizon-dns) for how the zones are built.
+See [Split-horizon DNS](dns-enforcement.md#split-horizon-dns) for how the zones are built.
 
 ## Reset the Technitium admin password
 

@@ -1,6 +1,7 @@
 ---
 title: Hosts and host groups
 description: Register devices on the Hosts page, give them static IPs, IPv6 suffixes and public names, and group them for access policies.
+order: 1
 code:
   - modules/hosts.nix
   - modules/network.nix
@@ -55,7 +56,7 @@ A device that isn't online yet can't be adopted from the table. Add it to the se
 | **IPv6 suffix** | `ipv6Suffix` | The low 64 bits of the device's IPv6 address, such as `::10`. **EUI-64** fills it in from the MAC address. |
 | **Public hostname** | `publicHostname` | A public DNS name, such as `nas.example.com`, that dynamic DNS keeps pointed at the device. |
 | **Group** | `group` | A device group from the **Groups** tab. |
-| **User** | `user` | The directory user the device belongs to, as `id <name>` resolves it on the router. See [Directory groups](/docs/access-policies/directory/). |
+| **User** | `user` | The directory user the device belongs to, as `id <name>` resolves it on the router. See [Directory groups](../access-policies/directory.md). |
 | **Notes** | `notes` | Free text for you. |
 
 The MAC address identifies the device and can't be edited. To change it, remove the device and adopt it again.
@@ -68,9 +69,9 @@ A static IP is a DHCP reservation: the router always hands this address to the d
 
 A static IP is what most other features need:
 
-- **Access policies.** Policies tell devices apart by IPv4 address, so a device's group and user only take effect with a static IP. Without one, the device gets its network's policy, and the editor warns "No static IP — device-tier policies cannot apply". See [Assign policies](/docs/access-policies/assignments/).
-- **Port forwards.** An IPv4 forward sends traffic to the device's static IP. See [Port forwards](/docs/ingress/port-forwards/).
-- **Reverse proxy and Cloudflare Tunnel.** Both forward requests to the device's static IP. See [Reverse proxy](/docs/ingress/reverse-proxy/) and [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/).
+- **Access policies.** Policies tell devices apart by IPv4 address, so a device's group and user only take effect with a static IP. Without one, the device gets its network's policy, and the editor warns "No static IP — device-tier policies cannot apply". See [Assign policies](../access-policies/assignments.md).
+- **Port forwards.** An IPv4 forward sends traffic to the device's static IP. See [Port forwards](../ingress/port-forwards.md).
+- **Reverse proxy and Cloudflare Tunnel.** Both forward requests to the device's static IP. See [Reverse proxy](../ingress/reverse-proxy.md) and [Cloudflare Tunnel](../ingress/cloudflare-tunnel.md).
 - **Local DNS.** While **Publish static hosts** is on (the default, on **DNS → Resolver**), the router publishes the device as `<name>.<lan.domain>`, such as `nas.lan`, with a reverse (PTR) record. Names are lowercased, and characters that DNS doesn't allow become dashes, so `Kiosk 1` becomes `kiosk-1.lan`. Registered devices without a static IP get the same kind of name, whether or not that setting is on, resolved live from the address they use at the moment. Two devices whose names turn into the same DNS name both go without one.
 
 ### IPv6 suffix
@@ -86,7 +87,7 @@ Don't use a privacy or temporary address, or an RFC 7217 "stable-privacy" addres
 
 ### Public hostname
 
-A public hostname is a name that [Dynamic DNS](/docs/dynamic-dns/) publishes for the device: an A record for the router's WAN IPv4 address, which reaches the device through a port forward, and an AAAA record for the device's own IPv6 address when it has a suffix. When the device has a static IP, LAN clients that look the name up get that address instead, because port forwards have no NAT loopback.
+A public hostname is a name that [Dynamic DNS](../dynamic-dns/README.md) publishes for the device: an A record for the router's WAN IPv4 address, which reaches the device through a port forward, and an AAAA record for the device's own IPv6 address when it has a suffix. When the device has a static IP, LAN clients that look the name up get that address instead, because port forwards have no NAT loopback.
 
 The name must be a valid DNS name and unique across devices and the router's own dynamic DNS names.
 
@@ -107,7 +108,7 @@ Port forwards, reverse proxy routes and tunnel hostnames refer to a device by na
 
 ## The Groups tab
 
-A host group is a named set of devices, such as "Kiosks" or "Staff laptops". Its purpose is access policies: a policy assigned to a host group applies to every device in it, and host groups win over every other kind of assignment. See [Assign policies](/docs/access-policies/assignments/).
+A host group is a named set of devices, such as "Kiosks" or "Staff laptops". Its purpose is access policies: a policy assigned to a host group applies to every device in it, and host groups win over every other kind of assignment. See [Assign policies](../access-policies/assignments.md).
 
 - **Add a group:** enter a **Group name** and an optional description, then click **Add group**. Names must be unique, start with a letter or digit, and contain only letters, digits, spaces, dashes and underscores.
 - **Add devices to it** with the **Group** field in each device's editor. The **Members** column counts them.
@@ -116,9 +117,8 @@ A host group is a named set of devices, such as "Kiosks" or "Staff laptops". Its
 
 Choose **Save and apply** from the **Save** menu afterwards.
 
-:::doc-warning
-Renaming or deleting a group does not update the access policies that name it. The next build then fails with `router.accessPolicies: policy 'Kiosk' references undefined host group(s): Kiosks`. Change the policy's assignment on **Access Policies** first, or in the same save.
-:::
+> [!WARNING]
+> Renaming or deleting a group does not update the access policies that name it. The next build then fails with `router.accessPolicies: policy 'Kiosk' references undefined host group(s): Kiosks`. Change the policy's assignment on **Access Policies** first, or in the same save.
 
 ## In the settings file
 
@@ -155,11 +155,11 @@ Only `mac` and `name` are required. MAC addresses use colons.
 
 ## Helpers elsewhere
 
-- **Port scan.** In the reverse proxy's route form, once you pick a device with a static IP, **Scan ports** under **Port** checks that address for open ports among the 100 most common, with nmap. Click a port in the result to use it. See [Reverse proxy](/docs/ingress/reverse-proxy/).
+- **Port scan.** In the reverse proxy's route form, once you pick a device with a static IP, **Scan ports** under **Port** checks that address for open ports among the 100 most common, with nmap. Click a port in the result to use it. See [Reverse proxy](../ingress/reverse-proxy.md).
 
 ## Limits
 
-- Devices are identified by MAC address on the network, and by IPv4 address for policies. A device that clones another's MAC address or takes its reserved address gets its policy. See [Access policies](/docs/access-policies/).
+- Devices are identified by MAC address on the network, and by IPv4 address for policies. A device that clones another's MAC address or takes its reserved address gets its policy. See [Access policies](../access-policies/README.md).
 - Only LAN and guest devices can be registered. WireGuard peers are not hosts.
 - The vendor column only knows MAC prefixes in nmap's database. A device that uses a randomized (private) MAC address shows no vendor, and shows up as a new device whenever that address changes.
 

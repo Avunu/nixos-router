@@ -1,6 +1,7 @@
 ---
 title: Settings migrations
 description: How to change the shape of a router option safely, with a loader migration in lib/settings.nix and a test in tests/settings-loader.nix.
+order: 1
 code:
   - lib/settings.nix
   - modules/system.nix
@@ -26,7 +27,7 @@ Change the option to its new shape only, and upgrade the old shape in the loader
 
 **The one exception** is a key that new installs were seeded with. Routers installed before the loader apply their JSON to the module directly, so no migration reaches them, and removing the option would stop their upgrades. Keep that option declared as well: hidden with `visible = false`, so the schema leaves it out, its value ignored, and a warning when it holds anything but the seeded value. `dns.technitium.listenPort` is one. `dropDnsListenPort` removes it from files the loader reads, `modules/dns-technitium.nix` still declares it, and Cockpit drops it when it loads the settings (`dropRetiredKeys` in `settings-json.ts`), so its next save writes the current shape.
 
-User-facing behavior, including what an admin sees, is described in [The settings file](/docs/start/settings-file/#automatic-migrations).
+User-facing behavior, including what an admin sees, is described in [The settings file](../start/settings-file.md#automatic-migrations).
 
 ## How the loader works
 
@@ -49,7 +50,7 @@ The loader also exports `readSettings`, for a flake that needs a value outside a
    - **be idempotent,** so running it twice gives the same result as once;
    - **leave absent sections absent,** so a file that never mentioned the option doesn't grow a key;
    - **`throw` an actionable message rather than guess,** when an entry can't be upgraded unambiguously. The build then stops, the running system is untouched, and the admin is told what to fix.
-3. **Regenerate the settings schema;** see [Development](/docs/develop/#the-settings-schema).
+3. **Regenerate the settings schema;** see [Development](README.md#the-settings-schema).
 4. **Cover it in `tests/settings-loader.nix`,** then run the check:
    ```bash
    nix build .#checks.x86_64-linux.settings-loader

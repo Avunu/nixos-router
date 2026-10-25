@@ -1,6 +1,7 @@
 ---
 title: Build a policy
 description: Create an access policy in Cockpit, section by section, from categories and filter lists to allow rules and the blocked-query response.
+order: 1
 code:
   - modules/access-policies.nix
   - modules/filter-catalog.nix
@@ -12,12 +13,12 @@ code:
 
 # Build a policy
 
-A policy is a named set of DNS filters. This page walks through the policy editor on **Access Policies → Policies** in the order its sections appear, then shows a worked example for a school. To choose which clients a policy applies to, see [Assign policies](/docs/access-policies/assignments/).
+A policy is a named set of DNS filters. This page walks through the policy editor on **Access Policies → Policies** in the order its sections appear, then shows a worked example for a school. To choose which clients a policy applies to, see [Assign policies](assignments.md).
 
 ## Before you start
 
-- You need a Cockpit login with administrative access. See [The web UI](/docs/start/cockpit/).
-- If a policy will target groups of devices, create those groups first on **Hosts → Groups**. See [Hosts and host groups](/docs/network/hosts/).
+- You need a Cockpit login with administrative access. See [The web UI](../start/cockpit.md).
+- If a policy will target groups of devices, create those groups first on **Hosts → Groups**. See [Hosts and host groups](../network/hosts.md).
 - The router downloads every list itself, so it needs internet access to the list hosts: `adguardteam.github.io`, `adaway.org` and `pgl.yoyo.org` for the standard filters, `raw.githubusercontent.com` for categories, and the host of any custom list you add.
 
 ## Create or edit a policy
@@ -43,7 +44,7 @@ Before you apply, open one of your policies and turn on **Default policy**, or n
 
 - **Name:** unique, and shown in reports, the query log and exception requests. It must start with a letter or digit and contain only letters, digits, spaces, hyphens and underscores. The page checks only for an empty or duplicate name ("Policy name must not be empty." and "Another policy already has this name."). The build rejects any other character with a type error that names the pattern `[A-Za-z0-9][A-Za-z0-9_ -]*`. Renaming the default policy keeps it the default.
 - **Description:** free text for your own notes.
-- **Priority:** a whole number, 0 by default. The help text reads "Tie-breaker within an assignment tier — higher wins." It doesn't make a policy win across tiers. See [Priority](/docs/access-policies/assignments/#priority).
+- **Priority:** a whole number, 0 by default. The help text reads "Tie-breaker within an assignment tier — higher wins." It doesn't make a policy win across tiers. See [Priority](assignments.md#priority).
 - **Default policy:** the switch reads "Make this the default policy", or "This is the default policy" on the current default. The default applies to clients no other assignment matches. To move it, open the other policy and turn the switch on there; you can't turn it off on the current default.
 
 ## Categories
@@ -73,9 +74,8 @@ Categories schools and businesses often start with:
 | `doh` | Site which provides DNS over HTTP service |
 | `redirector` | Some redirector sites, which are used to circumvent filtering. |
 
-:::doc-note
-Don't use the **adult** category. It is too large (about 50 MB) for the mirror the router downloads from. Use **mixed_adult** or **porn** instead.
-:::
+> [!NOTE]
+> Don't use the **adult** category. It is too large (about 50 MB) for the mirror the router downloads from. Use **mixed_adult** or **porn** instead.
 
 ## Standard filters
 
@@ -114,22 +114,22 @@ In an AdBlock-format list, a rule such as `||example.com^` blocks a domain and `
 - **Block domains:** domains to block, including their subdomains.
 - **Allow regex** and **Block regex:** regular expressions matched against the queried name, case-insensitively. For example, `(^|\.)example\.net$` matches `example.net` and every name under it.
 
-The router checks allow rules first: allowed domains, allow lists, allow regexes, and `@@` exceptions in AdBlock-format lists. Only if nothing allows a name does it check block domains, block lists, block regexes and AdBlock-format lists. An approved [exception request](/docs/access-policies/block-page/#handle-exception-requests) is added to **Allow domains**.
+The router checks allow rules first: allowed domains, allow lists, allow regexes, and `@@` exceptions in AdBlock-format lists. Only if nothing allows a name does it check block domains, block lists, block regexes and AdBlock-format lists. An approved [exception request](block-page.md#handle-exception-requests) is added to **Allow domains**.
 
 ## Response
 
 **Blocked-query response** chooses how the router answers a blocked query:
 
-- **NXDOMAIN:** the name appears not to exist. Browsers show their own "can't reach this site" error, and the [block page](/docs/access-policies/block-page/) never appears. Use it for groups that should never see the page, such as servers, printers and other appliances.
+- **NXDOMAIN:** the name appears not to exist. Browsers show their own "can't reach this site" error, and the [block page](block-page.md) never appears. Use it for groups that should never see the page, such as servers, printers and other appliances.
 - **Blocking address** (the default): the router answers with the addresses in **Blocking addresses**, `0.0.0.0` and `::` by default. The help text reads "A/AAAA answers for blocked queries. With the block page enabled, blockingAddress policies land clients on the block page."
 
 While the block page is on, every **Blocking address** policy answers with the router's LAN gateway address instead, such as `192.168.1.1`, whatever **Blocking addresses** contains. The addresses you enter apply only while the block page is off.
 
-For troubleshooting, every policy also answers a TXT query for a blocked name with a short report: the policy that blocked it and the list or rule that matched. See [Troubleshooting](/docs/access-policies/troubleshooting/#find-out-why-a-site-is-blocked).
+For troubleshooting, every policy also answers a TXT query for a blocked name with a short report: the policy that blocked it and the list or rule that matched. See [Troubleshooting](troubleshooting.md#find-out-why-a-site-is-blocked).
 
 ## Assignments
 
-The last section of the editor, **Assignments**, sets which clients get the policy: **Networks**, **Subnets (CIDR)**, **Host groups** and **Directory groups**. See [Assign policies](/docs/access-policies/assignments/).
+The last section of the editor, **Assignments**, sets which clients get the policy: **Networks**, **Subnets (CIDR)**, **Host groups** and **Directory groups**. See [Assign policies](assignments.md).
 
 ## Worked example: a school
 

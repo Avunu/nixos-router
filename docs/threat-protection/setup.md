@@ -1,6 +1,7 @@
 ---
 title: Turn it on
 description: Enable Suricata in IDS mode, triage for a week, then switch to IPS mode. Also covers hardware cost, rule updates and restarts.
+order: 1
 code:
   - modules/threat-protection.nix
   - modules/firewall.nix
@@ -16,7 +17,7 @@ Start Suricata in IDS mode, where it only alerts, and leave it there for about a
 
 ## Before you start
 
-- You can sign in to Cockpit with administrative access; see [the web UI](/docs/start/cockpit/).
+- You can sign in to Cockpit with administrative access; see [the web UI](../start/cockpit.md).
 - The router has internet access. Rules are downloaded when Suricata is first set up, and daily after that.
 - Check whether it's already on. `suricata.enable` defaults to `false`, but the example settings files in the repository's `local/` directory set it to `true`, so a router installed from them already runs Suricata in IDS mode.
 
@@ -32,7 +33,7 @@ Start Suricata in IDS mode, where it only alerts, and leave it there for about a
 
 ## Triage for a week
 
-Leave IDS mode on for about a week, so the events cover a normal cycle of weekday and weekend use, backups and software updates. Then work through them as described in [Tune the rules](/docs/threat-protection/tuning/):
+Leave IDS mode on for about a week, so the events cover a normal cycle of weekday and weekend use, backups and software updates. Then work through them as described in [Tune the rules](tuning.md):
 
 - Disable signatures that fire on legitimate traffic everywhere.
 - Suppress signatures that are noisy for one host.
@@ -47,9 +48,8 @@ Leave IDS mode on for about a week, so the events cover a normal cycle of weekda
 
 IPS mode doesn't make every rule drop. It applies only the drop actions on the **Policies** tab: categories set to **Drop** and signatures set to **Drop**. With none set, IPS mode behaves like IDS mode.
 
-:::doc-warning
-A drop rule that matches legitimate traffic breaks it for your users, without an error message they can act on. Set drops only for signatures and categories you've watched in IDS mode.
-:::
+> [!WARNING]
+> A drop rule that matches legitimate traffic breaks it for your users, without an error message they can act on. Set drops only for signatures and categories you've watched in IDS mode.
 
 ## In the settings file
 
@@ -62,14 +62,14 @@ A drop rule that matches legitimate traffic breaks it for your users, without an
 }
 ```
 
-`mode` is `ids` (the default) or `ips`. The rule policies live under the same key; see [Tune the rules](/docs/threat-protection/tuning/#in-the-settings-file).
+`mode` is `ids` (the default) or `ips`. The rule policies live under the same key; see [Tune the rules](tuning.md#in-the-settings-file).
 
 ## What it costs
 
 - **Start-up time.** Before Suricata starts, systemd runs a configuration test (`suricata -T`) that loads every rule. That takes about 2 minutes on low-power hardware, and Suricata then loads the rules again to start. The service allows 300 seconds to start (`TimeoutStartSec=300`), instead of systemd's default 90.
 - **CPU and throughput.** Every forwarded packet goes to Suricata in user space and back before it leaves. That costs CPU and lowers the throughput the router can forward, more so on low-power hardware. Measure it on your own hardware and traffic.
 - **Memory.** Suricata holds the loaded rules in memory. Stream tracking is capped at 64 MB and stream reassembly at 256 MB.
-- **Disk.** `/var/log/suricata/eve.json` records DNS, TLS, HTTP and flow events as well as alerts, so its size follows your traffic. It's rotated daily and kept for 14 days, mostly compressed, so plan the disk for two weeks of it. See [Events and logs](/docs/threat-protection/monitoring/#logs-on-disk).
+- **Disk.** `/var/log/suricata/eve.json` records DNS, TLS, HTTP and flow events as well as alerts, so its size follows your traffic. It's rotated daily and kept for 14 days, mostly compressed, so plan the disk for two weeks of it. See [Events and logs](monitoring.md#logs-on-disk).
 
 ## Rule updates
 
@@ -96,7 +96,7 @@ Suricata stops inspecting whenever it isn't attached to the queue. That happens:
 - when you apply a change to its configuration, such as a new suppression, or a network or WireGuard change that alters `$HOME_NET`
 - after a crash, before systemd restarts it
 
-In each case, forwarded traffic passes uninspected until Suricata has loaded its rules and logs `Engine started`. Nothing is blocked, so users see no outage, but nothing is inspected either. To check whether it's running, see [Events and logs](/docs/threat-protection/monitoring/#useful-commands).
+In each case, forwarded traffic passes uninspected until Suricata has loaded its rules and logs `Engine started`. Nothing is blocked, so users see no outage, but nothing is inspected either. To check whether it's running, see [Events and logs](monitoring.md#useful-commands).
 
 ## Turn it off
 

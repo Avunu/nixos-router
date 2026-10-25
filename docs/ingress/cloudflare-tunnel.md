@@ -1,6 +1,7 @@
 ---
 title: Cloudflare Tunnel
 description: Publish LAN web apps through a Cloudflare Tunnel the router creates and maintains, with no inbound WAN port, even behind CGNAT.
+order: 3
 code:
   - modules/cloudflare-tunnel.nix
   - pkgs/router-dns-tools/router_dns_tools/tunnel.py
@@ -21,12 +22,12 @@ Cloudflare Tunnel publishes web apps on your LAN without opening any port on the
 - **You don't want any inbound port open.** The router's address is never published either.
 - **Your domain's DNS is on Cloudflare.** Every tunnel hostname must be in a zone on your Cloudflare account.
 
-The trade-offs: Cloudflare ends TLS at its edge and sees the traffic decrypted, only HTTP and HTTPS services can be published this way, and [threat protection](/docs/threat-protection/) doesn't inspect tunneled requests. For a comparison with the other options, see [Choose an ingress](/docs/ingress/).
+The trade-offs: Cloudflare ends TLS at its edge and sees the traffic decrypted, only HTTP and HTTPS services can be published this way, and [threat protection](../threat-protection/README.md) doesn't inspect tunneled requests. For a comparison with the other options, see [Choose an ingress](README.md).
 
 ## Before you start
 
-- **A registered host with a static IP** for each app. See [Hosts and host groups](/docs/network/hosts/).
-- **A Cloudflare API token** with **Account → Cloudflare Tunnel → Edit**, plus **Zone → Zone → Read** and **Zone → DNS → Edit** on the zones of the tunnel's hostnames. Create it under **My Profile → API Tokens** in the Cloudflare dashboard. See [Cloudflare API tokens](/docs/reference/cloudflare-tokens/).
+- **A registered host with a static IP** for each app. See [Hosts and host groups](../network/hosts.md).
+- **A Cloudflare API token** with **Account → Cloudflare Tunnel → Edit**, plus **Zone → Zone → Read** and **Zone → DNS → Edit** on the zones of the tunnel's hostnames. Create it under **My Profile → API Tokens** in the Cloudflare dashboard. See [Cloudflare API tokens](../reference/cloudflare-tokens.md).
 - **A unique router host name.** The tunnel is named after the router's **Host name** (**System → Settings**, `router` by default). Cloudflare keeps tunnel names unique per account, so two routers with the same host name can't share one account.
 
 ## Set it up
@@ -74,7 +75,7 @@ On each run, the sync service does the following:
 - **Account:** it uses the Cloudflare account that owns the zone of the first hostname. With no hostnames, it keeps the tunnel it already has. With no hostnames and no tunnel yet, it creates nothing: the run succeeds, and **Tunnel** shows "none" with "add a hostname to create the tunnel".
 - **Tunnel:** it creates a locally managed tunnel named after the router, if there isn't one yet. The tunnel secret is generated on the router and leaves it only in that one API call. The credentials go to `/var/lib/router-cloudflared/credentials.json`, readable by root only, and the connector receives them from systemd. The connector's routing rules come from the router's configuration, not from the Cloudflare dashboard.
 - **DNS:** it keeps one proxied CNAME per hostname, pointing at `<tunnel id>.cfargotunnel.com`, with the comment `managed by nixos-router`. An A, AAAA or CNAME record already at that name is replaced and remembered, and put back when you remove the name from the tunnel. If the name holds a record by then that the remembered one can't sit beside, such as a CNAME you made by hand, that record stays and the remembered one isn't put back. If the router replaced records at the name more than once, an older one that can't sit beside a newer one isn't put back either.
-- **Names moved to or from dynamic DNS:** [dynamic DNS](/docs/dynamic-dns/) tags its records with the same comment, and a name can move between the two in a single **Save and apply**, with the two services running in no fixed order. The tunnel deletes a dynamic DNS record at a name it takes over without remembering it, since it was never yours: dynamic DNS remembers a CNAME it replaced there and puts that back itself. When you move a name from the tunnel to dynamic DNS and dynamic DNS runs first, the tunnel finds dynamic DNS's A or AAAA record at the name. It then keeps the record it remembered rather than dropping it, and every later sync tries again, including syncs with the tunnel off. Once the name leaves dynamic DNS too, the next sync puts the record back. When the tunnel runs first, it puts the record back at once and dynamic DNS takes the name over from there. A CNAME is then remembered by dynamic DNS and comes back when the name leaves it. An A or AAAA record of a type dynamic DNS publishes is overwritten, because dynamic DNS doesn't remember those, so it's lost. A record tagged `managed by nixos-router` never counts as one made by hand under the rule above, and one that state from an older version remembered is never put back.
+- **Names moved to or from dynamic DNS:** [dynamic DNS](../dynamic-dns/README.md) tags its records with the same comment, and a name can move between the two in a single **Save and apply**, with the two services running in no fixed order. The tunnel deletes a dynamic DNS record at a name it takes over without remembering it, since it was never yours: dynamic DNS remembers a CNAME it replaced there and puts that back itself. When you move a name from the tunnel to dynamic DNS and dynamic DNS runs first, the tunnel finds dynamic DNS's A or AAAA record at the name. It then keeps the record it remembered rather than dropping it, and every later sync tries again, including syncs with the tunnel off. Once the name leaves dynamic DNS too, the next sync puts the record back. When the tunnel runs first, it puts the record back at once and dynamic DNS takes the name over from there. A CNAME is then remembered by dynamic DNS and comes back when the name leaves it. An A or AAAA record of a type dynamic DNS publishes is overwritten, because dynamic DNS doesn't remember those, so it's lost. A record tagged `managed by nixos-router` never counts as one made by hand under the rule above, and one that state from an older version remembered is never put back.
 - **Drift:** it recreates a tunnel deleted in the dashboard, moves the records to the new tunnel, and repairs records edited by hand.
 
 The connector sends each hostname to `http://` or `https://` plus the host's static IP and port. A request for any other name gets `404`.
@@ -96,9 +97,8 @@ The state lives in `/var/lib/router-cloudflared/`:
 
 The Tunnel tab says the same: "Turning the tunnel off keeps the token, so the router can delete the tunnel and its DNS records — remove the token only after that has run." If the token file itself is gone, systemd skips the sync service, and nothing is deleted.
 
-:::doc-warning
-If you remove the token before the teardown has run, the router can't delete anything. The tunnel and its DNS records stay in your Cloudflare account until you delete them in the dashboard.
-:::
+> [!WARNING]
+> If you remove the token before the teardown has run, the router can't delete anything. The tunnel and its DNS records stay in your Cloudflare account until you delete them in the dashboard.
 
 Removing a single hostname works the same way: the next sync deletes its CNAME and restores whatever record it replaced.
 
@@ -110,7 +110,7 @@ A tunnel hostname is a CNAME to Cloudflare, so no other feature may publish the 
 - a host's **Public hostname**;
 - a reverse proxy route hostname, while the proxy is on.
 
-Two tunnel entries can't share a name either. See [Hostname conflicts](/docs/ingress/#hostname-conflicts) for the full set of rules.
+Two tunnel entries can't share a name either. See [Hostname conflicts](README.md#hostname-conflicts) for the full set of rules.
 
 ## In the settings file
 
