@@ -1,0 +1,35 @@
+name: docs
+
+# Checks the documentation on every pull request, the way the shared site at docs.avunu.net will build
+# it. The work is done by Avunu/site-docs's check-docs.yml, pinned to a commit: it builds that workspace
+# with this pull request's docs/ in place of the nixos-router submodule, so links to the other projects
+# are checked too. The token is read-only and nothing here publishes; site-docs builds and deploys the
+# site from this project's released commit.
+#
+# The pinned commit must be one that already lists nixos-router in projects.json (the registry entry
+# merged in Avunu/site-docs#127); an older one fails with "project is not registered". To move to a
+# newer check, change the SHA and the date beside it.
+#
+# Required on the `develop` ruleset as "docs / Check" (docs/develop/README.md). A required check has to
+# report on every pull request or the ones that do not touch the pages wait for it for ever, so this
+# workflow has no `paths:` filter. Dependabot's and release-please's pull requests are covered too:
+# release-please pushes with RELEASE_TOKEN, so its pull request raises this event.
+#
+# `tests/docs-lint.py` (the `docs-lint` check in checks.yml) covers the three mistakes this tool lets
+# through: a colon that deletes text, an image with no alt text, and a `code:` path that no longer exists.
+on:
+  pull_request:
+
+permissions: {}
+
+concurrency:
+  group: docs-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    permissions:
+      contents: read # checkout
+    uses: Avunu/site-docs/.github/workflows/check-docs.yml@3f342fe388ecb93a860adfc3ad97a06cced0bf9e # 2026-10-25
+    with:
+      path: nixos-router # its path in site-docs's projects.json

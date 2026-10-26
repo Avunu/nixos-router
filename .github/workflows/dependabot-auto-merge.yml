@@ -12,7 +12,7 @@ name: Dependabot auto-merge
 #   • Settings → General → Pull Requests → "Allow auto-merge"
 #   • A ruleset on `develop`, the default branch, requiring a pull request and the
 #     checks.yml status checks "drift + build (fast)" AND "VM tests (slow)", and
-#     "pr title". Without it, `gh pr merge --auto` merges on nothing.
+#     "docs / Check" (docs.yml) and "pr title". Without it, `gh pr merge --auto` merges on nothing.
 on: pull_request
 
 permissions:
