@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/Avunu/nixos-router/compare/v0.2.0...v0.2.1) (2026-10-28)
+
+
+### Bug Fixes
+
+* bump nixpkgs to 31ecbac and keep containers connected across firewall reloads ([#98](https://github.com/Avunu/nixos-router/issues/98)) ([aba984b](https://github.com/Avunu/nixos-router/commit/aba984b59ec28fb00710218ab9501defcaf37cf1))
+
 ## [0.2.0](https://github.com/Avunu/nixos-router/compare/v0.1.0...v0.2.0) (2026-10-28)
 
 
