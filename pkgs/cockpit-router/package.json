@@ -37,8 +37,8 @@
     "esbuild-sass-plugin": "^3.7.0",
     "oxfmt": "0.74.0",
     "oxlint": "1.89.0",
-    "oxlint-tsgolint": "7.0.2004",
-    "sass": "^1.105.2",
+    "oxlint-tsgolint": "7.0.2005",
+    "sass": "^1.106.1",
     "typescript": "^7.0.2"
   }
 }
