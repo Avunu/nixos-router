@@ -8,9 +8,9 @@
 //
 // Policies and Block page edit the accessPolicies section of the settings JSON
 // through the page's settings (usePageSettings); the backend policy compiler
-// turns it into the DNS engine config on the next rebuild. The resolver
-// settings filtering relies on (upstreams, SafeSearch, DoH blocking) are on
-// DNS → Resolver, their one editor.
+// turns it into the DNS engine config on the next rebuild. SafeSearch is part
+// of each policy; the resolver settings filtering relies on (upstreams, DoH
+// blocking) are on DNS → Resolver, their one editor.
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Alert,
@@ -66,7 +66,12 @@ import type { Json } from "./nix";
 import { exceptionRequests, setExceptionStatus } from "./logd";
 import { resolvePolicy } from "./policy-resolver";
 import type { MatchStep, NetworkCidrs } from "./policy-resolver";
-import { StandardFiltersSelector, UtCapitoleSelector, UrlListEditor } from "./policy-editors";
+import {
+  SafeSearchSelector,
+  StandardFiltersSelector,
+  UtCapitoleSelector,
+  UrlListEditor,
+} from "./policy-editors";
 import type {
   AccessPoliciesSection,
   AccessPolicy,
@@ -160,6 +165,7 @@ const emptyPolicy = (name: string): AccessPolicy => ({
   allowRegex: [],
   responseType: "blockingAddress",
   blockingAddresses: ["0.0.0.0", "::"],
+  safeSearch: {},
   assignments: { networks: [], subnets: [], hostGroups: [], directoryGroups: [] },
 });
 
@@ -196,14 +202,20 @@ const FiltersSummary = ({ policy }: { policy: AccessPolicy }) => {
     policy.blockRegex,
     policy.allowRegex,
   ]);
+  const safeSearch = Object.values(policy.safeSearch ?? {}).filter(Boolean).length;
   return (
-    <LabelGroup numLabels={4}>
+    <LabelGroup numLabels={5}>
       <Label isCompact>{cockpit.format(_("$0 categories"), policy.categories?.length ?? 0)}</Label>
       <Label isCompact>
         {cockpit.format(_("$0 filters"), policy.standardFilters?.length ?? 0)}
       </Label>
       <Label isCompact>{cockpit.format(_("$0 lists"), lists)}</Label>
       <Label isCompact>{cockpit.format(_("$0 rules"), rules)}</Label>
+      {safeSearch > 0 && (
+        <Label isCompact color="blue">
+          {cockpit.format(_("SafeSearch on $0"), safeSearch)}
+        </Label>
+      )}
     </LabelGroup>
   );
 };
@@ -570,6 +582,23 @@ const PolicyEditorCard = ({
               value={policy.standardFilters ?? []}
               isDisabled={isDisabled}
               onChange={(v) => onPatch({ standardFilters: v })}
+            />
+          </FormSection>
+
+          <FormSection title={_("SafeSearch")} titleElement="h3">
+            <FormHelperText>
+              <HelperText>
+                <HelperTextItem>
+                  {_(
+                    "Answers this policy's clients with each provider's restricted service, so explicit results stay filtered whatever the browser setting.",
+                  )}
+                </HelperTextItem>
+              </HelperText>
+            </FormHelperText>
+            <SafeSearchSelector
+              value={policy.safeSearch ?? {}}
+              isDisabled={isDisabled}
+              onChange={(v) => onPatch({ safeSearch: v })}
             />
           </FormSection>
 

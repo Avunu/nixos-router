@@ -201,7 +201,7 @@ To delete a zone, swap in a request to `$api/zones/delete` with `--data-urlencod
 | `/var/lib/router-technitium/logd-ingest.token`, `logd-query.token` | Tokens between Technitium, `router-logd` and Cockpit (generated) |
 | `/var/lib/cockpit-router/technitium-token` | Cockpit's read-only Technitium API token (generated) |
 | `/var/lib/router-technitium/managed-local-dns.json` | Split-horizon zones and records the router created |
-| `/var/lib/router-technitium/managed-zones.json` | SafeSearch zones the router created |
+| `/var/lib/router-technitium/managed-zones.json` | SafeSearch zones and records the router created |
 | `/var/lib/router-technitium/last-reconcile.json` | Time of the last successful reconcile |
 | `/var/lib/router-directory/directory.json`, `status.json` | Directory sync results and status |
 | `/var/lib/router-logd/querylogs.duckdb` | The query log |

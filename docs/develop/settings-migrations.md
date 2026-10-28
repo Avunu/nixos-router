@@ -27,6 +27,8 @@ Change the option to its new shape only, and upgrade the old shape in the loader
 
 **The one exception** is a key that new installs were seeded with. Routers installed before the loader apply their JSON to the module directly, so no migration reaches them, and removing the option would stop their upgrades. Keep that option declared as well: hidden with `visible = false`, so the schema leaves it out, its value ignored, and a warning when it holds anything but the seeded value. `dns.technitium.listenPort` is one. `dropDnsListenPort` removes it from files the loader reads, `modules/dns-technitium.nix` still declares it, and Cockpit drops it when it loads the settings (`dropRetiredKeys` in `settings-json.ts`), so its next save writes the current shape.
 
+`dns.technitium.safeSearch` is the other, with one difference: ignoring its seeded value, `true`, turns SafeSearch off, so the module warns whenever it is on. `safeSearchPerPolicy` moves it onto every policy, and Cockpit does the same before dropping it (`moveGlobalSafeSearch` in `settings-json.ts`), so a router that bypasses the loader gets SafeSearch back with its next save.
+
 User-facing behavior, including what an admin sees, is described in [The settings file](../start/settings-file.md#automatic-migrations).
 
 ## How the loader works

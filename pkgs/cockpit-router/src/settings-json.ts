@@ -78,12 +78,44 @@ export function deepEqual(a: Json | undefined, b: Json | undefined): boolean {
 // (lib/settings.nix) migrates them out of the file, but a router installed
 // before the loader feeds its JSON to the module directly, so the key stays on
 // disk — and every save would then fail schema validation.
-const RETIRED_KEYS = ["dns.technitium.listenPort"];
+const RETIRED_KEYS = ["dns.technitium.listenPort", "dns.technitium.safeSearch"];
+
+// The SafeSearch catalog sites (safeSearchSites in modules/filter-catalog.nix).
+export const SAFE_SEARCH_SITES = ["bing", "duckduckgo", "google", "youtube"] as const;
+
+// A global `safeSearch: true` enforced every site for every client, so before
+// it is dropped it moves onto every policy, as the loader's
+// safeSearchPerPolicy migration does — writing out the synthesized Base when
+// there are no policies. Dropping it alone would turn SafeSearch off.
+function moveGlobalSafeSearch(obj: Json): Json {
+  if (getPath(obj, "dns.technitium.safeSearch") !== true) {
+    return obj;
+  }
+  const allSites = Object.fromEntries(SAFE_SEARCH_SITES.map((s) => [s, true]));
+  const policies = getPath(obj, "accessPolicies.policies");
+  const current: Json[] =
+    Array.isArray(policies) && policies.length > 0
+      ? policies
+      : [
+          {
+            name: "Base",
+            description: "Default policy",
+            standardFilters: ["adguard_ads", "adguard_malware", "adguard_phishing"],
+          },
+        ];
+  const moved = structuredClone(current);
+  for (const p of moved) {
+    if (isObject(p)) {
+      p.safeSearch = { ...allSites, ...(isObject(p.safeSearch) ? p.safeSearch : {}) };
+    }
+  }
+  return setPath(obj, "accessPolicies.policies", moved);
+}
 
 // The settings without the retired keys, so the next save writes the current
 // shape. Returns `obj` itself when it holds none of them.
 export function dropRetiredKeys(obj: Json): Json {
-  let next = obj;
+  let next = moveGlobalSafeSearch(obj);
   for (const path of RETIRED_KEYS) {
     const cut = path.lastIndexOf(".");
     const parentPath = path.slice(0, cut);

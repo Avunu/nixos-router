@@ -236,6 +236,54 @@ void test("dropRetiredKeys: drops the retired DNS listen port and nothing else",
   assert.deepEqual(dropRetiredKeys(current), current, "a second pass changes nothing");
 });
 
+// The seeded "safeSearch": true enforced every site for every client; dropping
+// it alone would turn SafeSearch off on the next save.
+void test("dropRetiredKeys: global SafeSearch moves onto every policy", () => {
+  const all = { bing: true, duckduckgo: true, google: true, youtube: true };
+  const onDisk: Json = {
+    accessPolicies: {
+      defaultPolicy: "Base",
+      policies: [{ name: "Base" }, { name: "Staff", safeSearch: { youtube: false } }],
+    },
+    dns: { technitium: { enable: true, safeSearch: true } },
+  };
+  const current = dropRetiredKeys(onDisk);
+  assert.deepEqual(current, {
+    accessPolicies: {
+      defaultPolicy: "Base",
+      policies: [
+        { name: "Base", safeSearch: all },
+        { name: "Staff", safeSearch: { ...all, youtube: false } },
+      ],
+    },
+    dns: { technitium: { enable: true } },
+  });
+  assert.deepEqual(dropRetiredKeys(current), current, "a second pass changes nothing");
+
+  assert.deepEqual(dropRetiredKeys({ dns: { technitium: { safeSearch: true } } }), {
+    accessPolicies: {
+      policies: [
+        {
+          name: "Base",
+          description: "Default policy",
+          standardFilters: ["adguard_ads", "adguard_malware", "adguard_phishing"],
+          safeSearch: all,
+        },
+      ],
+    },
+    dns: { technitium: {} },
+  });
+
+  const off: Json = {
+    accessPolicies: { policies: [{ name: "Base" }] },
+    dns: { technitium: { safeSearch: false } },
+  };
+  assert.deepEqual(dropRetiredKeys(off), {
+    accessPolicies: { policies: [{ name: "Base" }] },
+    dns: { technitium: {} },
+  });
+});
+
 void test("dropRetiredKeys: settings without the key come back as they are", () => {
   for (const obj of [
     { hostName: "r1" },

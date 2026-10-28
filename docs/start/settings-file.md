@@ -149,6 +149,7 @@ Register the device on the **Hosts** page with that static IP, then apply again.
 | 2026-09 | Port forwards: `destination` becomes `host` (the device reserving that address), `source` becomes `sources`, and `family` is set to `ipv4`. |
 | 2026-09 | `dns.technitium.listenPort` is removed. The resolver always listens on port 53. |
 | 2026-09 | An empty `reporting.email.apiTokenFile`, `directory.sssd.bindPasswordFile`, `tlsCaCertFile`, `tlsClientCertFile`, `tlsClientKeyFile` or `adminUser.initialPassword` becomes `null`. Older versions of the web UI saved `""` when you cleared one of these fields, which the build took for a value. |
+| 2026-10 | `dns.technitium.safeSearch` is removed; SafeSearch is set per policy and per site. If it was on, every policy gets `safeSearch` on for every site, and with no policies the default Base policy is written out to carry it. See [SafeSearch](../access-policies/dns-enforcement.md#safesearch). |
 
 Maintainers add migrations as described in [Settings migrations](../develop/settings-migrations.md).
 

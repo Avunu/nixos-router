@@ -11,6 +11,7 @@ code:
   - pkgs/router-dns-tools/router_dns_tools/compile_policies.py
   - pkgs/router-dns-tools/router_dns_tools/reconcile.py
   - pkgs/router-dns-tools/router_dns_tools/local_dns.py
+  - pkgs/router-dns-tools/router_dns_tools/safesearch.py
   - pkgs/cockpit-router/src/access-policies.tsx
   - pkgs/cockpit-router/src/dns.tsx
 ---
@@ -28,7 +29,7 @@ A DNS filter only works if clients use it. This page explains how the router ste
 | DNS over TLS and DNS over QUIC (port 853) are dropped | LAN, guest | Always on |
 | DNS over IPv6 (port 53) is dropped | LAN, guest | Always on |
 | Public DNS-over-HTTPS resolver domains are blocked | Every policy | **Block DoH providers**, on by default |
-| SafeSearch is forced on Google, Bing, DuckDuckGo and YouTube | Every client | **Enforce SafeSearch**, off by default |
+| SafeSearch is forced on Google, Bing, DuckDuckGo and YouTube | Clients of a policy that turns it on, per site | **SafeSearch** in the policy editor, off by default |
 | Suricata alerts on bypass attempts | LAN, guest, WireGuard | On while Suricata is on |
 
 ### Redirected DNS
@@ -61,16 +62,22 @@ A browser in its default DoH mode that can't resolve its DoH server falls back t
 
 ### SafeSearch
 
-While **Enforce SafeSearch** is on, the router answers these names with the provider's restricted service, for every client and every policy:
+Each policy turns SafeSearch on per site, under **SafeSearch** in the policy editor (see [Build a policy](policies.md#safesearch)). For a client whose policy enforces a site, the router answers that site's names with the provider's restricted service:
 
-| Name | Answered with |
-| --- | --- |
-| `www.google.com` | `forcesafesearch.google.com` |
-| `www.bing.com` | `strict.bing.com` |
-| `duckduckgo.com`, `www.duckduckgo.com` | `safe.duckduckgo.com` |
-| `www.youtube.com`, `m.youtube.com`, `youtubei.googleapis.com`, `youtube.googleapis.com`, `www.youtube-nocookie.com` | `restrict.youtube.com` |
+| Site | JSON key | Name | Answered with |
+| --- | --- | --- | --- |
+| **Google** | `google` | `www.google.com` | `forcesafesearch.google.com` |
+| **Bing** | `bing` | `www.bing.com` | `strict.bing.com` |
+| **DuckDuckGo** | `duckduckgo` | `duckduckgo.com`, `www.duckduckgo.com` | `safe.duckduckgo.com` |
+| **YouTube (restricted mode)** | `youtube` | `www.youtube.com`, `m.youtube.com`, `youtubei.googleapis.com`, `youtube.googleapis.com`, `www.youtube-nocookie.com` | `restrict.youtube.com` (strict), or `restrictmoderate.youtube.com` (moderate) |
 
-The router creates a small zone for each name, holding an ANAME record that points at the restricted host. It tracks those zones in `/var/lib/router-technitium/managed-zones.json` and removes them when you turn SafeSearch off. SafeSearch applies to every client, so it can't differ between policies. Only `www.google.com` is covered, not Google's country domains such as `www.google.co.uk`. To close that gap on a strict policy, block the country domains your users reach under **Block domains**.
+YouTube has two levels. **Strict**, the default when you switch it on, hides the most videos. **Moderate** hides fewer. Two policies can choose different levels.
+
+A client gets the SafeSearch settings of the one policy it is assigned, the same policy that filters it, including directory-group assignments that change without a rebuild. Clients of other policies get the site's real address.
+
+For each name of a site that at least one policy enforces, the router creates a conditional-forwarder zone. Its apex holds an APP record for Technitium's Split Horizon app, listing every range of the compiled policy map with either that range's policy's restricted host or nothing. The app picks the most specific range that contains the client, as Advanced Blocking does, and answers with an ANAME to the restricted host. With nothing, the query falls through to the upstream servers, like any other name in the zone. The router tracks the zones in `/var/lib/router-technitium/managed-zones.json` and removes a site's zones once no policy enforces it.
+
+Only `www.google.com` is covered, not Google's country domains such as `www.google.co.uk`. To close that gap on a strict policy, block the country domains your users reach under **Block domains**.
 
 ### Suricata alerts
 
@@ -99,7 +106,6 @@ These settings are on **DNS → Resolver**. Change them there and choose **Save 
 | Setting | On **DNS → Resolver** | JSON key | Default |
 | --- | --- | --- | --- |
 | Upstream DNS-over-HTTPS servers | **Upstream resolvers** | `dns.technitium.upstreamServers` | `https://dns.cloudflare.com/dns-query`, `https://dns.google/dns-query` |
-| SafeSearch | **Enforce SafeSearch** | `dns.technitium.safeSearch` | off |
 | DoH blocking | **Block public DoH resolvers** | `dns.technitium.blockDoHProviders` | on |
 | Local names for reserved devices | **Publish static hosts** | `dns.registerStaticHosts` | on |
 | Technitium API port | **API port** | `dns.technitium.webPort` | 5380 |
@@ -117,7 +123,6 @@ The resolver always listens on port 53. DHCP can tell clients the router's addre
         "https://dns.cloudflare.com/dns-query",
         "https://dns.google/dns-query"
       ],
-      "safeSearch": true,
       "blockDoHProviders": true
     }
   }
