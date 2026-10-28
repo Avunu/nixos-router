@@ -16,5 +16,8 @@
     { "type": "ci", "section": "CI", "hidden": true },
     { "type": "style", "section": "Style", "hidden": true },
     { "type": "test", "section": "Tests", "hidden": true }
-  ]
+  ],
+  "packages": {
+    ".": {}
+  }
 }
