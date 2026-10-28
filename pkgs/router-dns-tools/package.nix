@@ -30,7 +30,10 @@ python3Packages.buildPythonApplication {
   ];
 
   makeWrapperArgs = [
-    "--prefix PATH : ${lib.makeBinPath [ typst ]}"
+    "--prefix"
+    "PATH"
+    ":"
+    (lib.makeBinPath [ typst ])
   ];
 
   # No upstream tests; the technitium-vm NixOS test exercises everything
