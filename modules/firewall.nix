@@ -2,8 +2,9 @@
 # The complete nftables ruleset (inet filter + inet nat with DNS hijacking + inet
 # dns_bypass), generated from the topology and the WireGuard / port-forward
 # options, plus optional UPnP-IGD/NAT-PMP via miniupnpd. The ruleset is kept as a
-# single atomic flush-ruleset string; interface names come from the shared
-# topology (config.router._internal).
+# single string, loaded atomically; a load replaces only the tables named in
+# `ownedTables`, never other daemons' (netavark's, miniupnpd's). Interface
+# names come from the shared topology (config.router._internal).
 {
   config,
   lib,
@@ -284,6 +285,22 @@ let
   #        forward chain's drop policy is applied before anything is
   #        handed to the IPS. See the table's own comment for why it
   #        must not live inside the forward chain.
+  #
+  # Every table above must be listed in ownedTables, the `inet` tables a
+  # load deletes and recreates (see networking.nftables below). An unlisted
+  # table would never be deleted, so each reload would append its rules again.
+  # The assertion further down holds the two together.
+  ownedTables = [
+    "filter"
+    "nat"
+    "antispoof"
+    "dns_bypass"
+    "ips"
+  ];
+  rulesetTables = concatMap (m: m) (
+    filter isList (builtins.split "table inet ([a-z_]+) \\{" nftRuleset)
+  );
+
   nftRuleset = ''
     table inet filter {
       chain input {
@@ -699,6 +716,10 @@ in
         );
         message = "router.lan.address / router.guest.address must be plain IPv4 addresses (no prefix length).";
       }
+      {
+        assertion = subtractLists ownedTables rulesetTables == [ ];
+        message = "modules/firewall.nix: nftRuleset defines inet table(s) ${concatStringsSep ", " (subtractLists ownedTables rulesetTables)} missing from ownedTables, so a reload would never delete them";
+      }
     ];
     warnings = forwardWarnings;
 
@@ -706,9 +727,23 @@ in
     # The complete firewall ruleset generated from `nftRuleset` above.
     # See the nftRuleset generation section in the `let` block for
     # detailed documentation of each table and chain.
+    #
+    # A raw `ruleset` makes NixOS default to `flush ruleset` on every load,
+    # which also wipes the tables other daemons keep in the kernel: netavark's
+    # `inet netavark` (published-port DNAT and container forwarding) and
+    # miniupnpd's. Instead, only the tables this module owns are deleted and
+    # recreated. The deletions are saved to /run and replayed on the next load,
+    # so a table that drops out of the config is still removed once.
     networking.nftables = {
       enable = true;
       ruleset = nftRuleset;
+      flushRuleset = false;
+      # `table …` before `delete table …` makes the delete a no-op when the
+      # table is absent (first boot, or the IPS table while the IPS is off).
+      extraDeletions = concatMapStrings (t: ''
+        table inet ${t}
+        delete table inet ${t}
+      '') ownedTables;
     };
 
     # ── UPnP-IGD / NAT-PMP — miniupnpd ───────────────────
@@ -728,12 +763,12 @@ in
     #   • allow/deny — only ports 1024-65535 from the LAN subnet may
     #     be mapped; everything else is denied.
     #
-    # NOTE: when the nftables ruleset reloads (e.g. on a
-    # `nixos-rebuild switch`) it is flushed (flushRuleset defaults
-    # on for a monolithic ruleset), clearing miniupnpd's live
-    # mappings. Clients re-request them on their next renewal; the
-    # lease_file + partOf binding lets a miniupnpd restart restore
-    # them from disk immediately.
+    # NOTE: the `inet miniupnpd` table is declared through
+    # networking.nftables.tables, so every load (e.g. a
+    # `nixos-rebuild switch`) deletes and recreates it empty, clearing
+    # miniupnpd's live mappings. Clients re-request them on their next
+    # renewal; the lease_file + partOf binding lets a miniupnpd restart
+    # restore them from disk immediately.
     services.miniupnpd = mkIf cfg.upnp.enable {
       enable = true;
       externalInterface = wanIf;
@@ -751,48 +786,15 @@ in
       '';
     };
 
-    systemd.services = mkMerge [
-      (mkIf cfg.upnp.enable {
-        miniupnpd = {
-          after = [ "nftables.service" ];
-          partOf = [ "nftables.service" ];
-          serviceConfig.StateDirectory = "miniupnpd";
-        };
-      })
-
-      # ── Podman / netavark rule restoration ────────────
-      # Same hazard as miniupnpd above, but with worse consequences and a
-      # different trigger. When containers are running, podman's NixOS module
-      # points netavark at the nftables firewall driver, so netavark installs
-      # its own `inet netavark` table carrying published-port DNAT and the
-      # container subnets' forwarding. The monolithic ruleset here flushes
-      # everything on load, so those rules vanish and published ports go dead.
-      #
-      # `partOf` alone — the miniupnpd mitigation — is NOT enough here: the
-      # nftables unit sets reloadIfChanged and defines ExecReload, so a
-      # `nixos-rebuild switch` RELOADS it, and partOf only propagates across
-      # stop/restart. ReloadPropagatedFrom covers the reload path, and partOf
-      # still covers a genuine restart. `podman network reload --all`
-      # reinstalls the rules for every running container without restarting
-      # any of them.
-      (mkIf (cfg.wireless.unifi.enable || cfg.wireless.openwisp.enable) {
-        podman-network-reload = {
-          description = "Reinstall podman/netavark firewall rules after an nftables reload";
-          after = [
-            "nftables.service"
-            "podman.service"
-          ];
-          partOf = [ "nftables.service" ];
-          unitConfig.ReloadPropagatedFrom = [ "nftables.service" ];
-          wantedBy = [ "multi-user.target" ];
-          serviceConfig = {
-            Type = "oneshot";
-            RemainAfterExit = true;
-            ExecStart = "${config.virtualisation.podman.package}/bin/podman network reload --all";
-            ExecReload = "${config.virtualisation.podman.package}/bin/podman network reload --all";
-          };
-        };
-      })
-    ];
+    # Restores miniupnpd's mappings after its table is recreated (see the NOTE
+    # above). netavark's `inet netavark` table, with the published-port DNAT
+    # and the container subnets' forwarding, needs no such unit: it is not in
+    # ownedTables, so reloading or restarting nftables leaves it in place.
+    # tests/wireless-podman.nix checks that end to end.
+    systemd.services.miniupnpd = mkIf cfg.upnp.enable {
+      after = [ "nftables.service" ];
+      partOf = [ "nftables.service" ];
+      serviceConfig.StateDirectory = "miniupnpd";
+    };
   };
 }

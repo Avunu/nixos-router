@@ -13,11 +13,12 @@
 #     policy in the input chain would otherwise block;
 #   • a port published on the LAN address;
 #   • and — the reason this test exists at all — all of the above surviving an
-#     nftables reload. The router's ruleset is monolithic and flushes on load,
-#     which destroys netavark's own table. `nixos-rebuild switch` RELOADS the
-#     nftables unit rather than restarting it, so the `partOf` binding used for
-#     miniupnpd does not fire; modules/firewall.nix uses ReloadPropagatedFrom
-#     for this, and nothing but an end-to-end test can confirm it works.
+#     nftables reload and restart. Published ports live in netavark's own
+#     `inet netavark` table, which a load of the router's ruleset must leave
+#     alone: modules/firewall.nix replaces only the tables in its ownedTables
+#     instead of flushing the whole ruleset. A flush would kill every published
+#     port, and `podman network reload` can't be relied on to restore them:
+#     podman 6 fails it for containers with a static --ip.
 {
   pkgs,
   routerModule,
@@ -157,20 +158,32 @@ pkgs.testers.runNixOSTest {
             timeout=60,
         )
 
-    with subtest("published ports and egress survive an nftables reload"):
-        # This is what a `nixos-rebuild switch` does to the ruleset: reload, not
-        # restart. The reload flushes every table, netavark's included.
+    with subtest("published ports and egress survive an nftables reload and restart"):
+        # A `nixos-rebuild switch` reloads the ruleset; a restart (or a stop and
+        # start) runs the deletions as well. Neither may touch netavark's table.
+        for action in ["reload", "restart"]:
+            router.succeed(f"systemctl {action} nftables.service")
+            router.succeed("nft list table inet netavark >/dev/null")
+            router.succeed("nft list table inet filter >/dev/null")
+            router.wait_until_succeeds(
+                "curl -sf http://${baseSettings.lan.address}:8081/ | grep -q wireless-probe-ok",
+                timeout=30,
+            )
+            router.succeed(
+                "pass=$(cat /var/lib/router-wireless/redis.pass);"
+                " podman exec wireless-probe redis-cli -h 10.89.0.1 -a \"$pass\" ping"
+                " | grep -q PONG"
+            )
+
+    with subtest("a reload replaces the router's tables instead of appending to them"):
+        # flushRuleset is off, so only the deletions keep a load from adding a
+        # second copy of every rule. Count one rule as a proxy.
         router.succeed("systemctl reload nftables.service")
-        router.wait_for_unit("podman-network-reload.service")
-        router.wait_until_succeeds(
-            "curl -sf http://${baseSettings.lan.address}:8081/ | grep -q wireless-probe-ok",
-            timeout=60,
-        )
-        router.succeed(
-            "pass=$(cat /var/lib/router-wireless/redis.pass);"
-            " podman exec wireless-probe redis-cli -h 10.89.0.1 -a \"$pass\" ping"
-            " | grep -q PONG"
-        )
+        before = router.succeed("nft list chain inet filter forward | grep -c 'ct status dnat accept'").strip()
+        assert int(before) >= 1, before
+        router.succeed("systemctl reload nftables.service")
+        after = router.succeed("nft list chain inet filter forward | grep -c 'ct status dnat accept'").strip()
+        assert before == after, f"forward chain grew across a reload: {before} -> {after}"
 
     with subtest("the UniFi database bridge is absent from the ruleset"):
         # Its isolation is the absence of a forward rule; assert the ruleset that
