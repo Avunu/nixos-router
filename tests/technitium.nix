@@ -196,12 +196,21 @@ pkgs.testers.runNixOSTest {
                 name = "Base";
                 blockDomains = [ "lan-blocked.vmtest" ];
                 responseType = "blockingAddress";
+                # Strict, while the Strict policy below is moderate: one zone,
+                # a different endpoint per policy.
+                safeSearch.youtube = true;
               }
               {
                 name = "Strict";
                 priority = 10;
                 blockDomains = [ "kids-blocked.vmtest" ];
                 responseType = "nxdomain";
+                # Base does not enforce Google, so www.google.com's answer
+                # depends on the client's policy.
+                safeSearch = {
+                  google = true;
+                  youtube = "moderate";
+                };
                 assignments = {
                   hostGroups = [ "Kids" ];
                   directoryGroups = [ "Students" ];
@@ -258,6 +267,20 @@ pkgs.testers.runNixOSTest {
             {
               name = "example.vmtest";
               value = "10.48.4.21";
+            }
+            {
+              # Stand in for the real enforcement endpoints, which this
+              # hermetic VM cannot reach, so the SafeSearch ANAMEs resolve.
+              name = "forcesafesearch.google.com";
+              value = "10.48.4.30";
+            }
+            {
+              name = "restrict.youtube.com";
+              value = "10.48.4.31";
+            }
+            {
+              name = "restrictmoderate.youtube.com";
+              value = "10.48.4.32";
             }
             {
               # CNAME is illegal at a zone apex, which is what an unrooted
@@ -602,6 +625,34 @@ pkgs.testers.runNixOSTest {
         answer = router.succeed(dig_short.format(ns="kid", name="lan-blocked.vmtest"))
         assert answer.strip() == "", answer
 
+    with subtest("SafeSearch follows each client's policy"):
+        # Strict enforces Google: the Split Horizon APP record answers the
+        # kid with an ANAME to forcesafesearch.google.com, resolved here
+        # through the override standing in for it.
+        answer = router.succeed(dig_short.format(ns="kid", name="www.google.com"))
+        assert answer.strip() == "10.48.4.30", answer
+        # Base does not: the APP record steps aside and the query falls
+        # through the zone's FWD records to the (unreachable) upstream, so
+        # the server SERVFAILs and +short prints nothing.
+        out = router.succeed(dig.format(ns="guestpc", name="www.google.com"))
+        assert "status: SERVFAIL" in out, out
+        # YouTube is enforced by both, at different levels.
+        answer = router.succeed(dig_short.format(ns="kid", name="www.youtube.com"))
+        assert answer.strip() == "10.48.4.32", answer
+        answer = router.succeed(dig_short.format(ns="guestpc", name="www.youtube.com"))
+        assert answer.strip() == "10.48.4.31", answer
+        # Only enforced sites get zones; nothing enforces Bing or DuckDuckGo.
+        managed = json.loads(router.succeed("cat /var/lib/router-technitium/managed-zones.json"))
+        assert set(managed["zones"]) == {
+            "www.google.com",
+            "www.youtube.com",
+            "m.youtube.com",
+            "youtubei.googleapis.com",
+            "youtube.googleapis.com",
+            "www.youtube-nocookie.com",
+        }, managed
+        assert managed["zones"]["www.google.com"] == "Forwarder", managed
+
     with subtest("IPv6 :53 is dropped so devices cannot escape their policy tier"):
         # The device/group/user tiers are anchored to IPv4 DHCP reservations,
         # so an IPv6-sourced query could only match the catch-all [::]/0 entry
@@ -697,6 +748,21 @@ pkgs.testers.runNixOSTest {
         out = router.succeed(dig.format(ns="jdoe", name="kids-blocked.vmtest"))
         assert "status: NXDOMAIN" in out, out
         assert blocked_by(out) == "Strict", out
+
+    with subtest("SafeSearch zones follow the directory tier too"):
+        # router-policy-push rebuilds the SafeSearch zones from the map it just
+        # compiled, right after pushing Advanced Blocking.
+        router.wait_until_succeeds(
+            dig_short.format(ns="jdoe", name="www.google.com") + " | grep -qx 10.48.4.30",
+            timeout=60,
+        )
+        # The records land before the bookkeeping is saved, so the answer
+        # alone cannot tell whether the push could write managed-zones.json.
+        router.wait_until_succeeds(
+            "[ \"$(systemctl show -P ExecMainExitTimestampMonotonic router-policy-push.service)\" != 0 ]"
+            " && [ \"$(systemctl show -P ExecMainStatus router-policy-push.service)\" = 0 ]",
+            timeout=60,
+        )
 
     with subtest("an empty adminGroup keeps SSSD out of the login path"):
         # Identity is for policy assignment only. The primary control is that

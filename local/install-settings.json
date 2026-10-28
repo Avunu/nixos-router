@@ -27,6 +27,12 @@
         "name": "Base",
         "priority": 0,
         "responseType": "blockingAddress",
+        "safeSearch": {
+          "bing": true,
+          "duckduckgo": true,
+          "google": true,
+          "youtube": true
+        },
         "standardFilters": [
           "adaway",
           "adguard_ads",
@@ -57,7 +63,6 @@
     "technitium": {
       "blockDoHProviders": true,
       "enable": true,
-      "safeSearch": true,
       "upstreamServers": [
         "https://dns.cloudflare.com/dns-query",
         "https://dns.google/dns-query"

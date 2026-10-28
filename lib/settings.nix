@@ -25,7 +25,7 @@
 # as well, hidden (visible = false keeps it out of the schema) and ignored,
 # next to its migration, and Cockpit drops the key when it reads the file
 # (RETIRED_KEYS in pkgs/cockpit-router/src/settings-json.ts) — see
-# dns.technitium.listenPort.
+# dns.technitium.listenPort and dns.technitium.safeSearch.
 #
 # Every migration takes and returns the raw settings attrset and must be
 # idempotent: all of them run on every evaluation, including over JSON that is
@@ -153,11 +153,54 @@ let
     in
     lib.foldl' clear settings paths;
 
+  # 2026-10 — SafeSearch is set per access policy and per site, not globally.
+  #   { dns.technitium.safeSearch = true; accessPolicies.policies = [ { name = "Base"; ... } ]; }
+  #   → { accessPolicies.policies = [ { name = "Base"; safeSearch = { google = true; ... }; ... } ]; }
+  # On kept every client enforced on every site, so every policy enforces
+  # every site it does not already set. With no policies the modules
+  # synthesize "Base", which then has nowhere to carry the setting, so it is
+  # written out with the filters the synthesized one has
+  # (modules/access-policies.nix). Off only drops the key.
+  safeSearchPerPolicy =
+    settings:
+    let
+      dns = settings.dns or { };
+      technitium = dns.technitium or { };
+      accessPolicies = settings.accessPolicies or { };
+      policies = accessPolicies.policies or [ ];
+      allSites = lib.mapAttrs (_: _: true) (import ../modules/filter-catalog.nix).safeSearchSites;
+      synthesizedBase = {
+        name = "Base";
+        description = "Default policy";
+        standardFilters = [
+          "adguard_ads"
+          "adguard_malware"
+          "adguard_phishing"
+        ];
+      };
+      enforce = p: p // { safeSearch = allSites // (p.safeSearch or { }); };
+    in
+    if !(technitium ? safeSearch) then
+      settings
+    else
+      settings
+      // {
+        dns = dns // {
+          technitium = removeAttrs technitium [ "safeSearch" ];
+        };
+      }
+      // lib.optionalAttrs technitium.safeSearch {
+        accessPolicies = accessPolicies // {
+          policies = map enforce (if policies == [ ] then [ synthesizedBase ] else policies);
+        };
+      };
+
   # Oldest first. Append new migrations at the end.
   migrations = [
     portForwardsToHosts
     dropDnsListenPort
     clearedValuesToNull
+    safeSearchPerPolicy
   ];
 
   migrateSettings = settings: lib.foldl' (s: m: m s) settings migrations;

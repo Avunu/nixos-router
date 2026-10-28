@@ -3,18 +3,21 @@
 # directory groups, subnets, and/or networks. Policies are compiled — together
 # with the device registry (hosts.nix) and synced directory state — into the
 # Technitium Advanced Blocking app configuration by pkgs/router-dns-tools
-# (`router-policy-compile`).
+# (`router-policy-compile`), and into the per-policy SafeSearch zones.
 #
 # One winning policy per client (Advanced Blocking maps each client to exactly
 # one group, most-specific networkGroupMap prefix wins):
 #   host group > directory group (of the device's user) > subnet/network >
 #   accessPolicies.defaultPolicy; within a tier the highest `priority` wins.
+# SafeSearch follows the same winner: its zones are keyed by the compiled
+# networkGroupMap, and the Split Horizon app matches it the same way.
 #
 # This module only defines options, validates them, and emits the *static*
 # compiler inputs (`router-policy-static.json`, exposed to dns-technitium.nix
 # via router._policyStaticInputs): policies with catalog references expanded to
-# format-tagged URL lists, the registry, group names, and network CIDRs. The
-# runtime merge with directory state happens in the compiler, never in Nix.
+# format-tagged URL lists and each enforced SafeSearch site's endpoint, the
+# registry, group names, and network CIDRs. The runtime merge with directory state happens in
+# the compiler, never in Nix.
 {
   config,
   lib,
@@ -59,6 +62,7 @@ let
       "0.0.0.0"
       "::"
     ];
+    safeSearch = mapAttrs (_: _: false) catalog.safeSearchSites;
     assignments = {
       networks = [ ];
       subnets = [ ];
@@ -102,6 +106,15 @@ let
       ++ map catalog.utCapitole.urlFor p.categories;
     adblockListUrls = p.adblockListUrls ++ catalogUrls "adblock" p.standardFilters;
     regexBlockListUrls = p.regexBlockListUrls;
+    # Catalog site id → the endpoint this policy's clients get, for each site
+    # it enforces SafeSearch on.
+    safeSearch = mapAttrs (
+      id: level:
+      let
+        site = catalog.safeSearchSites.${id};
+      in
+      if level == true then site.target else site.levels.${level}
+    ) (filterAttrs (_: level: level != false) p.safeSearch);
   };
 
   # ── Compiler static inputs ───────────────────────────────
@@ -134,6 +147,7 @@ let
       };
       blockDoHProviders = cfg.dns.technitium.blockDoHProviders or true;
       dohProviderDomains = catalog.dohProviderDomains;
+      safeSearchSites = mapAttrs (_: s: { inherit (s) hosts; }) catalog.safeSearchSites;
       blockPage = cfg.accessPolicies.blockPage;
     }
   );
@@ -224,6 +238,33 @@ let
         ];
         description = "A/AAAA answers for blocked queries (responseType = blockingAddress).";
       };
+      safeSearch = mapAttrs (
+        _: site:
+        let
+          levels = site.levels or { };
+        in
+        mkOption {
+          # true is the site's strictest level; a site with levels also takes
+          # a level's name. One enum rather than `either bool (enum …)`, which
+          # the settings-schema generator cannot express.
+          type =
+            if levels == { } then
+              types.bool
+            else
+              types.enum (
+                [
+                  false
+                  true
+                ]
+                ++ attrNames levels
+              );
+          default = false;
+          description =
+            "Enforce SafeSearch on ${site.name} for this policy's clients: lookups of ${concatStringsSep ", " site.hosts} get ${site.target}"
+            + concatStrings (mapAttrsToList (level: target: ", or ${target} when \"${level}\"") levels)
+            + ".";
+        }
+      ) catalog.safeSearchSites;
       assignments = {
         networks = mkOption {
           type = types.listOf (

@@ -1,11 +1,12 @@
 ---
 title: Build a policy
-description: Create an access policy in Cockpit, section by section, from categories and filter lists to allow rules and the blocked-query response.
+description: Create an access policy in Cockpit, section by section, from categories, filter lists and SafeSearch to allow rules and the blocked-query response.
 order: 1
 code:
   - modules/access-policies.nix
   - modules/filter-catalog.nix
   - pkgs/router-dns-tools/router_dns_tools/compile_policies.py
+  - pkgs/router-dns-tools/router_dns_tools/safesearch.py
   - pkgs/cockpit-router/src/access-policies.tsx
   - pkgs/cockpit-router/src/policy-editors.tsx
   - pkgs/cockpit-router/src/ut-capitole.json
@@ -95,6 +96,12 @@ Categories schools and businesses often start with:
 
 Ad and tracker lists occasionally break a site that depends on an ad or analytics domain. Use them on policies for general browsing, and consider leaving them off policies for servers and appliances.
 
+## SafeSearch
+
+**SafeSearch** has one switch per site: **Google**, **Bing**, **DuckDuckGo** and **YouTube (restricted mode)**. For this policy's clients, each site you switch on answers with the provider's restricted service, so explicit results stay filtered whatever the browser or account setting says. Clients of other policies are unaffected. All four are off by default. When YouTube is on, a level picker appears beside it: **Strict** (the default) or **Moderate**, which hides fewer videos. The names each site covers are listed under [SafeSearch](dns-enforcement.md#safesearch).
+
+In the settings file this is the policy's `safeSearch` object, keyed by site: `google`, `bing`, `duckduckgo` and `youtube`. Each is `true` or `false`, and `youtube` also takes `"moderate"`; `true` is strict.
+
 ## Custom lists
 
 **Custom lists** adds lists you host or choose yourself. Each row is a list kind and a URL. To add one, pick the kind, paste the URL and click **Add list**. **Remove** deletes a row.
@@ -137,7 +144,7 @@ A school has a LAN on `192.168.1.0/24`, an Active Directory with `Students` and 
 
 1. Add a policy named `Students`. Turn on **Default policy**, so unregistered devices and visitors get the strict rules.
 2. Under **Categories**, turn on `porn`, `mixed_adult`, `gambling`, `dating`, `games`, `social_networks`, `vpn`, `doh`, `redirector` and `warez`.
-3. Under **Standard filters**, turn on **AdGuard Base (ads & trackers)**, **AdGuard Malware** and **AdGuard Phishing URL Blocklist**.
+3. Under **Standard filters**, turn on **AdGuard Base (ads & trackers)**, **AdGuard Malware** and **AdGuard Phishing URL Blocklist**. Under **SafeSearch**, turn on all four sites.
 4. Under **Domains & regex**, add `khanacademy.org` to **Allow domains** so no category can block it.
 5. Under **Assignments**, select `Library kiosks` in **Host groups** and type `Students` in **Directory groups**.
 6. Add a second policy named `Staff` with **Priority** `10`. Turn on **AdGuard Malware**, **AdGuard Phishing URL Blocklist** and **Phishing Army (PhishTank + OpenPhish)**, and the `porn` and `mixed_adult` categories. Under **Directory groups**, type `Staff`.
@@ -163,6 +170,7 @@ The example above, in `/etc/nixos/router-settings.json`. Fields you leave out ta
         "priority": 0,
         "categories": ["porn", "mixed_adult", "gambling", "dating", "games", "social_networks", "vpn", "doh", "redirector", "warez"],
         "standardFilters": ["adguard_ads", "adguard_malware", "adguard_phishing"],
+        "safeSearch": { "google": true, "bing": true, "duckduckgo": true, "youtube": true },
         "allowDomains": ["khanacademy.org"],
         "responseType": "blockingAddress",
         "assignments": {
@@ -195,6 +203,7 @@ Every key a policy accepts, with its default:
 | `priority` | `0` | Higher wins within a tier |
 | `categories` | `[]` | UT Capitole category ids |
 | `standardFilters` | `[]` | Keys from the standard filters table |
+| `safeSearch` | every site `false` | `google`, `bing`, `duckduckgo`, `youtube`; `youtube` also takes `"moderate"` |
 | `blockListUrls`, `allowListUrls`, `adblockListUrls`, `regexBlockListUrls` | `[]` | Custom list URLs |
 | `blockDomains`, `allowDomains` | `[]` | Include subdomains |
 | `blockRegex`, `allowRegex` | `[]` | Regular expressions |

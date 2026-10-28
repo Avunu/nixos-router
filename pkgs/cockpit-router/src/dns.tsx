@@ -1,7 +1,8 @@
 // ── DNS page ────────────────────────────────────────────────────────────────
 // Split-horizon DNS (router.dns.overrides / forwardZones) plus the resolver
 // settings that had no UI at all before this page existed
-// (dns.technitium.upstreamServers, safeSearch, blockDoHProviders).
+// (dns.technitium.upstreamServers, blockDoHProviders). SafeSearch is set per
+// access policy, on the Access Policies page.
 //
 // The two tables follow the port-forward editor in firewall.tsx: a compact
 // table over the settings-JSON array plus one draft Card for add/edit, so an
@@ -582,20 +583,6 @@ const Resolver = () => {
               isChecked={s.valueOf<boolean>("dns.registerStaticHosts", true)}
               isDisabled={s.lockedOf("dns.registerStaticHosts")}
               onChange={(_e, v) => s.setLeaf("dns.registerStaticHosts", v)}
-            />
-          </FormGroup>
-          <FormGroup
-            label={_("Enforce SafeSearch")}
-            fieldId="dnsSafeSearch"
-            labelHelp={hint(
-              _("Enforced via DNS records for Google, Bing, DuckDuckGo, and YouTube."),
-            )}
-          >
-            <Switch
-              id="dnsSafeSearch"
-              isChecked={s.valueOf<boolean>("dns.technitium.safeSearch", false)}
-              isDisabled={s.lockedOf("dns.technitium.safeSearch")}
-              onChange={(_e, v) => s.setLeaf("dns.technitium.safeSearch", v)}
             />
           </FormGroup>
           <FormGroup

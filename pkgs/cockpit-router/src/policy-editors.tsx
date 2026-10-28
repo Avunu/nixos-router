@@ -1,6 +1,8 @@
 // Shared editor pieces for the Access Policies page: labels for the standard
 // filter catalog (filter-catalog.nix keys), a switch list bound to a policy's
-// `standardFilters` array of enabled keys, the UT Capitole category selector
+// `standardFilters` array of enabled keys, a switch (and, for YouTube, a level)
+// per SafeSearch site bound to a policy's `safeSearch` object, the UT Capitole
+// category selector
 // (ported from the retired AdGuard page), and an editor for the four custom
 // list-URL arrays a policy carries (block / allow / adblock / regex-block).
 import { useState } from "react";
@@ -15,7 +17,8 @@ import {
   Switch,
   TextInput,
 } from "@patternfly/react-core";
-import type { AccessPolicy } from "./types";
+import { SAFE_SEARCH_SITES } from "./settings-json";
+import type { AccessPolicy, SafeSearchLevel } from "./types";
 
 const _ = cockpit.gettext;
 
@@ -60,6 +63,75 @@ export const StandardFiltersSelector = ({
     </Gallery>
   );
 };
+
+// Labels for the SafeSearch catalog sites (the keys of
+// accessPolicies.policies[].safeSearch — see filter-catalog.nix).
+const SAFE_SEARCH_LABELS: Record<(typeof SAFE_SEARCH_SITES)[number], string> = {
+  google: "Google",
+  bing: "Bing",
+  duckduckgo: "DuckDuckGo",
+  youtube: "YouTube (restricted mode)",
+};
+
+// Sites with a level besides the strictest (`levels` in filter-catalog.nix).
+// `true` stays the strictest, so a switched-on site starts strict.
+const SAFE_SEARCH_LEVELS: Partial<
+  Record<(typeof SAFE_SEARCH_SITES)[number], { value: SafeSearchLevel; label: string }[]>
+> = {
+  youtube: [
+    { value: true, label: "Strict" },
+    { value: "moderate", label: "Moderate" },
+  ],
+};
+
+// One switch per SafeSearch site, bound to a policy's `safeSearch` object,
+// with a level picker beside a switched-on site that has levels.
+export const SafeSearchSelector = ({
+  value,
+  onChange,
+  isDisabled,
+}: {
+  value: Record<string, SafeSearchLevel>;
+  onChange: (v: Record<string, SafeSearchLevel>) => void;
+  isDisabled?: boolean;
+}) => (
+  <Gallery hasGutter minWidths={{ default: "320px" }}>
+    {SAFE_SEARCH_SITES.map((site) => {
+      const level = value[site] ?? false;
+      const levels = SAFE_SEARCH_LEVELS[site];
+      return (
+        <Split hasGutter key={site} style={{ alignItems: "center" }}>
+          <SplitItem>
+            <Switch
+              id={`safesearch-${site}`}
+              label={_(SAFE_SEARCH_LABELS[site])}
+              isChecked={level !== false}
+              isDisabled={isDisabled}
+              onChange={(_e, on) => onChange({ ...value, [site]: on })}
+            />
+          </SplitItem>
+          {levels && level !== false && (
+            <SplitItem>
+              <FormSelect
+                id={`safesearch-${site}-level`}
+                value={String(level)}
+                isDisabled={isDisabled}
+                onChange={(_e, v) =>
+                  onChange({ ...value, [site]: levels.find((l) => String(l.value) === v)!.value })
+                }
+                aria-label={cockpit.format(_("$0 level"), _(SAFE_SEARCH_LABELS[site]))}
+              >
+                {levels.map((l) => (
+                  <FormSelectOption key={l.label} value={String(l.value)} label={_(l.label)} />
+                ))}
+              </FormSelect>
+            </SplitItem>
+          )}
+        </Split>
+      );
+    })}
+  </Gallery>
+);
 
 // Toggle-switch selector for UT Capitole blacklist categories. The list (id +
 // official description) lives in ut-capitole.json — the single source also used

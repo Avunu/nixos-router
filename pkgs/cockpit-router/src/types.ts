@@ -119,6 +119,8 @@ export interface PolicyAssignments {
   directoryGroups?: string[];
 }
 
+export type SafeSearchLevel = boolean | "moderate";
+
 export interface AccessPolicy {
   name: string;
   description?: string;
@@ -135,6 +137,9 @@ export interface AccessPolicy {
   allowRegex?: string[];
   responseType?: "nxdomain" | "blockingAddress";
   blockingAddresses?: string[];
+  // SafeSearch catalog site id (filter-catalog.nix) → enforced: true for the
+  // site's strictest level, or the name of one of its other `levels`.
+  safeSearch?: Record<string, SafeSearchLevel>;
   assignments?: PolicyAssignments;
 }
 

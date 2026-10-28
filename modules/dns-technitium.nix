@@ -6,16 +6,16 @@
 #   1. FIRST BOOT: DNS_SERVER_* environment variables seed the config — they
 #      are read only when dns.config is absent (verified in DnsServer.cs).
 #   2. APP PRE-SEEDING: a root ExecStartPre copies the from-source DNS app
-#      payloads (Advanced Blocking, Log Exporter, Block Page — compiled by
-#      pkgs/technitium-apps, re-exposed via pkgs/router-dns-tools passthru) into
-#      the state dir before the daemon starts, so filtering is enforced from
-#      the first second. The Block Page
+#      payloads (Advanced Blocking, Log Exporter, Block Page, Split Horizon —
+#      compiled by pkgs/technitium-apps, re-exposed via pkgs/router-dns-tools
+#      passthru) into the state dir before the daemon starts, so filtering is
+#      enforced from the first second. The Block Page
 #      app also receives the Nix-generated branded wwwroot.
 #   3. RECONCILE: technitium-reconcile.service (oneshot, re-run by every
 #      nixos-rebuild whose generated desired state changed) asserts settings,
-#      the local zone, SafeSearch ANAME zones, app configs (including the
-#      compiled Advanced Blocking policy config), and the read-only Cockpit
-#      API token via the HTTP API.
+#      the local zone, app configs (including the compiled Advanced Blocking
+#      policy config), the per-policy SafeSearch zones, and the read-only
+#      Cockpit API token via the HTTP API.
 #
 # The daemon itself is compiled from source too (pkgs/technitium-dns-server)
 # and ships without Technitium's web console: all of the above drives the HTTP
@@ -26,9 +26,10 @@
 # grouped in Nix and reconciled through the same API client, with their own
 # managed-state file so removals are reaped.
 #
-# router-policy-push.service re-pushes ONLY the compiled Advanced Blocking
-# config; a path unit triggers it whenever the synced directory state changes,
-# so identity-based assignments follow the IdP without a rebuild.
+# router-policy-push.service re-pushes ONLY what follows the policy compiler
+# (the Advanced Blocking config and the SafeSearch zones); a path unit
+# triggers it whenever the synced directory state changes, so identity-based
+# assignments follow the IdP without a rebuild.
 {
   config,
   lib,
@@ -47,8 +48,6 @@ let
     brLAN
     brGuest
     ;
-
-  catalog = import ./filter-catalog.nix;
 
   # Apply the router overlay locally (it closes over the technitium-dns and
   # technitium-library flake inputs) rather than via nixpkgs.overlays, which
@@ -161,7 +160,6 @@ let
       inherit webUrl;
       adminUser = "admin";
       adminPassFile = "${stateDir}/admin.pass";
-      managedZonesFile = "${stateDir}/managed-zones.json";
       lastReconcileFile = "${stateDir}/last-reconcile.json";
 
       settings = {
@@ -204,9 +202,17 @@ let
         records = cfg._localDnsRecords;
       };
 
+      # Per-policy SafeSearch (accessPolicies.policies[].safeSearch). Which
+      # client gets the enforced answer is only known once the compiler has
+      # merged directory state, so the zones are built at runtime from the
+      # compiled networkGroupMap (router_dns_tools/safesearch.py) — by both
+      # reconcile and router-policy-push. Forwarder zones, like the
+      # split-horizon ones, so a client whose policy does not enforce a site
+      # falls through to the real record. The managed-state file keeps the
+      # path the old global SafeSearch used, so its Primary zones are reaped.
       safeSearch = {
-        enable = tcfg.safeSearch;
-        records = catalog.safeSearchRecords;
+        managedFile = "${stateDir}/managed-zones.json";
+        forwarders = upstreamFwd;
       };
 
       # Split-horizon zones (router.dns.overrides / forwardZones /
@@ -259,6 +265,17 @@ let
             includeBlockingInfo = true;
           }
         ];
+        # Only its SimpleCNAME APP records are used (per-policy SafeSearch),
+        # and they key on raw CIDRs. SimpleCNAME looks names up in
+        # SimpleAddress's `networks`, which stays null without the key, so
+        # it is present even though empty; address translation stays off.
+        "Split Horizon" = {
+          networks = { };
+          enableAddressTranslation = false;
+          domainGroupMap = { };
+          networkGroupMap = { };
+          groups = [ ];
+        };
         # Config for pkgs/technitium-apps/RouterLiveDnsApp — present
         # unconditionally, matching this file's convention above (every Log
         # Exporter target must be present even when disabled). The "local"
@@ -329,7 +346,7 @@ let
   # ── Split-horizon DNS: zone model ────────────────────────
   # Technitium answers a name locally only if an authoritative zone covers
   # it, and a Primary zone blackholes everything else under it (which is
-  # exactly why the SafeSearch hijack uses one zone per name). So every zone
+  # also why SafeSearch uses one zone per name). So every zone
   # this feature creates is a FORWARDER zone carrying an apex FWD record
   # that mirrors the global upstreams: a declared name is answered locally,
   # anything else in the zone falls through to the real upstream. That is
@@ -859,12 +876,20 @@ in
         default = 5380;
         description = "HTTP API port (bound to localhost). The router pages and services configure the DNS server through it; there is no web console.";
       };
+      # Retired: SafeSearch is per access policy now
+      # (accessPolicies.policies[].safeSearch). Kept, hidden and inert, for the
+      # same reason as listenPort above: every seeded install file carries
+      # "safeSearch", and routers installed before lib.settingsModule never
+      # see the loader's migration.
       safeSearch = mkOption {
         type = types.bool;
         default = false;
+        visible = false;
         description = ''
-          Enforce SafeSearch (Google, Bing, DuckDuckGo, YouTube) globally via
-          provisioned ANAME records. Technitium has no built-in SafeSearch.
+          Ignored. SafeSearch is set per access policy
+          (router.accessPolicies.policies.*.safeSearch). Kept so settings files
+          written before the settings loader, which still carry the key, keep
+          evaluating.
         '';
       };
       blockDoHProviders = mkOption {
@@ -952,6 +977,14 @@ in
           always listens on port 53, the only port DHCP clients and the firewall's DNS
           redirect use. Remove the key from router-settings.json, or load the file
           through nixos-router.lib.settingsModule, which drops it.
+        ''
+        # A pre-loader router that had SafeSearch on loses it here, so say so.
+        ++ optional tcfg.safeSearch ''
+          router.dns.technitium.safeSearch is ignored: SafeSearch is now set per access
+          policy (router.accessPolicies.policies.*.safeSearch), and no policy enforces it
+          until you turn it on there. Load router-settings.json through
+          nixos-router.lib.settingsModule, which moves the setting onto every policy, or
+          turn it on per policy in Cockpit → Access Policies.
         '';
     }
 
@@ -1074,12 +1107,15 @@ in
 
       # ── Policy re-push on directory changes ───────────────
       systemd.services.router-policy-push = {
-        description = "Compile and push Advanced Blocking policy config";
+        description = "Compile and push Advanced Blocking policy config and SafeSearch zones";
         after = [ "technitium-reconcile.service" ];
         serviceConfig = rootToolSandbox // {
           Type = "oneshot";
           ExecStart = "${routerDnsTools}/bin/router-policy-push --config ${dnsToolsConfig}";
           SupplementaryGroups = [ "router-data" ]; # read directory.json (0640)
+          # The SafeSearch zone bookkeeping (managed-zones.json) it rewrites.
+          StateDirectory = "router-technitium";
+          StateDirectoryMode = "0700";
         };
       };
       systemd.paths.router-policy-push = {

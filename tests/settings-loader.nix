@@ -11,8 +11,11 @@
 #     that stops leaves the running system alone) instead of guessing;
 #   • a router evaluating an old-shape file builds, and forwards as before;
 #   • a router installed before the loader, which applies its JSON directly,
-#     still evaluates the retired DNS listen port every install was seeded
-#     with, which stays ignored and warns unless it is 53;
+#     still evaluates the retired DNS listen port and global SafeSearch switch
+#     every install was seeded with, which stay ignored; the port warns unless
+#     it is 53, SafeSearch whenever it is on;
+#   • the global SafeSearch switch moves onto every policy (writing out the
+#     synthesized Base when there are none), and off just disappears;
 #   • the activation step really rewrites the file on disk — run here against
 #     a copy — keeps a backup and the file's mode, and never touches a file
 #     edited since the evaluation;
@@ -62,8 +65,21 @@ let
     sources = [ "203.0.113.0/24" ];
   };
 
-  # The retired DNS listen port, as the old DNS form saved it.
-  legacyDns = lib.recursiveUpdate baseSettings.dns { technitium.listenPort = 53; };
+  # The retired DNS listen port and global SafeSearch switch, as the old DNS
+  # form saved them.
+  legacyDns = lib.recursiveUpdate baseSettings.dns {
+    technitium = {
+      listenPort = 53;
+      safeSearch = true;
+    };
+  };
+
+  allSafeSearch = {
+    bing = true;
+    duckduckgo = true;
+    google = true;
+    youtube = true;
+  };
 
   legacy = baseSettings // {
     hosts = [ nas ];
@@ -117,20 +133,25 @@ let
 
   # A router installed before the loader: its flake applies the JSON straight
   # to the module (`{ router = lib.mkDefault settings; }`), so no migration
-  # runs, and every seeded file carries the retired DNS listen port.
+  # runs, and every seeded file carries the retired DNS listen port and global
+  # SafeSearch switch.
   preLoader =
-    port:
+    technitium:
     evalRouter [
       (
         { lib, ... }:
         {
-          router = lib.mkDefault (lib.recursiveUpdate baseSettings { dns.technitium.listenPort = port; });
+          router = lib.mkDefault (lib.recursiveUpdate baseSettings { dns.technitium = technitium; });
         }
       )
     ];
-  preLoaderSeeded = preLoader 53;
-  preLoaderMoved = preLoader 5353;
+  preLoaderSeeded = preLoader {
+    listenPort = 53;
+    safeSearch = true;
+  };
+  preLoaderMoved = preLoader { listenPort = 5353; };
   listenPortWarnings = s: lib.filter (lib.hasInfix "router.dns.technitium.listenPort") s.warnings;
+  safeSearchWarnings = s: lib.filter (lib.hasInfix "router.dns.technitium.safeSearch") s.warnings;
   # What router-technitium-reconcile sets Technitium's listeners to.
   endpointsOf =
     s:
@@ -203,6 +224,88 @@ let
         in
         once == { dns.technitium.enable = true; } && migrateSettings once == once;
       detail = "dropping dns.technitium.listenPort changed other keys or was not idempotent";
+    }
+    {
+      # Every policy enforces every site, except one a policy already sets.
+      name = "safesearch-on-moves-to-every-policy";
+      ok =
+        let
+          once = migrateSettings {
+            dns.technitium = {
+              enable = true;
+              safeSearch = true;
+            };
+            accessPolicies = {
+              defaultPolicy = "Base";
+              policies = [
+                { name = "Base"; }
+                {
+                  name = "Staff";
+                  safeSearch.youtube = false;
+                }
+              ];
+            };
+          };
+        in
+        once == {
+          dns.technitium.enable = true;
+          accessPolicies = {
+            defaultPolicy = "Base";
+            policies = [
+              {
+                name = "Base";
+                safeSearch = allSafeSearch;
+              }
+              {
+                name = "Staff";
+                safeSearch = allSafeSearch // {
+                  youtube = false;
+                };
+              }
+            ];
+          };
+        }
+        && migrateSettings once == once;
+      detail = "global SafeSearch did not land on every policy, or a second pass differed";
+    }
+    {
+      name = "safesearch-on-without-policies-writes-base";
+      ok =
+        let
+          once = migrateSettings { dns.technitium.safeSearch = true; };
+        in
+        once == {
+          dns.technitium = { };
+          accessPolicies.policies = [
+            {
+              name = "Base";
+              description = "Default policy";
+              standardFilters = [
+                "adguard_ads"
+                "adguard_malware"
+                "adguard_phishing"
+              ];
+              safeSearch = allSafeSearch;
+            }
+          ];
+        }
+        && migrateSettings once == once;
+      detail = "with no policies, global SafeSearch did not become an enforcing Base policy";
+    }
+    {
+      name = "safesearch-off-is-dropped";
+      ok =
+        migrateSettings {
+          dns.technitium = {
+            enable = true;
+            safeSearch = false;
+          };
+          accessPolicies.policies = [ { name = "Base"; } ];
+        } == {
+          dns.technitium.enable = true;
+          accessPolicies.policies = [ { name = "Base"; } ];
+        };
+      detail = "dropping dns.technitium.safeSearch = false changed other keys";
     }
     {
       name = "dns-absent-stays-absent";
@@ -306,6 +409,14 @@ let
       name = "pre-loader-listen-port-other-warns";
       ok = lib.any (lib.hasInfix "listenPort = 5353 is ignored") (listenPortWarnings preLoaderMoved);
       detail = "no warning that listenPort = 5353 is ignored; warnings: ${lib.concatStrings preLoaderMoved.warnings}";
+    }
+    {
+      # A pre-loader router that had SafeSearch on loses it, so it must say so.
+      name = "pre-loader-safesearch-warns";
+      ok =
+        lib.any (lib.hasInfix "safeSearch is ignored") (safeSearchWarnings preLoaderSeeded)
+        && safeSearchWarnings preLoaderMoved == [ ];
+      detail = "warnings: ${lib.concatStrings preLoaderSeeded.warnings}";
     }
     {
       name = "pre-loader-listen-port-inert";

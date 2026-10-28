@@ -1,6 +1,7 @@
 # ── Technitium DNS Apps ─────────────────────────────────────────────────────────
 # Compiles the DNS apps this router uses — Advanced Blocking, Log Exporter,
-# Block Page, and this repo's own Router Live DNS — from the Technitium DnsServer
+# Block Page, Split Horizon (per-policy SafeSearch answers), and this repo's
+# own Router Live DNS — from the Technitium DnsServer
 # source (`technitium-dns` flake input) instead of downloading the pre-built app
 # zips. Router Live DNS is NOT part of upstream Technitium: its source lives in
 # ./RouterLiveDnsApp and is copied into the build tree below.
@@ -46,6 +47,7 @@ buildDotnetModule (finalAttrs: {
     "Apps/AdvancedBlockingApp/AdvancedBlockingApp.csproj"
     "Apps/LogExporterApp/LogExporterApp.csproj"
     "Apps/BlockPageApp/BlockPageApp.csproj"
+    "Apps/SplitHorizonApp/SplitHorizonApp.csproj"
     "Apps/RouterLiveDnsApp/RouterLiveDnsApp.csproj"
   ];
 
@@ -91,13 +93,14 @@ buildDotnetModule (finalAttrs: {
     publishApp "Apps/AdvancedBlockingApp/AdvancedBlockingApp.csproj" "Advanced Blocking"
     publishApp "Apps/LogExporterApp/LogExporterApp.csproj" "Log Exporter"
     publishApp "Apps/BlockPageApp/BlockPageApp.csproj" "Block Page"
+    publishApp "Apps/SplitHorizonApp/SplitHorizonApp.csproj" "Split Horizon"
     publishApp "Apps/RouterLiveDnsApp/RouterLiveDnsApp.csproj" "Router Live DNS"
 
     runHook postInstall
   '';
 
   meta = {
-    description = "Technitium DNS Apps (Advanced Blocking, Log Exporter, Block Page, Router Live DNS) built from source";
+    description = "Technitium DNS Apps (Advanced Blocking, Log Exporter, Block Page, Split Horizon, Router Live DNS) built from source";
     homepage = "https://github.com/TechnitiumSoftware/DnsServer";
     license = lib.licenses.gpl3Only;
     platforms = lib.platforms.linux;
