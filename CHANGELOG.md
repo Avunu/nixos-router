@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.2](https://github.com/Avunu/nixos-router/compare/v0.2.1...v0.2.2) (2026-10-28)
+
+
+### Bug Fixes
+
+* router-dns-tools project ([#96](https://github.com/Avunu/nixos-router/issues/96)) ([6084e3a](https://github.com/Avunu/nixos-router/commit/6084e3a39b40f83da15516c8b26d0e48e556db7b))
+
 ## [0.2.1](https://github.com/Avunu/nixos-router/compare/v0.2.0...v0.2.1) (2026-10-28)
 
 
