@@ -1,6 +1,7 @@
 ---
 title: Assign policies
 description: Assign access policies to networks, subnets, host groups and directory groups, understand precedence and priority, and preview the result.
+order: 2
 code:
   - modules/access-policies.nix
   - modules/hosts.nix
@@ -16,9 +17,9 @@ Assignments decide which clients a policy applies to. A policy can be assigned t
 
 ## Before you start
 
-- The host group and directory group tiers apply only to devices registered on the Hosts page **with a Static IP**, which is a DHCP reservation. See [Hosts and host groups](/docs/network/hosts/).
-- Directory groups need a directory connection. See [Directory groups](/docs/access-policies/directory/).
-- A **Guest** assignment needs the guest network turned on. See [Networks and VLANs](/docs/network/).
+- The host group and directory group tiers apply only to devices registered on the Hosts page **with a Static IP**, which is a DHCP reservation. See [Hosts and host groups](../network/hosts.md).
+- Directory groups need a directory connection. See [Directory groups](directory.md).
+- A **Guest** assignment needs the guest network turned on. See [Networks and VLANs](../network/README.md).
 
 ## Assignment types
 
@@ -40,7 +41,7 @@ Notes on each field:
 
 ## How the winning policy is chosen
 
-For each client, the router checks four tiers in order and stops at the first match. The [diagram on the overview page](/docs/access-policies/#which-policy-a-client-gets) shows the same order. The Policies tab summarizes it as: "One policy wins per client: host group, then directory group, then subnet/network, then the default policy; within a tier the highest priority wins."
+For each client, the router checks four tiers in order and stops at the first match. The [diagram on the overview page](README.md#which-policy-a-client-gets) shows the same order. The Policies tab summarizes it as: "One policy wins per client: host group, then directory group, then subnet/network, then the default policy; within a tier the highest priority wins."
 
 ### Tier 1: host group
 
@@ -72,7 +73,7 @@ It never lifts a policy into a higher tier, and it never beats a more specific s
 
 ### Examples
 
-These use the [school example](/docs/access-policies/policies/#worked-example-a-school): `Students` is the default policy, has priority 0 and targets the `Library kiosks` host group and the `Students` directory group. `Staff` has priority 10 and targets the `Staff` directory group.
+These use the [school example](policies.md#worked-example-a-school): `Students` is the default policy, has priority 0 and targets the `Library kiosks` host group and the `Students` directory group. `Staff` has priority 10 and targets the `Staff` directory group.
 
 | Client | Result | Why |
 | --- | --- | --- |
@@ -145,8 +146,8 @@ Assignments live in each policy's `assignments` object. Host groups and devices 
 
 - **Device tiers are IPv4 only.** The host group and directory group tiers are anchored to each device's IPv4 DHCP reservation. The router drops DNS over IPv6 on the LAN and guest networks and doesn't advertise an IPv6 resolver, so clients there use IPv4. An IPv6 query that reaches the router anyway, for example over WireGuard, can't match a device tier.
 - **A reservation is required.** A device with a **Group** or **User** but no **Static IP** follows its network's policy. The Hosts page warns "No static IP — device-tier policies cannot apply", and the build warns: `router.hosts: device 'jdoe laptop' has a group or user assignment but no static IP — device-tier access policies cannot apply to it (it follows its network's default policy).`
-- **WireGuard clients are filtered only if they use the router for DNS.** The router doesn't redirect DNS arriving over WireGuard. A peer gets a policy only when its configuration names the router as its DNS server. WireGuard peers can't be registered on the Hosts page, so they get network or subnet policies only. To give one peer its own policy, assign its tunnel address as a `/32` subnet. See [DNS enforcement](/docs/access-policies/dns-enforcement/#what-the-router-does-not-enforce).
-- **The address is the identity.** A device that takes another device's address gets its policy. See the warning on [Access policies](/docs/access-policies/#which-policy-a-client-gets).
+- **WireGuard clients are filtered only if they use the router for DNS.** The router doesn't redirect DNS arriving over WireGuard. A peer gets a policy only when its configuration names the router as its DNS server. WireGuard peers can't be registered on the Hosts page, so they get network or subnet policies only. To give one peer its own policy, assign its tunnel address as a `/32` subnet. See [DNS enforcement](dns-enforcement.md#what-the-router-does-not-enforce).
+- **The address is the identity.** A device that takes another device's address gets its policy. See the warning on [Access policies](README.md#which-policy-a-client-gets).
 
 ## Build errors
 
@@ -159,4 +160,4 @@ The apply fails, and the router keeps running its current configuration, when as
 | `router.accessPolicies: policy 'Students' references undefined host group(s): Library kiosks` | Create the group on **Hosts → Groups**, or remove it from the policy. |
 | `router.accessPolicies: policy 'Guests' is assigned to the guest network, but router.guest.enable is false` | Turn on the guest network, or clear the policy's **Guest** checkbox. |
 
-A directory group that doesn't exist isn't a build error. It shows up as an unresolved name after the next directory sync. See [Directory groups](/docs/access-policies/directory/#names-are-looked-up-on-demand).
+A directory group that doesn't exist isn't a build error. It shows up as an unresolved name after the next directory sync. See [Directory groups](directory.md#names-are-looked-up-on-demand).

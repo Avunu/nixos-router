@@ -1,6 +1,7 @@
 ---
 title: Port forwards
 description: Open WAN ports to a registered LAN host over IPv4 (DNAT) and IPv6 (a pinhole), optionally limited to certain source addresses.
+order: 1
 code:
   - modules/firewall.nix
   - modules/reverse-proxy.nix
@@ -14,14 +15,14 @@ code:
 
 # Port forwards
 
-A port forward opens one or more WAN ports to a single host on your network. Use it for services that aren't HTTP, such as a game server, SIP or SSH, or when the host must present its own certificate. For web apps that should share port 443 by name, the [reverse proxy](/docs/ingress/reverse-proxy/) is usually the better fit; see [Choose an ingress](/docs/ingress/).
+A port forward opens one or more WAN ports to a single host on your network. Use it for services that aren't HTTP, such as a game server, SIP or SSH, or when the host must present its own certificate. For web apps that should share port 443 by name, the [reverse proxy](reverse-proxy.md) is usually the better fit; see [Choose an ingress](README.md).
 
 ## Before you start
 
-- **Register the host** on the **Hosts** page. A forward always names a registered host, never an address. See [Hosts and host groups](/docs/network/hosts/).
+- **Register the host** on the **Hosts** page. A forward always names a registered host, never an address. See [Hosts and host groups](../network/hosts.md).
 - **For IPv4,** the host needs a **Static IP** (a DHCP reservation). It is the address the router forwards to.
 - **For IPv6,** the host needs an **IPv6 suffix**: the low 64 bits of its address, such as `::20`. The suffix must be stable. Use a token configured on the device, or its EUI-64 identifier if the device really builds its address from its MAC. Privacy addresses and RFC 7217 "stable-privacy" addresses change with the prefix, and the forward would stop matching.
-- **For IPv4 behind CGNAT,** a port forward can't work, because the router has no public IPv4 address. Use [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/) for web apps instead.
+- **For IPv4 behind CGNAT,** a port forward can't work, because the router has no public IPv4 address. Use [Cloudflare Tunnel](cloudflare-tunnel.md) for web apps instead.
 
 ## Add a port forward
 
@@ -56,7 +57,7 @@ Clients connect to the router's public IPv4 address.
 
 There is no NAT for IPv6. The router opens a pinhole in the forward chain to the host's own global address. The ISP-delegated prefix can change at any time, so the rule matches the address by its low 64 bits on the bridge of the host's network (`br-lan`, or `br-guest` for a host on the guest network), and admits new connections only. This is the same technique OpenWrt uses.
 
-Clients connect to the host's own IPv6 address, not the router's. If the host has a **Public hostname**, [dynamic DNS](/docs/dynamic-dns/) publishes its AAAA record as the current prefix plus the suffix, and its A record as the router's WAN IPv4.
+Clients connect to the host's own IPv6 address, not the router's. If the host has a **Public hostname**, [dynamic DNS](../dynamic-dns/README.md) publishes its AAAA record as the current prefix plus the suffix, and its A record as the router's WAN IPv4.
 
 ### The generated rules
 
@@ -77,7 +78,7 @@ iifname "eth0" oifname "br-lan" ip6 daddr & ::ffff:ffff:ffff:ffff == ::20 tcp dp
 
 Port forwards only match traffic that arrives on the WAN. A LAN client that connects to the router's public IPv4 address doesn't reach the host.
 
-For a host with both a **Public hostname** and a **Static IP**, the router's resolver answers LAN clients with the host's LAN address instead, so the public name works inside too. This split-horizon answer needs the router's Technitium DNS server. The reverse proxy is different: it has its own [hairpin](/docs/ingress/reverse-proxy/#ports-and-hairpin) handling.
+For a host with both a **Public hostname** and a **Static IP**, the router's resolver answers LAN clients with the host's LAN address instead, so the public name works inside too. This split-horizon answer needs the router's Technitium DNS server. The reverse proxy is different: it has its own [hairpin](reverse-proxy.md#ports-and-hairpin) handling.
 
 ## Restrict sources
 
@@ -116,9 +117,8 @@ How UPnP differs from static port forwards:
 
 ## Threat protection and IPv6
 
-:::doc-warning
-Each forward exposes the host directly to the internet. With [threat protection](/docs/threat-protection/) on, forwarded traffic still passes through Suricata. But Suricata's `HOME_NET` doesn't include the ISP-delegated IPv6 prefix, so rules written for traffic to `$HOME_NET` don't match inbound IPv6. Forward only what must be reachable, and restrict sources where you can.
-:::
+> [!WARNING]
+> Each forward exposes the host directly to the internet. With [threat protection](../threat-protection/README.md) on, forwarded traffic still passes through Suricata. But Suricata's `HOME_NET` doesn't include the ISP-delegated IPv6 prefix, so rules written for traffic to `$HOME_NET` don't match inbound IPv6. Forward only what must be reachable, and restrict sources where you can.
 
 ## In the settings file
 
@@ -156,7 +156,7 @@ Port forwards are the top-level `portForwards` list. `protocol` defaults to `tcp
 
 ### Forwards from older versions
 
-Older versions stored a forward as an address, with `destination` and `source` keys. The next rebuild upgrades such a forward automatically. It is pointed at the host whose `staticIp` is the old destination, set to `family` `ipv4`, and its `source` moves into `sources`. If no registered host reserves that address, the rebuild stops and names the forward: register the device with that static IP, then apply again. See [Settings migrations](/docs/develop/settings-migrations/).
+Older versions stored a forward as an address, with `destination` and `source` keys. The next rebuild upgrades such a forward automatically. It is pointed at the host whose `staticIp` is the old destination, set to `family` `ipv4`, and its `source` moves into `sources`. If no registered host reserves that address, the rebuild stops and names the forward: register the device with that static IP, then apply again. See [Settings migrations](../develop/settings-migrations.md).
 
 ## Build checks
 
@@ -171,7 +171,7 @@ Cockpit catches most of these before you save. The rebuild enforces all of them.
 | `... has an invalid source prefix in [ ... ] — use IPv4 or IPv6 addresses or CIDR prefixes` (Cockpit: "Not an IPv4 or IPv6 address or prefix: ...") | Fix the entry, such as `203.0.113.0/24`. |
 | `... forwards a WireGuard listen port (UDP 51820); its DNAT would capture the tunnel's own traffic` | Forward a different port, or make the forward **IPv6 only**. Cockpit doesn't check this one. |
 | `router.portForwards: more than one unrestricted IPv4 forward claims tcp/443 — only the first DNAT would ever match` (Cockpit: "Another unrestricted IPv4 forward already claims tcp 443.") | Keep one forward per port and protocol, or restrict both with **Sources**. |
-| `router.portForwards: 'NAME' forwards IPv4 tcp 80/443, which the reverse proxy owns — route the host through router.reverseProxy.routes instead, or set the forward's family = "ipv6"` (Cockpit: "tcp 80/443 over IPv4 belong to the reverse proxy — add a Reverse proxy route for the host instead, or forward IPv6 only.") | Publish the app through a [reverse proxy route](/docs/ingress/reverse-proxy/), or make the forward **IPv6 only**. |
+| `router.portForwards: 'NAME' forwards IPv4 tcp 80/443, which the reverse proxy owns — route the host through router.reverseProxy.routes instead, or set the forward's family = "ipv6"` (Cockpit: "tcp 80/443 over IPv4 belong to the reverse proxy — add a Reverse proxy route for the host instead, or forward IPv6 only.") | Publish the app through a [reverse proxy route](reverse-proxy.md), or make the forward **IPv6 only**. |
 
 ## Limits
 

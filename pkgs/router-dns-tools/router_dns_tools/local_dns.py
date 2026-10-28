@@ -11,11 +11,11 @@ with the per-type parameter Technitium expects, and reaping what an admin
 removed.
 
 Reaping needs memory: Technitium cannot tell a record the router wrote from
-one an operator added in its web console, so anything this module created is
+one an operator added through its API, so anything this module created is
 recorded in its own managed-state file (`localDns.managedFile`) and only
-those entries are ever deleted. SafeSearch keeps its separate
-`managedZonesFile` — the two reapers must not be able to eat each other's
-zones.
+those entries are ever deleted. SafeSearch (safesearch.py) runs the same
+zone-set reconciler with its separate `safeSearch.managedFile` — the two
+reapers must not be able to eat each other's zones.
 """
 
 from __future__ import annotations
@@ -75,6 +75,10 @@ def _load_managed(path: Path) -> dict:
         data = json.loads(path.read_text())
     except ValueError:
         return {"version": MANAGED_VERSION, "zones": {}, "records": []}
+    if isinstance(data, list):
+        # The global SafeSearch's state: the names of the Primary zones it
+        # created. Adopting them lets this run retype or reap them.
+        return {"version": MANAGED_VERSION, "zones": {z: "Primary" for z in data}, "records": []}
     if not isinstance(data, dict):
         return {"version": MANAGED_VERSION, "zones": {}, "records": []}
     data.setdefault("zones", {})
@@ -82,7 +86,7 @@ def _load_managed(path: Path) -> dict:
     return data
 
 
-def _ensure_zone(client: TechnitiumClient, existing: dict[str, str], spec: dict, managed: dict) -> None:
+def _ensure_zone(client: TechnitiumClient, existing: dict[str, str], spec: dict, managed: dict, label: str) -> None:
     """Create the zone if absent; recreate it if its TYPE drifted.
 
     A drifted type is only fixable by delete+create, so it is restricted to
@@ -95,7 +99,7 @@ def _ensure_zone(client: TechnitiumClient, existing: dict[str, str], spec: dict,
     if have is not None:
         if managed["zones"].get(zone) is None:
             print(
-                f"local-dns: zone {zone} exists as {have}, not {want}, and was not "
+                f"{label}: zone {zone} exists as {have}, not {want}, and was not "
                 "created by the router — leaving it alone",
                 file=sys.stderr,
             )
@@ -115,7 +119,18 @@ def reconcile_local_dns(client: TechnitiumClient, cfg: dict, zones: dict[str, st
     spec = cfg.get("localDns")
     if spec is None:
         return
-    managed_file = Path(spec["managedFile"])
+    reconcile_zone_set(client, zones, Path(spec["managedFile"]), spec.get("zones", []), "local-dns")
+
+
+def reconcile_zone_set(
+    client: TechnitiumClient,
+    zones: dict[str, str],
+    managed_file: Path,
+    zone_specs: list[dict],
+    label: str,
+) -> None:
+    """Assert exactly `zone_specs`, reaping whatever an earlier run recorded in
+    `managed_file` that is no longer wanted. `label` prefixes the log lines."""
     managed = _load_managed(managed_file)
 
     desired_zones: dict[str, str] = {}
@@ -125,10 +140,10 @@ def reconcile_local_dns(client: TechnitiumClient, cfg: dict, zones: dict[str, st
     # CHANGED needs no delete — only a name/type that disappeared entirely does.
     desired_names: set[tuple[str, str, str]] = set()
 
-    for zone_spec in spec.get("zones", []):
+    for zone_spec in zone_specs:
         zone = zone_spec["zone"]
         desired_zones[zone] = zone_spec["type"]
-        _ensure_zone(client, zones, zone_spec, managed)
+        _ensure_zone(client, zones, zone_spec, managed, label)
 
         # `overwrite` clears whatever the name held before, so it must be set
         # on the FIRST record of each (name, type) and cleared for the rest —
@@ -156,7 +171,8 @@ def reconcile_local_dns(client: TechnitiumClient, cfg: dict, zones: dict[str, st
 
         # APP records dispatch dynamic (live) resolution to a Technitium DNS
         # App — the "Router Live DNS" app for adopted hosts / mDNS, see
-        # modules/dns-technitium.nix. Three distinct API params, not one flat
+        # modules/dns-technitium.nix, and Split Horizon for SafeSearch, see
+        # safesearch.py. Three distinct API params, not one flat
         # `value`, so — like FWD above — this gets its own loop rather than
         # going through rdata_for.
         for app in zone_spec.get("appRecords", []):
@@ -201,15 +217,15 @@ def reconcile_local_dns(client: TechnitiumClient, cfg: dict, zones: dict[str, st
             continue  # the whole zone is going away below
         try:
             client.delete_record(prev["zone"], prev["name"], prev["type"], **prev.get("rdata", {}))
-            print(f"local-dns: removed {prev['type']} {prev['name']}", file=sys.stderr)
+            print(f"{label}: removed {prev['type']} {prev['name']}", file=sys.stderr)
         except TechnitiumError as exc:
-            print(f"local-dns: could not remove {prev['type']} {prev['name']}: {exc}", file=sys.stderr)
+            print(f"{label}: could not remove {prev['type']} {prev['name']}: {exc}", file=sys.stderr)
 
     for stale in sorted(set(managed["zones"]) - set(desired_zones)):
         if stale in zones:
             client.delete_zone(stale)
             zones.pop(stale, None)
-            print(f"local-dns: removed zone {stale}", file=sys.stderr)
+            print(f"{label}: removed zone {stale}", file=sys.stderr)
 
     managed_file.parent.mkdir(parents=True, exist_ok=True)
     managed_file.write_text(

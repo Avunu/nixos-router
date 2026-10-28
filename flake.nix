@@ -50,14 +50,15 @@
   # disko:     Declarative disk partitioning — generates partition layouts from
   #            Nix expressions, supporting both UEFI (GPT+ESP) and legacy
   #            (GPT+BIOS boot) modes.
-  # technitium-dns: Source-only input for the Technitium DNS Apps (Advanced
-  #            Blocking, Log Exporter, Block Page), compiled from source by
-  #            pkgs/technitium-apps. Its ref MUST equal the version of nixpkgs'
-  #            technitium-dns-server so the app DLLs stay ABI-compatible with the
-  #            running server — bump both together, and let
-  #            `nix run .#update-deps` verify the match rather than trusting a
-  #            version number written out here (this comment already went stale
-  #            once, across 15.2.0 → 15.4.0).
+  # technitium-dns, technitium-library: Source-only inputs for the Technitium
+  #            DNS Server, compiled from source by pkgs/technitium-dns-server
+  #            (and, from the same tree, the DNS apps in pkgs/technitium-apps).
+  #            nixpkgs' technitium-dns-server is not used at all, so the
+  #            router can run a release newer than nixpkgs carries. The two
+  #            refs are one release: the server is `vX.Y.Z` and its library is
+  #            `dns-server-vX.Y.Z`. Move them together with
+  #            `nix develop -c update-deps` (which also regenerates the NuGet
+  #            locks); checks.technitium-version fails if they ever differ.
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
     git-hooks = {
@@ -74,7 +75,11 @@
       inputs.disko.follows = "disko";
     };
     technitium-dns = {
-      url = "github:TechnitiumSoftware/DnsServer/v15.6.0";
+      url = "github:TechnitiumSoftware/DnsServer/v15.6.2";
+      flake = false;
+    };
+    technitium-library = {
+      url = "github:TechnitiumSoftware/TechnitiumLibrary/dns-server-v15.6.2";
       flake = false;
     };
   };
@@ -87,6 +92,14 @@
     }:
     let
       lib = nixpkgs.lib;
+
+      # The Technitium release the technitium-dns input holds, read from its
+      # own project file (see the file for why not a literal here).
+      technitiumVersion = import ./pkgs/technitium-dns-server/version.nix {
+        inherit lib;
+        src = inputs.technitium-dns;
+      };
+
       forAllSystems = lib.genAttrs [
         "x86_64-linux"
         "aarch64-linux"
@@ -131,8 +144,7 @@
         }
         # The installed router's /etc/nixos flake takes nixpkgs from this
         # repository's lock rather than tracking nixos-unstable itself: that is
-        # the rev CI builds and pushes to the binary cache, and the one the
-        # Technitium apps are checked against (checks.technitium-version).
+        # the rev CI builds and pushes to the binary cache.
         # Passed only when the locked nixos-install-helper knows the argument
         # (Avunu/nixos-install-helper, `nixpkgsFromUpstream`) — mkProject takes
         # no `...`, so an unknown one fails evaluation — which lets the lock
@@ -249,15 +261,42 @@
                 touch $out
               '';
 
-          # Eval-only guard that the DNS apps and the DNS server that loads
-          # them stay on the same version. The apps' input is pinned to a tag
-          # that never moves while nixpkgs advances, so dependency automation
-          # desyncs them silently; a mismatch fails at runtime, not at build.
+          # Eval-only guard that the two Technitium source inputs — the server
+          # and its class library — are one release. Both are pinned to TAGS
+          # that dependency automation never moves, and nothing else ties the
+          # pair together; a library from another release can compile and then
+          # fail at runtime.
           #   nix build .#checks.<system>.technitium-version
           technitium-version = import ./tests/technitium-version.nix {
             pkgs = nixpkgs.legacyPackages.${system};
-            technitiumSrc = inputs.technitium-dns;
+            inherit technitiumVersion;
           };
+
+          # Sandbox lint of the docs for what only this repository can check:
+          # front matter and the source paths a page's `code` list names, a
+          # colon that Jx turns into a directive and uses to delete text, and
+          # images with no alt text. The shared documentation site checks the
+          # rest of a page.
+          #   nix build .#checks.<system>.docs-lint
+          docs-lint = import ./tests/docs-lint.nix {
+            pkgs = nixpkgs.legacyPackages.${system};
+            src = self;
+          };
+
+          # What the compiled server and apps actually contain: ReadyToRun
+          # images, the runtime feature switches, and no web console — all of
+          # which fail silently if a flag stops applying or upstream moves a
+          # folder.
+          #   nix build .#checks.<system>.technitium-server
+          technitium-server =
+            let
+              routerPkgs = nixpkgs.legacyPackages.${system}.extend self.overlays.router;
+            in
+            import ./tests/technitium-server.nix {
+              pkgs = nixpkgs.legacyPackages.${system};
+              server = routerPkgs.technitium-dns-server;
+              apps = routerPkgs.technitium-dns-apps;
+            };
 
           # Eval-only guard that something always answers LAN :53 — the
           # DHCP advert and the :53 DNAT are not gated on technitium.enable.
@@ -429,9 +468,25 @@
       # inputs for their sources (so they are tracked in flake.lock, not pinned by
       # hardcoded hashes). The router NixOS module applies this overlay, so the
       # sub-modules can build them via `pkgs.router-dns-tools` etc.
+      #
+      # technitium-dns-server and technitium-dns-server-library deliberately
+      # REPLACE the nixpkgs packages of the same name: the router runs the
+      # Technitium release its own inputs name, not whichever one nixpkgs
+      # carries. Because the replacement happens in the overlay, everything
+      # built from it — the apps, router-dns-tools, the module's default
+      # package — links one consistent server/library pair.
       overlays.router = final: _prev: {
+        technitium-dns-server-library = final.callPackage ./pkgs/technitium-library/package.nix {
+          technitiumLibrarySrc = inputs.technitium-library;
+          inherit technitiumVersion;
+        };
+        technitium-dns-server = final.callPackage ./pkgs/technitium-dns-server/package.nix {
+          technitiumSrc = inputs.technitium-dns;
+          inherit technitiumVersion;
+        };
         technitium-dns-apps = final.callPackage ./pkgs/technitium-apps/package.nix {
           technitiumSrc = inputs.technitium-dns;
+          inherit technitiumVersion;
         };
         router-dns-tools = final.callPackage ./pkgs/router-dns-tools/package.nix {
           technitiumApps = final.technitium-dns-apps;
@@ -448,46 +503,109 @@
           pkgs = nixpkgs.legacyPackages.${system};
 
           # `update-deps` — refresh the external dependency pins in one command:
-          #   1. update all flake inputs (nixpkgs, technitium-dns, …);
-          #   2. report whether the pinned technitium-dns input still matches the
-          #      Technitium DNS Server version in the (now updated) nixpkgs — the
-          #      app DLLs must stay ABI-compatible with that server, so on a
-          #      mismatch the user bumps the input ref by hand;
-          #   3. regenerate pkgs/technitium-apps/nuget-deps.json for the current
-          #      technitium-dns source.
+          #   1. move the Technitium inputs to the latest upstream release —
+          #      DnsServer `vX.Y.Z` and TechnitiumLibrary `dns-server-vX.Y.Z`
+          #      together, which is the one thing a flake cannot do for itself;
+          #   2. update all flake inputs (nixpkgs, …);
+          #   3. check the two Technitium refs really are one release
+          #      (checks.technitium-version);
+          #   4. regenerate the NuGet locks of the three packages compiled from
+          #      those sources: technitium-library, technitium-dns-server and
+          #      technitium-dns-apps. The locks are GENERATED to satisfy the
+          #      restore of whatever source the inputs now hold, so they have to
+          #      be refreshed whenever the release moves.
+          #
+          # `--keep-technitium` is for finishing a bump that is already half
+          # made — Dependabot opens one pull request per input, so it moves
+          # `technitium-dns` and leaves the library behind. It keeps the release
+          # the DnsServer ref names, moves the library ref to match, refreshes
+          # only the two Technitium inputs (not nixpkgs and the rest), and
+          # regenerates the locks.
           update-deps = pkgs.writeShellApplication {
             name = "update-deps";
             runtimeInputs = with pkgs; [
+              coreutils
               git
+              gnused
               jq
             ];
             text = ''
               root=$(git rev-parse --show-toplevel)
               cd "$root" || exit 1
 
-              echo "==> Updating flake inputs (nix flake update)..."
-              nix flake update
+              keep=false
+              case "''${1:-}" in
+                "") ;;
+                --keep-technitium) keep=true ;;
+                *) echo "usage: update-deps [--keep-technitium]" >&2; exit 2 ;;
+              esac
+
+              if $keep; then
+                # The server ref is the one that wins.
+                release=$(sed -n 's|.*github:TechnitiumSoftware/DnsServer/v\([0-9.]*\)".*|\1|p' flake.nix | head -n 1)
+                if [ -z "$release" ]; then
+                  echo "no DnsServer ref found in flake.nix" >&2
+                  exit 1
+                fi
+                echo "==> Keeping Technitium at v$release (the DnsServer ref)"
+              else
+                echo "==> Latest Technitium release"
+                # Plain MAJOR.MINOR[.PATCH] release tags only, newest by version.
+                release=$(git ls-remote --tags --refs https://github.com/TechnitiumSoftware/DnsServer 'v*' \
+                  | sed -n 's|.*refs/tags/v\([0-9][0-9]*\.[0-9][0-9]*\(\.[0-9][0-9]*\)\{0,1\}\)$|\1|p' \
+                  | sort -V | tail -n 1)
+                if [ -z "$release" ]; then
+                  echo "    could not determine the latest DnsServer release" >&2
+                  exit 1
+                fi
+                echo "    v$release"
+              fi
+
+              # The library is tagged per server release; refuse to move the
+              # refs to one it does not have.
+              git ls-remote --exit-code --tags --refs \
+                https://github.com/TechnitiumSoftware/TechnitiumLibrary "dns-server-v$release" >/dev/null \
+                || { echo "    TechnitiumLibrary has no dns-server-v$release tag" >&2; exit 1; }
+              sed -i -E \
+                -e "s|(github:TechnitiumSoftware/DnsServer/)v[0-9.]+|\1v$release|" \
+                -e "s|(github:TechnitiumSoftware/TechnitiumLibrary/dns-server-)v[0-9.]+|\1v$release|" \
+                flake.nix
+
+              echo
+              if $keep; then
+                echo "==> Updating the Technitium inputs..."
+                nix flake update technitium-dns technitium-library
+              else
+                echo "==> Updating flake inputs (nix flake update)..."
+                nix flake update
+              fi
 
               echo
               # Delegates to checks.technitium-version rather than repeating the
               # comparison here: this script and CI must not be able to disagree
-              # about whether the apps and the server have drifted. Non-fatal —
-              # the regenerate step below is still useful while you fix the ref.
-              echo "==> Technitium DNS Server version check"
+              # about whether the pair of refs is one release. Non-fatal — the
+              # regenerate step below is still useful while you fix the refs.
+              echo "==> Technitium source inputs check"
               nix build --no-link -L ".#checks.${system}.technitium-version" \
-                && echo "    OK: apps input matches the nixpkgs server version." \
-                || echo "    (see above; bump the technitium-dns ref in flake.nix, then re-run)"
+                && echo "    OK: the server and library refs are one release." \
+                || echo "    (see above; fix the refs in flake.nix, then re-run with --keep-technitium)"
 
-              echo
-              echo "==> Regenerating pkgs/technitium-apps/nuget-deps.json..."
-              fetchDeps=$(nix build --no-link --print-out-paths \
-                ".#packages.${system}.technitium-dns-apps.fetch-deps")
-              "$fetchDeps" "$root/pkgs/technitium-apps/nuget-deps.json"
+              for pkg in technitium-library:technitium-dns-server-library \
+                         technitium-dns-server:technitium-dns-server \
+                         technitium-apps:technitium-dns-apps; do
+                dir=''${pkg%%:*}
+                attr=''${pkg##*:}
+                echo
+                echo "==> Regenerating pkgs/$dir/nuget-deps.json..."
+                fetchDeps=$(nix build --no-link --print-out-paths \
+                  ".#packages.${system}.$attr.fetch-deps")
+                "$fetchDeps" "$root/pkgs/$dir/nuget-deps.json"
+              done
 
               echo
               echo "==> Done. Review with:"
-              echo "    git diff -- flake.lock pkgs/technitium-apps/nuget-deps.json"
-              echo "    and re-run: nix build .#checks.${system}.technitium-vm"
+              echo "    git diff -- flake.nix flake.lock pkgs/*/nuget-deps.json"
+              echo "    and re-run: nix build .#checks.${system}.technitium-server .#checks.${system}.technitium-vm"
             '';
           };
         in
@@ -558,6 +676,8 @@
         {
           cockpit-router = pkgs.callPackage ./pkgs/cockpit-router/package.nix { };
           inherit (routerPkgs)
+            technitium-dns-server
+            technitium-dns-server-library
             technitium-dns-apps
             router-dns-tools
             suricata-update-preflight

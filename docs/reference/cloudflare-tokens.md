@@ -1,6 +1,7 @@
 ---
 title: Cloudflare API tokens
 description: The Cloudflare API tokens the router uses for dynamic DNS, DNS-01 certificates, Cloudflare Tunnel and report email, and how it stores them.
+order: 1
 code:
   - modules/ddns.nix
   - modules/acme.nix
@@ -30,9 +31,9 @@ Four router features call the Cloudflare API, each with an API token you create 
 
 | Feature | Permissions | Default token file | Where to set it |
 | --- | --- | --- | --- |
-| [Dynamic DNS](/docs/dynamic-dns/) | Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-ddns.token` | **Network → Dynamic DNS** |
-| [Reverse proxy](/docs/ingress/reverse-proxy/) certificates with the Cloudflare DNS challenge, and the certificate for the router's [domain name](/docs/start/cockpit/#a-trusted-certificate) | Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-acme.token` | **Ingress → Reverse proxy**, **Certificates** card |
-| [Cloudflare Tunnel](/docs/ingress/cloudflare-tunnel/) | Account → Cloudflare Tunnel → Edit, Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-tunnel.token` | **Ingress → Tunnel** |
+| [Dynamic DNS](../dynamic-dns/README.md) | Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-ddns.token` | **Network → Dynamic DNS** |
+| [Reverse proxy](../ingress/reverse-proxy.md) certificates with the Cloudflare DNS challenge, and the certificate for the router's [domain name](../start/cockpit.md#a-trusted-certificate) | Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-acme.token` | **Ingress → Reverse proxy**, **Certificates** card |
+| [Cloudflare Tunnel](../ingress/cloudflare-tunnel.md) | Account → Cloudflare Tunnel → Edit, Zone → Zone → Read, Zone → DNS → Edit | `/etc/router/secrets/cloudflare-tunnel.token` | **Ingress → Tunnel** |
 | Emailed scheduled reports | Email Routing: Edit, plus the account ID | `/etc/router/secrets/cloudflare-email.token` | **Reports → Scheduled reports**, **Email delivery** section |
 
 Zone permissions must cover the zone of every name the feature manages. The router authenticates with the token as a bearer token, so it needs an API token; your account's Global API Key doesn't work.
@@ -57,7 +58,7 @@ A reverse proxy route whose certificate uses the Cloudflare DNS challenge proves
 - **Setting:** `acme.cloudflare.apiTokenFile`.
 - **Sharing:** a **Use the DDNS token** link appears beside the field when a dynamic DNS token file is set and this field holds a different path. It points this setting at the dynamic DNS token file. See [Share one token between features](#share-one-token-between-features).
 - **Missing token:** the tab shows "The Cloudflare DNS challenge needs an API token — set the token file under Certificates.", and the build stops with `router.reverseProxy.routes: route 'cloud' uses the dns-cloudflare challenge, but router.acme.cloudflare.apiTokenFile is not set`.
-- **The router's domain name:** Cockpit's certificate for the router's [domain name](/docs/start/cockpit/#a-trusted-certificate) always uses this challenge and this token, so the token's zones must cover that name too. Without a token, **System → Settings** shows the same message under **Domain name**, and the build stops with `router.fqdn: Cockpit's certificate uses the dns-cloudflare challenge, but router.acme.cloudflare.apiTokenFile is not set`.
+- **The router's domain name:** Cockpit's certificate for the router's [domain name](../start/cockpit.md#a-trusted-certificate) always uses this challenge and this token, so the token's zones must cover that name too. Without a token, **System → Settings** shows the same message under **Domain name**, and the build stops with `router.fqdn: Cockpit's certificate uses the dns-cloudflare challenge, but router.acme.cloudflare.apiTokenFile is not set`.
 
 ## Cloudflare Tunnel
 
@@ -157,13 +158,13 @@ Each service reads the file every time it starts. A token replaced at the same p
 
 Dynamic DNS and the tunnel clean up after themselves when you turn them off, and they need the token to do it. Their services keep running while a token file path is set and the file exists, even with the feature turned off:
 
-- **Dynamic DNS:** `router-ddns.service` deletes the router's A and AAAA records and puts back any CNAMEs they replaced. The **Network → Dynamic DNS** tab says so: "Turning dynamic DNS off keeps the token, so the router can delete its records and put back the CNAMEs they replaced — remove the token only after that has run." Records left from before the upgrade that added this, when dynamic DNS was already off, stay until you ask; see [Turned off before the upgrade](/docs/dynamic-dns/#turned-off-before-the-upgrade).
+- **Dynamic DNS:** `router-ddns.service` deletes the router's A and AAAA records and puts back any CNAMEs they replaced. The **Network → Dynamic DNS** tab says so: "Turning dynamic DNS off keeps the token, so the router can delete its records and put back the CNAMEs they replaced — remove the token only after that has run." Records left from before the upgrade that added this, when dynamic DNS was already off, stay until you ask; see [Turned off before the upgrade](../dynamic-dns/README.md#turned-off-before-the-upgrade).
 - **Cloudflare Tunnel:** `router-cloudflare-tunnel.service` deletes the tunnel, its CNAME records and its credentials, and puts back any records the CNAMEs replaced. The **Ingress → Tunnel** tab says so: "Turning the tunnel off keeps the token, so the router can delete the tunnel and its DNS records — remove the token only after that has run."
 
 For either feature:
 
 1. Turn it off (**Enable dynamic DNS** or **Enable Cloudflare Tunnel**) and choose **Save and apply** from the **Save** menu.
-2. Wait until the status card shows a successful run (**Last run** on **Last update**, or **Last sync** on **Tunnel status**), or click **Update now** or **Sync now**. If a row says a record is waiting until the tunnel or dynamic DNS releases the name, the other feature still holds a name you moved to it; keep the token until a later run puts that record back (see [Names moved to or from the tunnel](/docs/dynamic-dns/#names-moved-to-or-from-the-tunnel)).
+2. Wait until the status card shows a successful run (**Last run** on **Last update**, or **Last sync** on **Tunnel status**), or click **Update now** or **Sync now**. If a row says a record is waiting until the tunnel or dynamic DNS releases the name, the other feature still holds a name you moved to it; keep the token until a later run puts that record back (see [Names moved to or from the tunnel](../dynamic-dns/README.md#names-moved-to-or-from-the-tunnel)).
 3. Clear **Cloudflare API token file**, choose **Save and apply** from the **Save** menu, delete the file, and revoke the token in Cloudflare.
 
 If you remove the token first, the records (and the tunnel) stay in your Cloudflare account, and you have to fix them in the dashboard.
@@ -180,4 +181,4 @@ If you remove the token first, the records (and the tunnel) stay in your Cloudfl
 
 4. Revoke the token in the Cloudflare dashboard.
 
-A token removed before the cleanup ran leaves the records in Cloudflare. See [Turn dynamic DNS off](/docs/dynamic-dns/#turn-dynamic-dns-off) and [Turn it off](/docs/ingress/cloudflare-tunnel/#turn-it-off).
+A token removed before the cleanup ran leaves the records in Cloudflare. See [Turn dynamic DNS off](../dynamic-dns/README.md#turn-dynamic-dns-off) and [Turn it off](../ingress/cloudflare-tunnel.md#turn-it-off).

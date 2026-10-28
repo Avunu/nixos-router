@@ -1,7 +1,8 @@
 // ── DNS page ────────────────────────────────────────────────────────────────
 // Split-horizon DNS (router.dns.overrides / forwardZones) plus the resolver
 // settings that had no UI at all before this page existed
-// (dns.technitium.upstreamServers, safeSearch, blockDoHProviders).
+// (dns.technitium.upstreamServers, blockDoHProviders). SafeSearch is set per
+// access policy, on the Access Policies page.
 //
 // The two tables follow the port-forward editor in firewall.tsx: a compact
 // table over the settings-JSON array plus one draft Card for add/edit, so an
@@ -585,20 +586,6 @@ const Resolver = () => {
             />
           </FormGroup>
           <FormGroup
-            label={_("Enforce SafeSearch")}
-            fieldId="dnsSafeSearch"
-            labelHelp={hint(
-              _("Enforced via DNS records for Google, Bing, DuckDuckGo, and YouTube."),
-            )}
-          >
-            <Switch
-              id="dnsSafeSearch"
-              isChecked={s.valueOf<boolean>("dns.technitium.safeSearch", false)}
-              isDisabled={s.lockedOf("dns.technitium.safeSearch")}
-              onChange={(_e, v) => s.setLeaf("dns.technitium.safeSearch", v)}
-            />
-          </FormGroup>
-          <FormGroup
             label={_("Block public DoH resolvers")}
             fieldId="dnsBlockDoH"
             labelHelp={hint(
@@ -613,10 +600,10 @@ const Resolver = () => {
             />
           </FormGroup>
           <FormGroup
-            label={_("Web console port")}
+            label={_("API port")}
             fieldId="dnsWebPort"
             labelHelp={hint(
-              _("Port of the DNS server's own web console, which the router pages use too."),
+              _("Local port of the DNS server's API, which the router pages and services use."),
             )}
           >
             <PortInput
@@ -624,7 +611,7 @@ const Resolver = () => {
               value={s.valueOf<number>("dns.technitium.webPort", 5380)}
               isDisabled={s.lockedOf("dns.technitium.webPort")}
               onChange={(v) => s.setLeaf("dns.technitium.webPort", v)}
-              ariaLabel={_("Web console port")}
+              ariaLabel={_("API port")}
             />
           </FormGroup>
         </Form>

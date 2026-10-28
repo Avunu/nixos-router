@@ -3,9 +3,9 @@
 Runs after the technitium-dns-server unit (and again on every nixos-rebuild
 whose generated desired state changed). Asserts the desired configuration via
 the HTTP API: server settings, the router's local zone, the split-horizon
-zones (see local_dns.py), SafeSearch zones, DNS app configs (Log Exporter,
-Block Page, compiled Advanced Blocking), and the read-only Cockpit dashboard
-user/token.
+zones (see local_dns.py), DNS app configs (Log Exporter, Block Page, Split
+Horizon, compiled Advanced Blocking), the per-policy SafeSearch zones (see
+safesearch.py), and the read-only Cockpit dashboard user/token.
 
 All inputs come from one Nix-generated runtime config JSON (--config), so the
 unit is a thin `router-technitium-reconcile --config /nix/store/….json`.
@@ -23,6 +23,7 @@ from pathlib import Path
 
 from .compile_policies import _load_directory, compile_config
 from .local_dns import reconcile_local_dns
+from .safesearch import reconcile_safesearch
 from .technitium_api import TechnitiumClient, TechnitiumError
 
 
@@ -56,21 +57,15 @@ def _ensure_zone(client: TechnitiumClient, existing: dict[str, str], zone: str) 
         existing[zone] = "Primary"
 
 
-def _reconcile_safesearch(client: TechnitiumClient, cfg: dict, zones: dict[str, str]) -> None:
-    managed_file = Path(cfg["managedZonesFile"])
-    previous = set(json.loads(managed_file.read_text())) if managed_file.exists() else set()
-    desired = dict(cfg["safeSearch"]["records"]) if cfg["safeSearch"]["enable"] else {}
-
-    for host, target in desired.items():
-        _ensure_zone(client, zones, host)
-        client.add_record(host, host, "ANAME", aname=target)
-    for stale in sorted(previous - set(desired)):
-        if stale in zones:
-            client.delete_zone(stale)
-            zones.pop(stale, None)
-
-    managed_file.parent.mkdir(parents=True, exist_ok=True)
-    managed_file.write_text(json.dumps(sorted(desired)))
+def _push_policies(client: TechnitiumClient, cfg: dict, zones: dict[str, str]) -> None:
+    """Compile the access policies against the current directory state and push
+    everything that follows from the result: the Advanced Blocking config, then
+    the SafeSearch zones keyed by its networkGroupMap."""
+    static = json.loads(Path(cfg["policy"]["staticInputs"]).read_text())
+    directory = _load_directory(cfg["policy"].get("directoryState"))
+    compiled = compile_config(static, directory)
+    _set_app_config_if_changed(client, "Advanced Blocking", compiled)
+    reconcile_safesearch(client, cfg, zones, static, compiled)
 
 
 def _set_app_config_if_changed(client: TechnitiumClient, name: str, desired: object) -> None:
@@ -97,20 +92,33 @@ def _reconcile_cockpit_token(client: TechnitiumClient, cfg: dict) -> None:
         client.grant_user_view(section, cockpit["user"])
 
     token_file = Path(cockpit["tokenFile"])
-    # A createToken session is non-expiring; reuse the stored token if it still
-    # authenticates, otherwise mint a fresh one.
-    if token_file.exists():
-        probe = TechnitiumClient(client.base_url, token=token_file.read_text().strip())
-        try:
-            probe._call("/api/user/session/get")
-            return
-        except TechnitiumError:
-            pass
-    token = client.create_api_token(cockpit["user"], password, cockpit["tokenName"])
-    token_file.parent.mkdir(parents=True, exist_ok=True)
-    token_file.write_text(token)
-    token_file.chmod(0o600)
-    print("provisioned cockpit API token", file=sys.stderr)
+    # A createToken session is non-expiring, so the stored token is reused while
+    # it authenticates AS THE COCKPIT USER. Authenticating is not enough: routers
+    # provisioned before this check hold a token minted under the admin session
+    # (see create_api_token), which authenticates fine and is not read-only.
+    stored = token_file.read_text().strip() if token_file.exists() else ""
+    if client.token_owner(stored) != cockpit["user"]:
+        token = client.create_api_token(cockpit["user"], password, cockpit["tokenName"])
+        token_file.parent.mkdir(parents=True, exist_ok=True)
+        token_file.write_text(token)
+        token_file.chmod(0o600)
+        print("provisioned cockpit API token", file=sys.stderr)
+
+    # Revoke any token of this name that belongs to someone else — the admin
+    # tokens older reconciles minted. Only after the replacement is in place, so
+    # the Cockpit plugin never finds the file holding a dead token.
+    for session in client.list_sessions():
+        if (
+            session.get("type") == "ApiToken"
+            and session.get("tokenName") == cockpit["tokenName"]
+            and session.get("username") != cockpit["user"]
+            and not session.get("isCurrentSession")
+        ):
+            client.delete_session(session["partialToken"])
+            print(
+                f"revoked {session.get('username')}-owned token {cockpit['tokenName']!r}",
+                file=sys.stderr,
+            )
 
 
 def main() -> None:
@@ -143,8 +151,6 @@ def main() -> None:
     # override surfaces early; the two own disjoint managed-state files.
     reconcile_local_dns(client, cfg, zones)
 
-    _reconcile_safesearch(client, cfg, zones)
-
     # The Log Exporter config carries the logd ingest token, which is generated
     # at runtime — substitute the placeholder before pushing.
     ingest_token = _read_secret(cfg["logd"]["ingestTokenFile"], generate=True)
@@ -152,9 +158,8 @@ def main() -> None:
         resolved = json.loads(json.dumps(app_config).replace("@INGEST_TOKEN@", ingest_token))
         _set_app_config_if_changed(client, app_name, resolved)
 
-    static = json.loads(Path(cfg["policy"]["staticInputs"]).read_text())
-    directory = _load_directory(cfg["policy"].get("directoryState"))
-    _set_app_config_if_changed(client, "Advanced Blocking", compile_config(static, directory))
+    # After the app configs: the SafeSearch APP records need Split Horizon's.
+    _push_policies(client, cfg, zones)
 
     _reconcile_cockpit_token(client, cfg)
 
@@ -173,8 +178,9 @@ def main() -> None:
 
 def push_policies() -> None:
     """Entry point for router-policy-push: recompile and push only the
-    Advanced Blocking config (triggered when directory state changes)."""
-    parser = argparse.ArgumentParser(description="Compile and push Advanced Blocking config")
+    Advanced Blocking config and the SafeSearch zones (triggered when
+    directory state changes)."""
+    parser = argparse.ArgumentParser(description="Compile and push Advanced Blocking config and SafeSearch zones")
     parser.add_argument("--config", required=True, help="runtime config JSON (Nix-generated)")
     args = parser.parse_args()
     cfg = json.loads(Path(args.config).read_text())
@@ -183,9 +189,8 @@ def push_policies() -> None:
     client.wait_ready()
     _login(client, cfg["adminUser"], _read_secret(cfg["adminPassFile"]))
 
-    static = json.loads(Path(cfg["policy"]["staticInputs"]).read_text())
-    directory = _load_directory(cfg["policy"].get("directoryState"))
-    _set_app_config_if_changed(client, "Advanced Blocking", compile_config(static, directory))
+    zones = {z["name"]: z.get("type", "Primary") for z in client.list_zones()}
+    _push_policies(client, cfg, zones)
 
 
 if __name__ == "__main__":

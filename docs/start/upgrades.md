@@ -1,6 +1,7 @@
 ---
 title: Upgrades and rollback
 description: How the router upgrades itself every night, how to upgrade or roll back by hand, how long old generations are kept, and how to recover from the boot menu.
+order: 4
 code:
   - modules/system.nix
   - local/flake.nix
@@ -24,11 +25,10 @@ Every day at `03:00`, in the router's time zone, the router upgrades itself:
 
 If the router was off at `03:00`, the upgrade runs as soon as it's back on.
 
-Changes reach `main` only as a release, after CI has built the release and booted test routers from its tag; see [Development](/docs/develop/#branches-and-releases). The same run pushes each release to the binary cache, so a router downloads its packages instead of compiling them.
+Changes reach `main` only as a release, after CI has built the release and booted test routers from its tag; see [Development](../develop/README.md#branches-and-releases). The same run pushes each release to the binary cache, so a router downloads its packages instead of compiling them.
 
-:::doc-warning
-The nightly upgrade rebuilds from the settings file as it is on disk. Anything you saved in Cockpit but didn't apply is applied at `03:00`.
-:::
+> [!WARNING]
+> The nightly upgrade rebuilds from the settings file as it is on disk. Anything you saved in Cockpit but didn't apply is applied at `03:00`.
 
 To follow an upgrade, or find out why one failed:
 
@@ -36,7 +36,7 @@ To follow an upgrade, or find out why one failed:
 journalctl -u flake-update.service -u nixos-upgrade.service
 ```
 
-The schedule and the reboot are NixOS defaults set by the router module, so you can override them in Nix, where the router's other Nix-only settings live (see [Nix overrides the file](/docs/start/settings-file/#nix-overrides-the-file)):
+The schedule and the reboot are NixOS defaults set by the router module, so you can override them in Nix, where the router's other Nix-only settings live (see [Nix overrides the file](settings-file.md#nix-overrides-the-file)):
 
 ```nix
 {
@@ -63,17 +63,16 @@ router-rebuild update
 
 It never reboots, even for a new kernel; the new kernel runs after the next reboot. To target another flake or configuration, pass them as arguments: `router-rebuild update /etc/nixos default`.
 
-Every rebuild you start, from Cockpit or a shell, runs in the background as the `router-rebuild` systemd service, one at a time. From a shell, the command streams the output and waits for the end; pressing Ctrl+C only stops following, and the rebuild carries on. Cockpit follows it either way, on every page (see [Unapplied changes and rebuilds](/docs/start/cockpit/#unapplied-changes-and-rebuilds)). To follow one from a shell, run `journalctl -fu router-rebuild`.
+Every rebuild you start, from Cockpit or a shell, runs in the background as the `router-rebuild` systemd service, one at a time. From a shell, the command streams the output and waits for the end; pressing Ctrl+C only stops following, and the rebuild carries on. Cockpit follows it either way, on every page (see [Unapplied changes and rebuilds](cockpit.md#unapplied-changes-and-rebuilds)). To follow one from a shell, run `journalctl -fu router-rebuild`.
 
-:::doc-note
-**Update system** only rebuilds when there is an update. To apply saved settings, use **Apply changes** in the changes panel, or **Apply configuration**. When **Update system** does rebuild, it builds your saved settings too, and the panel's list of saved changes empties. When it skips the rebuild, your saved settings stay listed, still unapplied.
-:::
+> [!NOTE]
+> **Update system** only rebuilds when there is an update. To apply saved settings, use **Apply changes** in the changes panel, or **Apply configuration**. When **Update system** does rebuild, it builds your saved settings too, and the panel's list of saved changes empties. When it skips the rebuild, your saved settings stay listed, still unapplied.
 
 ## The Operations tab
 
 **System → Operations** has three cards.
 
-**Changes** lists the saved settings the running system doesn't have yet, and follows the rebuild that is running or last ran. See [Unapplied changes and rebuilds](/docs/start/cockpit/#unapplied-changes-and-rebuilds).
+**Changes** lists the saved settings the running system doesn't have yet, and follows the rebuild that is running or last ran. See [Unapplied changes and rebuilds](cockpit.md#unapplied-changes-and-rebuilds).
 
 **Configuration** holds the operations. Each runs in the background, and the **Changes** card follows it; **View log** there opens its output.
 
@@ -97,9 +96,8 @@ router-rebuild rollback
 
 The switch is immediate and needs no reboot, unless you want the older kernel too.
 
-:::doc-warning
-Rolling back changes the running system, not `/etc/nixos`. The settings file and the lock file still hold the change that caused the problem, and the next apply or the nightly upgrade builds it again. After a rollback, the changes panel lists that change as saved but not applied. Fix or undo it, for example with **Discard saved changes**, before `03:00`.
-:::
+> [!WARNING]
+> Rolling back changes the running system, not `/etc/nixos`. The settings file and the lock file still hold the change that caused the problem, and the next apply or the nightly upgrade builds it again. After a rollback, the changes panel lists that change as saved but not applied. Fix or undo it, for example with **Discard saved changes**, before `03:00`.
 
 ## Recover from the boot menu
 
@@ -128,5 +126,5 @@ Once a week, the router deletes generations older than 30 days and collects the 
   ```bash
   router-rebuild apply /etc/nixos default
   ```
-- **An upgrade fails with `The option router.portForwards."[definition 1-entry 1]".destination does not exist`.** The host flake reads the settings without the loader. See [Routers installed before the loader](/docs/start/settings-file/#routers-installed-before-the-loader).
+- **An upgrade fails with `The option router.portForwards."[definition 1-entry 1]".destination does not exist`.** The host flake reads the settings without the loader. See [Routers installed before the loader](settings-file.md#routers-installed-before-the-loader).
 - **"Could not list generations" on the Operations tab.** The card runs `nixos-rebuild list-generations --json`; the message below it is that command's error. Try the same command in a shell.

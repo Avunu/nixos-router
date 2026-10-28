@@ -1,6 +1,7 @@
 ---
 title: Site-to-site VPN
 description: Join the LANs of two nixos-routers with a WireGuard tunnel, including a site behind NAT, and resolve each site's host names from the other.
+order: 1
 code:
   - modules/network.nix
   - modules/firewall.nix
@@ -29,15 +30,15 @@ The tunnel subnet `10.100.0.0/30` holds exactly the two router addresses. Substi
 
 ## Before you start
 
-- **The two LANs must not overlap.** The router doesn't translate addresses in the tunnel, so if both sites use `192.168.1.0/24`, neither router can tell a local address from a remote one. Renumber one site under **Network → LAN** first ([Networks and VLANs](/docs/network/)).
+- **The two LANs must not overlap.** The router doesn't translate addresses in the tunnel, so if both sites use `192.168.1.0/24`, neither router can tell a local address from a remote one. Renumber one site under **Network → LAN** first ([Networks and VLANs](../network/README.md)).
 - **A tunnel subnet used nowhere else**, at either site. A `/30` is enough for two routers.
-- **A stable public name or address for at least one side.** Here that's HQ, whose name `hq.example.com` is kept current by [dynamic DNS](/docs/dynamic-dns/). A fixed public IP works too.
+- **A stable public name or address for at least one side.** Here that's HQ, whose name `hq.example.com` is kept current by [dynamic DNS](../dynamic-dns/README.md). A fixed public IP works too.
 - **UDP 51820 reachable on that side.** The router opens it on its WAN by itself. If an ISP modem or another router sits in front of it, forward UDP 51820 on that device to the router's WAN address. If HQ's WAN address is in `100.64.0.0/10`, HQ is behind carrier-grade NAT and can't accept the tunnel; if both sites are, neither can reach the other.
 - **Administrator access to Cockpit on both routers.**
 
 ## Set up the tunnel
 
-You create the tunnel on both routers first, so that each has a public key to give the other, and then add each router as the other's peer. The fields are described in full under [Set up a tunnel](/docs/wireguard/#set-up-a-tunnel).
+You create the tunnel on both routers first, so that each has a public key to give the other, and then add each router as the other's peer. The fields are described in full under [Set up a tunnel](README.md#set-up-a-tunnel).
 
 ### 1. Create the tunnel on both routers
 
@@ -161,7 +162,7 @@ Host names don't cross the tunnel on their own. Each router answers only for its
 2. On HQ, open **DNS → Forward zones** and click **Add forward zone**. Set **Zone** to `branch.lan`, add `192.168.2.1` under **Forwarders**, leave **Protocol** at **Udp**, and click **Add**. Then choose **Save and apply** from the **Save** menu.
 3. On the branch, add a forward zone for `hq.lan` with the forwarder `192.168.1.1`, and apply.
 
-Now a device at HQ can reach `nas.branch.lan`, and the branch can reach `printer.hq.lan`. Only names the other router knows resolve: the devices registered on its **Hosts** page ([Hosts and host groups](/docs/network/hosts/)). The other router answers these queries because they arrive from your tunnel address, which is in its peer's Allowed IPs.
+Now a device at HQ can reach `nas.branch.lan`, and the branch can reach `printer.hq.lan`. Only names the other router knows resolve: the devices registered on its **Hosts** page ([Hosts and host groups](../network/hosts.md)). The other router answers these queries because they arrive from your tunnel address, which is in its peer's Allowed IPs.
 
 Changing the **Local domain** also changes the search domain that DHCP hands out and names such as `router.lan`, so update bookmarks that use the old names.
 

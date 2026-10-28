@@ -196,12 +196,21 @@ pkgs.testers.runNixOSTest {
                 name = "Base";
                 blockDomains = [ "lan-blocked.vmtest" ];
                 responseType = "blockingAddress";
+                # Strict, while the Strict policy below is moderate: one zone,
+                # a different endpoint per policy.
+                safeSearch.youtube = true;
               }
               {
                 name = "Strict";
                 priority = 10;
                 blockDomains = [ "kids-blocked.vmtest" ];
                 responseType = "nxdomain";
+                # Base does not enforce Google, so www.google.com's answer
+                # depends on the client's policy.
+                safeSearch = {
+                  google = true;
+                  youtube = "moderate";
+                };
                 assignments = {
                   hostGroups = [ "Kids" ];
                   directoryGroups = [ "Students" ];
@@ -258,6 +267,20 @@ pkgs.testers.runNixOSTest {
             {
               name = "example.vmtest";
               value = "10.48.4.21";
+            }
+            {
+              # Stand in for the real enforcement endpoints, which this
+              # hermetic VM cannot reach, so the SafeSearch ANAMEs resolve.
+              name = "forcesafesearch.google.com";
+              value = "10.48.4.30";
+            }
+            {
+              name = "restrict.youtube.com";
+              value = "10.48.4.31";
+            }
+            {
+              name = "restrictmoderate.youtube.com";
+              value = "10.48.4.32";
             }
             {
               # CNAME is illegal at a zone apex, which is what an unrooted
@@ -425,6 +448,32 @@ pkgs.testers.runNixOSTest {
   testScript = ''
     import json
     import re
+    import shlex
+
+    def technitium_api(path, token, **params):
+        """GET a Technitium API path as `token`; the parsed JSON body.
+
+        Most replies nest their data under "response"; the session ones
+        (login, createToken, session/get) are flat.
+        """
+        query = " ".join(
+            f"--data-urlencode {shlex.quote(f'{k}={v}')}" for k, v in params.items()
+        )
+        return json.loads(
+            router.succeed(
+                f"curl -sS --get -H 'Authorization: Bearer {token}' {query} "
+                f"'http://127.0.0.1:5380{path}'"
+            )
+        )
+
+    def admin_token():
+        """A session as the managed admin account, with the password the router keeps."""
+        password = router.succeed("cat /var/lib/router-technitium/admin.pass").strip()
+        out = router.succeed(
+            "curl -sS --get http://127.0.0.1:5380/api/user/login "
+            f"--data-urlencode user=admin --data-urlencode {shlex.quote('pass=' + password)}"
+        )
+        return json.loads(out)["token"]
 
     start_all()
     router.wait_for_unit("multi-user.target")
@@ -474,6 +523,47 @@ pkgs.testers.runNixOSTest {
             "/var/lib/router-technitium/logd-query.token",
         ]:
             assert router.succeed(f"stat -c %a {f}").strip() == "600", f
+
+    with subtest("the cockpit token is the read-only cockpit user's, not an admin's"):
+        # createToken issues the token for the SESSION's user whenever the
+        # request carries one, so a token minted from the admin-logged-in
+        # reconcile client used to be an admin token: it authenticated and
+        # looked fine, and could change settings and delete zones.
+        cockpit_token = router.succeed("cat /var/lib/cockpit-router/technitium-token").strip()
+        session = technitium_api("/api/user/session/get", cockpit_token)
+        assert session["username"] == "cockpit", session
+        # What the Cockpit dashboards call.
+        for path, params in [
+            ("/api/dashboard/stats/get", {"type": "LastHour", "utc": "true"}),
+            (
+                "/api/dashboard/stats/getTop",
+                {"type": "LastHour", "statsType": "TopClients", "limit": 10},
+            ),
+        ]:
+            reply = technitium_api(path, cockpit_token, **params)
+            assert reply["status"] == "ok", (path, reply)
+        # And what it must not be able to do.
+        reply = technitium_api("/api/settings/get", cockpit_token)
+        assert reply["status"] != "ok", reply
+        reply = technitium_api("/api/zones/create", cockpit_token, zone="cockpit-must-not.vmtest", type="Primary")
+        assert reply["status"] != "ok", reply
+        zones = technitium_api("/api/zones/list", admin_token())["response"]["zones"]
+        assert "cockpit-must-not.vmtest" not in [z["name"] for z in zones], zones
+
+    with subtest("an admin-owned token left by an older reconcile is replaced and revoked"):
+        # What routers provisioned before the fix hold: a token for the
+        # reconcile's own admin session, in the file Cockpit reads.
+        admin = admin_token()
+        stale = technitium_api("/api/user/createToken", admin, tokenName="cockpit-router")["token"]
+        assert technitium_api("/api/user/session/get", stale)["username"] == "admin"
+        router.succeed(f"printf %s {stale} > /var/lib/cockpit-router/technitium-token")
+        router.succeed("systemctl restart technitium-reconcile.service")
+        fresh = router.succeed("cat /var/lib/cockpit-router/technitium-token").strip()
+        assert fresh != stale, "the admin-owned token was kept"
+        assert technitium_api("/api/user/session/get", fresh)["username"] == "cockpit"
+        assert technitium_api("/api/user/session/get", stale)["status"] != "ok", (
+            "the admin-owned token still authenticates"
+        )
 
     # ── netns LAN clients ────────────────────────────────────
     def add_client(name, ip):
@@ -534,6 +624,34 @@ pkgs.testers.runNixOSTest {
         assert blocked_by(out) is None, out
         answer = router.succeed(dig_short.format(ns="kid", name="lan-blocked.vmtest"))
         assert answer.strip() == "", answer
+
+    with subtest("SafeSearch follows each client's policy"):
+        # Strict enforces Google: the Split Horizon APP record answers the
+        # kid with an ANAME to forcesafesearch.google.com, resolved here
+        # through the override standing in for it.
+        answer = router.succeed(dig_short.format(ns="kid", name="www.google.com"))
+        assert answer.strip() == "10.48.4.30", answer
+        # Base does not: the APP record steps aside and the query falls
+        # through the zone's FWD records to the (unreachable) upstream, so
+        # the server SERVFAILs and +short prints nothing.
+        out = router.succeed(dig.format(ns="guestpc", name="www.google.com"))
+        assert "status: SERVFAIL" in out, out
+        # YouTube is enforced by both, at different levels.
+        answer = router.succeed(dig_short.format(ns="kid", name="www.youtube.com"))
+        assert answer.strip() == "10.48.4.32", answer
+        answer = router.succeed(dig_short.format(ns="guestpc", name="www.youtube.com"))
+        assert answer.strip() == "10.48.4.31", answer
+        # Only enforced sites get zones; nothing enforces Bing or DuckDuckGo.
+        managed = json.loads(router.succeed("cat /var/lib/router-technitium/managed-zones.json"))
+        assert set(managed["zones"]) == {
+            "www.google.com",
+            "www.youtube.com",
+            "m.youtube.com",
+            "youtubei.googleapis.com",
+            "youtube.googleapis.com",
+            "www.youtube-nocookie.com",
+        }, managed
+        assert managed["zones"]["www.google.com"] == "Forwarder", managed
 
     with subtest("IPv6 :53 is dropped so devices cannot escape their policy tier"):
         # The device/group/user tiers are anchored to IPv4 DHCP reservations,
@@ -630,6 +748,21 @@ pkgs.testers.runNixOSTest {
         out = router.succeed(dig.format(ns="jdoe", name="kids-blocked.vmtest"))
         assert "status: NXDOMAIN" in out, out
         assert blocked_by(out) == "Strict", out
+
+    with subtest("SafeSearch zones follow the directory tier too"):
+        # router-policy-push rebuilds the SafeSearch zones from the map it just
+        # compiled, right after pushing Advanced Blocking.
+        router.wait_until_succeeds(
+            dig_short.format(ns="jdoe", name="www.google.com") + " | grep -qx 10.48.4.30",
+            timeout=60,
+        )
+        # The records land before the bookkeeping is saved, so the answer
+        # alone cannot tell whether the push could write managed-zones.json.
+        router.wait_until_succeeds(
+            "[ \"$(systemctl show -P ExecMainExitTimestampMonotonic router-policy-push.service)\" != 0 ]"
+            " && [ \"$(systemctl show -P ExecMainStatus router-policy-push.service)\" = 0 ]",
+            timeout=60,
+        )
 
     with subtest("an empty adminGroup keeps SSSD out of the login path"):
         # Identity is for policy assignment only. The primary control is that
@@ -787,8 +920,11 @@ pkgs.testers.runNixOSTest {
         assert "NXDOMAIN" not in out, out
 
         # And the zone really is a forwarder carrying the global upstreams,
-        # rather than something that merely behaves like one today.
-        token = router.succeed("cat /var/lib/cockpit-router/technitium-token").strip()
+        # rather than something that merely behaves like one today. Read as the
+        # admin: the read-only Cockpit user is not meant to see zones, and this
+        # used to read them with the cockpit token only because that was an
+        # admin token.
+        token = admin_token()
         zones = json.loads(
             router.succeed(
                 f"curl -sS -H 'Authorization: Bearer {token}' "

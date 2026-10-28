@@ -1,8 +1,9 @@
 # CI for pull requests — in particular Dependabot's.
 #
 # Split into two jobs on purpose. `fast` covers what a dependency bump breaks
-# silently — above all the Technitium apps drifting away from the DNS server
-# that loads them, which fails at runtime rather than at build — and compiles
+# silently — above all the two Technitium source inputs (server and library)
+# drifting apart, which fails at runtime rather than at build, and the compiled
+# server losing its ReadyToRun images or its web-console strip — and compiles
 # the Cockpit plugin so npm bumps get a real tsc/oxlint/rollup verdict rather
 # than only an eval. `vm` boots real routers and is minutes; it catches the
 # rest, but is too slow to be the only signal on a bot PR.
@@ -17,8 +18,8 @@
 # that from inside the repo.
 #
 # A third job, `cache`, fills the project's binary cache (nixos-router.cachix.org)
-# with what cache.nixos.org cannot serve: the Technitium DNS apps (a .NET build
-# from source), router-dns-tools, suricata-update-preflight, router-proxy (a
+# with what cache.nixos.org cannot serve: the Technitium DNS server and apps
+# (.NET builds from source), router-dns-tools, suricata-update-preflight, router-proxy (a
 # Rust build of Pingora), the Cockpit plugin
 # bundle, and the NixOS system derivations. A router's host flake follows this
 # repository's nixpkgs (local/flake.nix), so once a lock bump is published here
@@ -77,7 +78,7 @@ permissions:
 jobs:
   fast:
     name: drift + build (fast)
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -88,6 +89,7 @@ jobs:
       # installer's `determinate-nixd` try to log into FlakeHub on a repo
       # that isn't registered there, which just logs a failure annotation.
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        if: runner.environment == 'github-hosted'
         with:
           determinate: false
 
@@ -97,16 +99,19 @@ jobs:
       # `use-flakehub: false` — this repo isn't a FlakeHub flake, and without it
       # the action logs a FlakeHub-login-failure annotation on every run.
       - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+        if: runner.environment == 'github-hosted'
         with:
           use-flakehub: false
 
       # Listed individually rather than via `nix flake check` so a dependency
       # bump gets the drift verdict in under a minute, without waiting on the
       # VM tests in the other job.
-      - name: Technitium version drift, DNS coverage, port forwards, ingress, Suricata config, WireGuard, settings loader, DDNS, tunnel, schema
+      - name: Technitium version pair and build output, docs lint, DNS coverage, port forwards, ingress, Suricata config, WireGuard, settings loader, DDNS, tunnel, schema
         run: |
           nix build --no-link -L \
             '.#checks.x86_64-linux.technitium-version' \
+            '.#checks.x86_64-linux.technitium-server' \
+            '.#checks.x86_64-linux.docs-lint' \
             '.#checks.x86_64-linux.dns-fallback' \
             '.#checks.x86_64-linux.dns-overrides' \
             '.#checks.x86_64-linux.wireless-eval' \
@@ -132,7 +137,7 @@ jobs:
 
   vm:
     name: VM tests (slow)
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -141,6 +146,7 @@ jobs:
       # NixOS VM tests need /dev/kvm, which is present on Linux runners but not
       # world-accessible by default.
       - name: Enable KVM
+        if: runner.environment == 'github-hosted'
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
             | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -148,9 +154,11 @@ jobs:
           sudo udevadm trigger --name-match=kvm
 
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        if: runner.environment == 'github-hosted'
         with:
           determinate: false
       - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+        if: runner.environment == 'github-hosted'
         with:
           use-flakehub: false
       - name: nix flake check
@@ -158,7 +166,12 @@ jobs:
 
   cache:
     name: build + publish binary cache
-    runs-on: ubuntu-latest
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
+    # The installer step that sets these is skipped on the self-hosted runner.
+    env:
+      NIX_CONFIG: |
+        accept-flake-config = true
+        narinfo-cache-negative-ttl = 0
     timeout-minutes: 120
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -166,11 +179,12 @@ jobs:
           ref: ${{ inputs.ref }}
 
       - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+        if: runner.environment == 'github-hosted'
         with:
           determinate: false
           # flake.nix declares the project cache in `nixConfig`; accepting it
           # lets a run PULL what an earlier revision already published (the
-          # Technitium apps, mostly) instead of rebuilding it.
+          # Technitium server and apps, mostly) instead of rebuilding it.
           extra-conf: |
             accept-flake-config = true
             # This job exists to notice when something stops being cached;
@@ -182,8 +196,17 @@ jobs:
             cores = 2
 
       - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+        if: runner.environment == 'github-hosted'
         with:
           use-flakehub: false
+
+      # cachix-action installs `cachix` into the Nix user profile; on the
+      # self-hosted runner no installer step has put that profile on PATH.
+      - name: Put the Nix user profile on PATH
+        if: runner.environment == 'self-hosted'
+        run: |
+          echo "$HOME/.nix-profile/bin" >> "$GITHUB_PATH"
+          echo "${XDG_STATE_HOME:-$HOME/.local/state}/nix/profile/bin" >> "$GITHUB_PATH"
 
       # Installs the `cachix` binary and configures the cache as a substituter.
       # Pushing is deliberately NOT delegated to this action: its daemon mode
@@ -207,7 +230,7 @@ jobs:
         run: |
           df -h / | tail -1
           nix build -L -o result .#nixosConfigurations.install.config.system.build.toplevel
-          for p in technitium-dns-apps router-dns-tools suricata-update-preflight router-proxy cockpit-router; do
+          for p in technitium-dns-server technitium-dns-apps router-dns-tools suricata-update-preflight router-proxy cockpit-router; do
             nix build -L -o "result-$p" ".#packages.x86_64-linux.$p"
           done
           df -h / | tail -1

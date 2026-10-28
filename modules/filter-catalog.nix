@@ -1,7 +1,7 @@
 # ── Filter catalog ─────────────────────────────────────────────────────────────
 # Pure data consumed via `import ./filter-catalog.nix` (NOT a NixOS module).
-# Shared by the access-policies module (policy → Advanced Blocking compilation)
-# and the Cockpit settings schema.
+# Shared by the access-policies module (policy → Advanced Blocking and
+# SafeSearch compilation) and the Cockpit settings schema.
 #
 # Every list entry carries a `format` tag because Technitium's Advanced
 # Blocking app does not auto-detect list syntax the way AdGuard Home does:
@@ -100,19 +100,46 @@
     "dns.controld.com"
   ];
 
-  # ── SafeSearch record map ────────────────────────────────
-  # Technitium has no built-in SafeSearch; the reconcile service
-  # creates a tiny authoritative zone per host below with an apex
-  # ANAME pointing at the provider's enforcement endpoint.
-  safeSearchRecords = {
-    "www.google.com" = "forcesafesearch.google.com";
-    "www.bing.com" = "strict.bing.com";
-    "duckduckgo.com" = "safe.duckduckgo.com";
-    "www.duckduckgo.com" = "safe.duckduckgo.com";
-    "www.youtube.com" = "restrict.youtube.com";
-    "m.youtube.com" = "restrict.youtube.com";
-    "youtubei.googleapis.com" = "restrict.youtube.com";
-    "youtube.googleapis.com" = "restrict.youtube.com";
-    "www.youtube-nocookie.com" = "restrict.youtube.com";
+  # ── SafeSearch sites ─────────────────────────────────────
+  # Technitium has no built-in SafeSearch. Each access policy enforces these
+  # per site: `safeSearch.<site> = true` answers with `target`, and a site
+  # with `levels` also takes a level's name (`safeSearch.youtube =
+  # "moderate"`), which answers with that level's endpoint. Every host of a
+  # site that some policy enforces gets its own Forwarder zone, whose apex APP
+  # record (the Split Horizon app) answers each client of an enforcing policy
+  # with an ANAME to its policy's endpoint and lets everyone else fall
+  # through to the real record (router_dns_tools/safesearch.py).
+  safeSearchSites = {
+    google = {
+      name = "Google";
+      target = "forcesafesearch.google.com";
+      hosts = [ "www.google.com" ];
+    };
+    bing = {
+      name = "Bing";
+      target = "strict.bing.com";
+      hosts = [ "www.bing.com" ];
+    };
+    duckduckgo = {
+      name = "DuckDuckGo";
+      target = "safe.duckduckgo.com";
+      hosts = [
+        "duckduckgo.com"
+        "www.duckduckgo.com"
+      ];
+    };
+    youtube = {
+      name = "YouTube";
+      # Strict restricted mode; moderate hides less.
+      target = "restrict.youtube.com";
+      levels.moderate = "restrictmoderate.youtube.com";
+      hosts = [
+        "www.youtube.com"
+        "m.youtube.com"
+        "youtubei.googleapis.com"
+        "youtube.googleapis.com"
+        "www.youtube-nocookie.com"
+      ];
+    };
   };
 }

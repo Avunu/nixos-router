@@ -1,6 +1,7 @@
 ---
 title: Block page and exceptions
 description: Show users a branded page when a site is blocked, let them request an exception, and approve or deny requests in Cockpit.
+order: 3
 code:
   - modules/access-policies.nix
   - modules/dns-technitium.nix
@@ -18,7 +19,7 @@ The block page tells users that a site was blocked on purpose, instead of leavin
 
 ## Before you start
 
-- The page appears only for policies whose **Blocked-query response** is **Blocking address**, which is the default. Policies set to **NXDOMAIN** never show it. See [Response](/docs/access-policies/policies/#response).
+- The page appears only for policies whose **Blocked-query response** is **Blocking address**, which is the default. Policies set to **NXDOMAIN** never show it. See [Response](policies.md#response).
 - To approve requests from Cockpit, you need at least one policy of your own. The built-in Base policy that exists while you have no policies can't be chosen as a target.
 
 ## Turn on the block page
@@ -100,7 +101,7 @@ To refuse a request, click **Deny**. That only marks it denied; nothing changes 
 Keep in mind:
 
 - **An approval applies to everyone on that policy**, not only to the person who asked. To allow a site for one group only, create a separate policy for that group.
-- **The domain is allowed with its subdomains**, but nothing else. Many sites also load from other domains, such as a CDN, that may still be blocked. Check the [query log](/docs/access-policies/reports/#query-log) with **Blocked only** on to find them, and add them to **Allow domains** in the policy editor.
+- **The domain is allowed with its subdomains**, but nothing else. Many sites also load from other domains, such as a CDN, that may still be blocked. Check the [query log](reports.md#query-log) with **Blocked only** on to find them, and add them to **Allow domains** in the policy editor.
 - **Approving doesn't notify the user.** Tell them when the change is applied.
 
 ## Limits
@@ -120,5 +121,5 @@ Keep in mind:
 
   Expect lines containing `was bound successfully` for ports 80 and 443. `failed to bind` means another service holds the port.
 - **Sending a request fails.** The form posts to port 8067 on the LAN gateway address. Check that `router-logd` is running with `systemctl status router-logd`.
-- **Exception requests shows "Could not reach router-logd".** Same cause: `router-logd` is stopped or failing. See [Troubleshooting](/docs/access-policies/troubleshooting/).
+- **Exception requests shows "Could not reach router-logd".** Same cause: `router-logd` is stopped or failing. See [Troubleshooting](troubleshooting.md).
 - **Approve is disabled.** The **Add allow rule to policy** list is empty because no policies are defined. Create a policy first.
