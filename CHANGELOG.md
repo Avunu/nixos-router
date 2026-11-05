@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.4](https://github.com/Avunu/nixos-router/compare/v0.2.3...v0.2.4) (2026-11-05)
+
+
+### Bug Fixes
+
+* **deps:** bump the npm group in /pkgs/cockpit-router with 5 updates ([#109](https://github.com/Avunu/nixos-router/issues/109)) ([108f0df](https://github.com/Avunu/nixos-router/commit/108f0df854d48bcc6ba702a703d69a3e08880a02))
+
 ## [0.2.3](https://github.com/Avunu/nixos-router/compare/v0.2.2...v0.2.3) (2026-10-29)
 
 
