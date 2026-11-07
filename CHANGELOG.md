@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.2.6](https://github.com/Avunu/nixos-router/compare/v0.2.5...v0.2.6) (2026-11-07)
+
+
+### Bug Fixes
+
+* **deps:** bump git-hooks from `1ba1dbf` to `204b697` ([#113](https://github.com/Avunu/nixos-router/issues/113)) ([95e0b27](https://github.com/Avunu/nixos-router/commit/95e0b275b7a1092cba03e92e873de6aa8cba30ce))
+* **deps:** bump nixos-install-helper from `bc800a4` to `b181d7f` ([#107](https://github.com/Avunu/nixos-router/issues/107)) ([2723faa](https://github.com/Avunu/nixos-router/commit/2723faadd75d7d21c3f413bdc66664dc665d66ef))
+
 ## [0.2.5](https://github.com/Avunu/nixos-router/compare/v0.2.4...v0.2.5) (2026-11-06)
 
 
