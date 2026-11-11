@@ -35,10 +35,10 @@
     "@types/react-dom": "^19.3.0",
     "esbuild": "^0.28.2",
     "esbuild-sass-plugin": "^3.7.0",
-    "oxfmt": "0.75.0",
-    "oxlint": "1.90.0",
-    "oxlint-tsgolint": "7.0.2005",
-    "sass": "^1.107.1",
+    "oxfmt": "0.77.0",
+    "oxlint": "1.92.0",
+    "oxlint-tsgolint": "7.0.2006",
+    "sass": "^1.108.0",
     "typescript": "^7.0.2"
   }
 }
