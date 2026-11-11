@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.8](https://github.com/Avunu/nixos-router/compare/v0.2.7...v0.2.8) (2026-11-11)
+
+
+### Bug Fixes
+
+* **deps:** bump nixpkgs from `1d06008` to `f9a75f4` ([#117](https://github.com/Avunu/nixos-router/issues/117)) ([892f3f3](https://github.com/Avunu/nixos-router/commit/892f3f30d0771867633e4f307f7bf01613760cd2))
+
 ## [0.2.7](https://github.com/Avunu/nixos-router/compare/v0.2.6...v0.2.7) (2026-11-10)
 
 
