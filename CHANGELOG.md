@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.11](https://github.com/Avunu/nixos-router/compare/v0.2.10...v0.2.11) (2026-11-17)
+
+
+### Bug Fixes
+
+* **deps:** bump nixos-install-helper from `b181d7f` to `cc5f586` ([#126](https://github.com/Avunu/nixos-router/issues/126)) ([babee76](https://github.com/Avunu/nixos-router/commit/babee767e30b1e42132c7c6df66814ae4fe72702))
+
 ## [0.2.10](https://github.com/Avunu/nixos-router/compare/v0.2.9...v0.2.10) (2026-11-14)
 
 

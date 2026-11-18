@@ -11,6 +11,7 @@
   rustPlatform,
   pkg-config,
   openssl,
+  zstd,
   cmake,
 }:
 rustPlatform.buildRustPackage {
@@ -33,7 +34,15 @@ rustPlatform.buildRustPackage {
     pkg-config
     cmake
   ];
-  buildInputs = [ openssl ];
+  # zstd: nixpkgs' cargo setup hook exports ZSTD_SYS_USE_PKG_CONFIG=1 for every
+  # Rust build (since d4f25a3), so zstd-sys (pulled in by pingora-core) links the
+  # system libzstd and probes for it with pkg-config. Without it here the probe
+  # fails: "Package libzstd was not found". Older nixpkgs compiled a bundled zstd
+  # and never probed, so there the input is unused.
+  buildInputs = [
+    openssl
+    zstd
+  ];
 
   env.OPENSSL_NO_VENDOR = 1;
 
