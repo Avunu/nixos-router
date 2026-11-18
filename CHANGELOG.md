@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.12](https://github.com/Avunu/nixos-router/compare/v0.2.11...v0.2.12) (2026-11-18)
+
+
+### Bug Fixes
+
+* **router-proxy:** link system libzstd for zstd-sys ([#129](https://github.com/Avunu/nixos-router/issues/129)) ([facb31d](https://github.com/Avunu/nixos-router/commit/facb31db4666e91479aa2a345333c90109e47e83))
+
 ## [0.2.11](https://github.com/Avunu/nixos-router/compare/v0.2.10...v0.2.11) (2026-11-17)
 
 
