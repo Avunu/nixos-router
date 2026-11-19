@@ -1,5 +1,15 @@
 # Changelog
 
+## [0.2.13](https://github.com/Avunu/nixos-router/compare/v0.2.12...v0.2.13) (2026-11-19)
+
+
+### Bug Fixes
+
+* **deps:** bump arc-swap from 1.9.3 to 1.9.5 in /pkgs/router-proxy in the cargo group ([#132](https://github.com/Avunu/nixos-router/issues/132)) ([4ba4473](https://github.com/Avunu/nixos-router/commit/4ba44731f3d8d78a7bcb0c23c50d383b5bd86a60))
+* **deps:** bump arc-swap in /pkgs/router-proxy in the cargo group ([4ba4473](https://github.com/Avunu/nixos-router/commit/4ba44731f3d8d78a7bcb0c23c50d383b5bd86a60))
+* **deps:** bump nixpkgs from `d4f25a3` to `d5cc683` ([#133](https://github.com/Avunu/nixos-router/issues/133)) ([aabb912](https://github.com/Avunu/nixos-router/commit/aabb912f20ffce3bd0900d46d78577601d6e3862))
+* **deps:** bump nixpkgs from `f9a75f4` to `d4f25a3` ([#127](https://github.com/Avunu/nixos-router/issues/127)) ([b7016de](https://github.com/Avunu/nixos-router/commit/b7016de59e3471c46023c71b401de2d8fcfc2b9f))
+
 ## [0.2.12](https://github.com/Avunu/nixos-router/compare/v0.2.11...v0.2.12) (2026-11-18)
 
 
