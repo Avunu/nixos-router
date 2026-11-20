@@ -1,0 +1,37 @@
+# Every action tag must still resolve to the commit recorded in actions.lock.
+# This fails when a tag has moved, or when a bump changed a tag without
+# regenerating the lock. A Dependabot bump that moves a tag fails here until
+# `gh actions-lock` regenerates the lock on that branch (see dependabot.yml).
+#
+# Kept out of checks.yml on purpose. release.yml calls checks.yml as its release
+# gate (workflow_call), so a lock failure there would block a release. Nothing
+# calls this workflow, so it cannot.
+name: actions lock
+
+on:
+  pull_request:
+  push:
+    branches: [develop]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: actions-lock-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lockfile:
+    name: actions lockfile
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install gh-actions-lock
+        run: gh extension install github/gh-actions-lock --pin v0.5.1
+      - name: Verify .github/workflows/actions.lock
+        run: gh actions-lock --verify

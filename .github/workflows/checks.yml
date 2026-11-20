@@ -80,7 +80,7 @@ jobs:
     name: drift + build (fast)
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.ref }}
       # `determinate: false` — this flake declares no Determinate-only
@@ -88,7 +88,7 @@ jobs:
       # gain from Determinate Nix here, and the default `true` has the
       # installer's `determinate-nixd` try to log into FlakeHub on a repo
       # that isn't registered there, which just logs a failure annotation.
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - uses: DeterminateSystems/nix-installer-action@v23
         if: runner.environment == 'github-hosted'
         with:
           determinate: false
@@ -98,7 +98,7 @@ jobs:
       # jobs' shared inputs) doesn't refetch or rebuild from scratch every time.
       # `use-flakehub: false` — this repo isn't a FlakeHub flake, and without it
       # the action logs a FlakeHub-login-failure annotation on every run.
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      - uses: DeterminateSystems/magic-nix-cache-action@v15
         if: runner.environment == 'github-hosted'
         with:
           use-flakehub: false
@@ -139,7 +139,7 @@ jobs:
     name: VM tests (slow)
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.ref }}
 
@@ -153,11 +153,11 @@ jobs:
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
 
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - uses: DeterminateSystems/nix-installer-action@v23
         if: runner.environment == 'github-hosted'
         with:
           determinate: false
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      - uses: DeterminateSystems/magic-nix-cache-action@v15
         if: runner.environment == 'github-hosted'
         with:
           use-flakehub: false
@@ -174,11 +174,11 @@ jobs:
         narinfo-cache-negative-ttl = 0
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           ref: ${{ inputs.ref }}
 
-      - uses: DeterminateSystems/nix-installer-action@3138316df39ed29be04236d7ffc686fa525866aa # v23
+      - uses: DeterminateSystems/nix-installer-action@v23
         if: runner.environment == 'github-hosted'
         with:
           determinate: false
@@ -195,7 +195,7 @@ jobs:
             max-jobs = 2
             cores = 2
 
-      - uses: DeterminateSystems/magic-nix-cache-action@84c0677f58dcedf3b91f8223ce36a9ea5b3c84b7 # v15
+      - uses: DeterminateSystems/magic-nix-cache-action@v15
         if: runner.environment == 'github-hosted'
         with:
           use-flakehub: false
@@ -214,7 +214,7 @@ jobs:
       # and would push every path built during the job. The explicit push
       # below sends the runtime closures instead — build-time-only inputs are
       # paths no router ever asks for.
-      - uses: cachix/cachix-action@38b082610b782e7e93e209c35fd730d399dee866 # v17
+      - uses: cachix/cachix-action@v17
         with:
           name: nixos-router
           skipPush: true

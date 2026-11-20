@@ -110,9 +110,11 @@ updates:
 
   # The CI that gates the above. Without this the workflow's actions silently
   # rot while everything they check stays current. The workflows pin every
-  # action to a commit SHA (a tag can be moved; a SHA cannot), and Dependabot
-  # updates the SHA and its `# vX` comment together. Cooldown as for npm: these
-  # actions run with the repository's tokens.
+  # action to a version tag, and .github/workflows/actions.lock records the
+  # commit each tag resolves to (gh-actions-lock). Dependabot moves the tag; the
+  # `lockfile` job in actions-lock.yml then fails until `gh actions-lock`
+  # regenerates the lock on that branch. Cooldown as for npm: these actions run
+  # with the repository's tokens.
   - package-ecosystem: github-actions
     directory: /
     target-branch: develop
