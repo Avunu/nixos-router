@@ -48,6 +48,7 @@ updates:
     commit-message:
       prefix: fix
       include: scope
+    labels: [dependencies]
 
   # The Cockpit plugin's npm dependencies.
   #
@@ -79,6 +80,7 @@ updates:
     commit-message:
       prefix: fix
       include: scope
+    labels: [dependencies]
     groups:
       npm:
         patterns: ["*"]
@@ -101,15 +103,18 @@ updates:
     commit-message:
       prefix: fix
       include: scope
+    labels: [dependencies]
     groups:
       cargo:
         patterns: ["*"]
 
   # The CI that gates the above. Without this the workflow's actions silently
   # rot while everything they check stays current. The workflows pin every
-  # action to a commit SHA (a tag can be moved; a SHA cannot), and Dependabot
-  # updates the SHA and its `# vX` comment together. Cooldown as for npm: these
-  # actions run with the repository's tokens.
+  # action to a version tag, and .github/workflows/actions.lock records the
+  # commit each tag resolves to (gh-actions-lock). Dependabot moves the tag; the
+  # `lockfile` job in actions-lock.yml then fails until `gh actions-lock`
+  # regenerates the lock on that branch. Cooldown as for npm: these actions run
+  # with the repository's tokens.
   - package-ecosystem: github-actions
     directory: /
     target-branch: develop
@@ -120,6 +125,7 @@ updates:
     commit-message:
       prefix: chore
       include: scope
+    labels: [dependencies]
     groups:
       actions:
         patterns: ["*"]
@@ -135,9 +141,12 @@ updates:
 #   nuget — three reasons, stacking. Dependabot's nuget ecosystem discovers
 #   .sln/.slnx/.proj entry points, .csproj/.vbproj/.fsproj projects,
 #   packages.config, global.json, .config/dotnet-tools.json and
-#   .props/.targets for Central Package Management; this repo contains none of
-#   them. The nuget-deps.json files under pkgs/technitium-library,
-#   pkgs/technitium-dns-server and pkgs/technitium-apps are not one either —
+#   .props/.targets for Central Package Management. The one project file here,
+#   pkgs/technitium-apps/RouterLiveDnsApp/RouterLiveDnsApp.csproj, declares no
+#   PackageReference (it links the Technitium DLLs by ProjectReference and
+#   HintPath), so there is nothing for it to update. The nuget-deps.json files
+#   under pkgs/technitium-library, pkgs/technitium-dns-server and
+#   pkgs/technitium-apps are not one either —
 #   they are nixpkgs buildDotnetModule lockfiles ({pname, version, hash}),
 #   which nothing outside Nix parses. And the real <PackageReference>
 #   constraints live in the technitium-dns and technitium-library SOURCE
@@ -150,3 +159,8 @@ updates:
 #   time (NU1102 during restore), caught by the `fast` CI job's
 #   technitium-server check and by the `vm` job, which both compile the server
 #   and apps. Regenerate with `nix develop -c update-deps`.
+#
+#   pre-commit — .pre-commit-config.yaml is a symlink into the Nix store, generated
+#   by git-hooks.nix from flake.nix. It has no rev: pins, so there is nothing for
+#   Dependabot to move; its hook tools come from nixpkgs, which the nix entries
+#   update.

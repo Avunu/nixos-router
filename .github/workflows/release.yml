@@ -43,7 +43,7 @@ jobs:
       tag_name: ${{ steps.rp.outputs.tag_name }}
     steps:
       - id: rp
-        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        uses: googleapis/release-please-action@v5.0.0
         with:
           token: ${{ secrets.RELEASE_TOKEN }}
           target-branch: develop
@@ -87,7 +87,7 @@ jobs:
       advance: ${{ steps.decide.outputs.advance }}
       tag: ${{ steps.decide.outputs.tag }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           fetch-depth: 0
 
@@ -136,7 +136,7 @@ jobs:
       contents: read
     steps:
       # The push below authenticates with RELEASE_TOKEN, which checkout persists for this job.
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/checkout@v7.0.1
         with:
           ref: refs/tags/${{ needs.plan.outputs.tag }}
           fetch-depth: 0
