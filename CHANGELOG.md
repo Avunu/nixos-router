@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.15](https://github.com/Avunu/nixos-router/compare/v0.2.14...v0.2.15) (2026-11-24)
+
+
+### Bug Fixes
+
+* **deps:** bump disko from `1dd30c2` to `44761d4` ([#142](https://github.com/Avunu/nixos-router/issues/142)) ([a4c2472](https://github.com/Avunu/nixos-router/commit/a4c247291fc23f359600b3fe402730e6a2794717))
+
 ## [0.2.14](https://github.com/Avunu/nixos-router/compare/v0.2.13...v0.2.14) (2026-11-21)
 
 
