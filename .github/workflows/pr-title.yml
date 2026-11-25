@@ -22,7 +22,7 @@ jobs:
     name: pr title
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || fromJSON('["self-hosted","nixos"]') }}
     steps:
-      - uses: amannn/action-semantic-pull-request@v6.1.2
+      - uses: amannn/action-semantic-pull-request@v6.1.3
         with:
           types: |
             feat
